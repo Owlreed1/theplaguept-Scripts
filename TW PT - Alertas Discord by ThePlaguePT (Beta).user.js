@@ -19,6 +19,7 @@
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_SUMMARY_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_TROOPS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
+    const DEFAULT_VERIFICATION_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const CHECK_INTERVAL = 'normal';
     const MASTER_TTL = 15000;
     const SEND_EXISTING_ON_START = false;
@@ -226,6 +227,15 @@ function isTwVerificationPage(doc) {
     return `[${world}](${url})`;
 }
 
+    function getVerificationWebhook() {
+    const settings = getSettings();
+    const verificationWebhook = cleanText(settings.verificationWebhook);
+
+    return verificationWebhook && verificationWebhook !== DEFAULT_VERIFICATION_WEBHOOK
+        ? verificationWebhook
+        : cleanText(settings.webhook);
+}
+
 function notifyVerificationPageDetected(source) {
     if (!getSettings().notifyVerificationAlerts) {
     return;
@@ -252,7 +262,7 @@ description: [
         color: 16776960,
         footer: { text: 'Tribal Wars PT' },
         timestamp: new Date().toISOString()
-    }, 'TW Verification Alert');
+    }, 'TW Verification Alert', getVerificationWebhook());
 }
 
 function pauseForVerification(source) {
@@ -2225,6 +2235,9 @@ const style = uiDoc.createElement('style');
 <label>Webhook Discord - Tropas Móveis</label>
 <input id="tw-alerts-troops-webhook" type="text" value="${escapeHtml(settings.troopsWebhook || '')}">
 
+<label>Webhook Discord - Verificação/Captcha</label>
+<input id="tw-alerts-verification-webhook" type="text" value="${escapeHtml(settings.verificationWebhook || '')}">
+
             <div class="tw-alerts-check">
                 <input id="tw-alerts-normal" type="checkbox" ${settings.notifyNormalAttacks ? 'checked' : ''}>
                 <span>Notificar Ataques</span>
@@ -2297,6 +2310,7 @@ root.style.setProperty('transform', 'none', 'important');
             webhook: root.querySelector('#tw-alerts-webhook').value.trim(),
             summaryWebhook: root.querySelector('#tw-alerts-summary-webhook').value.trim(),
             troopsWebhook: root.querySelector('#tw-alerts-troops-webhook').value.trim(),
+            verificationWebhook: root.querySelector('#tw-alerts-verification-webhook').value.trim(),
             notifyNormalAttacks: root.querySelector('#tw-alerts-normal').checked,
             notifyNobleAttacks: root.querySelector('#tw-alerts-nobles').checked,
             notifyAttackSummary: root.querySelector('#tw-alerts-summary').checked,
