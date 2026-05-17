@@ -1,34 +1,31 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord by ThePlaguePT (Beta)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.1
+// @version      1.9.2
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @match        https://*.tribalwars.com.pt/*
 // @grant        GM_xmlhttpRequest
 // @connect      discord.com
 // @icon         https://e7.pngegg.com/pngimages/686/413/png-clipart-discord-computer-icons-android-android-smiley-online-chat-thumbnail.png
+// @noframes
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.9.1 carregada');
+    console.log('[TW Discord Alerts] Versao 1.9.2 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_SUMMARY_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_TROOPS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
-
     const CHECK_INTERVAL = 'normal';
     const MASTER_TTL = 15000;
     const SEND_EXISTING_ON_START = false;
-
     const DISCORD_SEND_DELAY = 1500;
-    const NOBLE_TRAIN_DELAY = 10000;
-
+    const NOBLE_TRAIN_DELAY = 2000;
     const AUTO_IDENTIFY_UNITS = true;
     const IDENTIFY_TOLERANCE_SECONDS = 300;
-
     const TAB_SESSION_KEY = 'tw_discord_attack_alerts_tab_id_v3';
 
     let storedTabId = sessionStorage.getItem(TAB_SESSION_KEY);
@@ -116,11 +113,11 @@ function randomBetweenMs(minMinutes, maxMinutes) {
 function getCheckInterval() {
     const value = getSettings().checkInterval || CHECK_INTERVAL;
 
-    if (String(value) === 'test') {
+    if (String(value) === 'test' || Number(value) === 2000) {
         return 2000;
     }
 
-    if (String(value) === 'safe') {
+    if (String(value) === 'safe' || Number(value) === 30000) {
         return randomBetweenMs(5, 15);
     }
 
@@ -128,7 +125,7 @@ function getCheckInterval() {
 }
 
 function getNobleTrainDelay() {
-    return 2000;
+    return NOBLE_TRAIN_DELAY;
 }
 
     let checking = false;
@@ -243,7 +240,7 @@ function notifyVerificationPageDetected(source) {
     localStorage.setItem(VERIFICATION_ALERT_KEY, String(now));
 
     queueDiscordEmbed({
-        title: '⚠️ Verificação do Tribal Wars',
+        title: '⚠️ Verificação do Tribal Wars Captcha',
 description: [
     `Foi detetada uma página de verificação no mundo ${getCurrentWorldValue()}.`,
     `Jogador: **${getDefenderValue()}**`,
@@ -975,7 +972,7 @@ function queueDiscordEmbed(embed, username, webhookOverride) {
 
 function getCoordLink(village) {
     if (!village || !village.coords) {
-        return getCoordsText(village);
+        return '???';
     }
 
     const label = `${village.coords.text} ${village.coords.continent}`;
@@ -1438,9 +1435,9 @@ if (!train.attacks.length) {
     };
 }
 
-    function getTargetKey(attack) {
-        return attack.target.coords ? attack.target.coords.text : attack.target.text;
-    }
+function getTargetKey(attack) {
+    return attack.origin.coords ? attack.origin.coords.text : attack.origin.text;
+}
 
     function getAttackSummaryState(attacks) {
     const groups = {};
@@ -1513,10 +1510,10 @@ function buildAttackSummaryEmbed(attacks) {
 
         if (!groups.has(key)) {
             groups.set(key, {
-                target: attack.target,
-                total: 0,
-                nobles: 0
-            });
+    target: attack.origin,
+    total: 0,
+    nobles: 0
+});
         }
 
         const group = groups.get(key);
