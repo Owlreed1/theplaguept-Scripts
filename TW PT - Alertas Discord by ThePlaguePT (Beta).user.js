@@ -81,6 +81,7 @@ const TROOP_ATTACK_UNITS = ['axe', 'spy', 'light', 'marcher', 'ram', 'catapult',
     webhook: DEFAULT_ATTACKS_WEBHOOK,
     summaryWebhook: DEFAULT_SUMMARY_WEBHOOK,
     troopsWebhook: DEFAULT_TROOPS_WEBHOOK,
+    verificationWebhook: DEFAULT_VERIFICATION_WEBHOOK,
     notifyNormalAttacks: false,
     notifyNobleAttacks: false,
     notifyAttackSummary: false,
@@ -872,7 +873,8 @@ function postDiscord(payload, webhookOverride) {
             webhook === DEFAULT_WEBHOOK ||
             webhook === DEFAULT_ATTACKS_WEBHOOK ||
             webhook === DEFAULT_SUMMARY_WEBHOOK ||
-            webhook === DEFAULT_TROOPS_WEBHOOK
+            webhook === DEFAULT_TROOPS_WEBHOOK ||
+            webhook === DEFAULT_VERIFICATION_WEBHOOK
         ) {
             console.warn('[TW] Webhook Discord nao configurado.');
             resolve();
