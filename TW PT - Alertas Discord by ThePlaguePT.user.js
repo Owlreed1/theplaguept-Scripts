@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         TW PT - Alertas Discord by ThePlaguePT (Beta)
+// @name         TW PT - Alertas Discord by ThePlaguePT
 // @namespace    http://tampermonkey.net/
 // @version      1.1.0
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
