@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord by ThePlaguePT (Beta)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.2
+// @version      1.0.17
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @match        https://*.tribalwars.com.pt/*
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @connect      discord.com
 // @icon         https://e7.pngegg.com/pngimages/686/413/png-clipart-discord-computer-icons-android-android-smiley-online-chat-thumbnail.png
 // @noframes
@@ -13,13 +14,15 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.9.2 carregada');
+    console.log('[TW Discord Alerts] Versao 1.0.17 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
+    const DEFAULT_NOBLES_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_SUMMARY_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_TROOPS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_VERIFICATION_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
+
     const CHECK_INTERVAL = 'normal';
     const MASTER_TTL = 15000;
     const SEND_EXISTING_ON_START = false;
@@ -29,17 +32,7 @@
     const IDENTIFY_TOLERANCE_SECONDS = 300;
     const TAB_SESSION_KEY = 'tw_discord_attack_alerts_tab_id_v3';
 
-    let storedTabId = sessionStorage.getItem(TAB_SESSION_KEY);
-
-    if (!storedTabId) {
-    storedTabId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    sessionStorage.setItem(TAB_SESSION_KEY, storedTabId);
-}
-
-    const TAB_ID = storedTabId;
-
     const STORAGE_PREFIX = 'tw_pt_discord_attack_alerts_pro_v1';
-
     const MASTER_KEY = `${STORAGE_PREFIX}_master_tab`;
     const SENT_KEY = `${STORAGE_PREFIX}_sent_attack_ids`;
     const BOOTSTRAPPED_KEY = `${STORAGE_PREFIX}_bootstrapped`;
@@ -47,88 +40,84 @@
     const NOBLE_PENDING_KEY = `${STORAGE_PREFIX}_pending_noble_trains`;
     const NOBLE_SENT_KEY = `${STORAGE_PREFIX}_sent_noble_ids`;
     const SUMMARY_STATE_KEY = `${STORAGE_PREFIX}_attack_summary_state`;
-    const TROOPS_LAST_SENT_KEY = `${STORAGE_PREFIX}_troops_summary_last_sent`;
-    const TROOPS_INTERVAL_MS = 1000 * 60 * 60 * 8;
-    const PLAYER_TRIBE_CACHE_KEY = `${STORAGE_PREFIX}_player_tribes`;
-    const PLAYER_TRIBE_CACHE_MS = 1000 * 60 * 60 * 8;
     const SUMMARY_LAST_SENT_KEY = `${STORAGE_PREFIX}_attack_summary_last_sent`;
-    const SUMMARY_INTERVAL_MS = 1000 * 60 * 60 * 8;
+    const SUMMARY_DAILY_SENT_KEY = `${STORAGE_PREFIX}_attack_summary_daily_sent`;
+    const TROOPS_LAST_SENT_KEY = `${STORAGE_PREFIX}_troops_summary_last_sent`;
+    const TROOPS_DAILY_SENT_KEY = `${STORAGE_PREFIX}_troops_summary_daily_sent`;
+    const PLAYER_TRIBE_CACHE_KEY = `${STORAGE_PREFIX}_player_tribes`;
     const VERIFICATION_ALERT_KEY = `${STORAGE_PREFIX}_verification_alert_last_sent`;
+
+    const PLAYER_TRIBE_CACHE_MS = 1000 * 60 * 60 * 8;
     const VERIFICATION_ALERT_COOLDOWN_MS = 1000 * 60 * 30;
+    const HOUR_MS = 1000 * 60 * 60;
+    const STARTUP_GRACE_MS = 1000 * 60 * 2;
+    const SCRIPT_STARTED_AT = Date.now();
+
+    const DEFAULT_SUMMARY_INTERVAL_HOURS = 8;
+    const DEFAULT_TROOPS_INTERVAL_HOURS = 8;
+    const TROOPS_SUMMARY_MODE_COMPLETE = 'complete';
+    const TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE = 'simple_defense';
+    const SCHEDULE_MODE_INTERVAL = 'interval';
+    const SCHEDULE_MODE_DAILY = 'daily';
+    const VERIFICATION_SLOT_COUNT = 3;
+    const DEFAULT_SUMMARY_DAILY_TIME = '00:00';
+    const DEFAULT_TROOPS_DAILY_TIME = '00:00';
 
     const TROOP_UNIT_LABELS = {
-    spear: '🛡️ Lanceiros',
-    sword: '🗡️ Espadachins',
-    axe: '🪓 Barbaros',
-    archer: '🏹 Arqueiros',
-    spy: '🕵️ Batedores',
-    light: '🐎 Cavalaria Leve',
-    marcher: '🏇 Arqueiros a Cavalo',
-    heavy: '🐴 Cavalaria Pesada',
-    ram: '🐏 Arietes',
-    catapult: '🪨 Catapultas',
-    knight: '⚜️ Paladino',
-    snob: '👑 Nobres',
-    militia: '🏘️ Milicia'
-};
+        spear: '🔱 Lanceiros',
+        sword: '🗡️ Espadachins',
+        axe: '🪓 Barbaros',
+        archer: '🏹 Arqueiros',
+        spy: '🕵️ Batedores',
+        light: '🐎 Cavalaria Leve',
+        marcher: '🏇 Arqueiros a Cavalo',
+        heavy: '🐴 Cavalaria Pesada',
+        ram: '🐏 Arietes',
+        catapult: '🪨 Catapultas',
+        knight: '⚜️ Paladino',
+        snob: '👑 Nobres',
+        militia: '🏘️ Milicia'
+    };
 
-const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'heavy', 'knight', 'militia'];
-const TROOP_ATTACK_UNITS = ['axe', 'spy', 'light', 'marcher', 'ram', 'catapult', 'snob'];
-
+    const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'spy', 'heavy', 'knight', 'militia'];
+    const TROOP_ATTACK_UNITS = ['axe', 'light', 'marcher', 'ram', 'catapult', 'snob'];
     const SETTINGS_KEY = `${STORAGE_PREFIX}_settings`;
 
     const DEFAULT_SETTINGS = {
-    webhook: DEFAULT_ATTACKS_WEBHOOK,
-    summaryWebhook: DEFAULT_SUMMARY_WEBHOOK,
-    troopsWebhook: DEFAULT_TROOPS_WEBHOOK,
-    verificationWebhook: DEFAULT_VERIFICATION_WEBHOOK,
-    notifyNormalAttacks: false,
-    notifyNobleAttacks: false,
-    notifyAttackSummary: false,
-    notifyDefenseTroops: false,
-    notifyVerificationAlerts: false,
-    checkInterval: CHECK_INTERVAL,
-    nobleTrainDelay: NOBLE_TRAIN_DELAY
-};
-
-function getSettings() {
-    return {
-        ...DEFAULT_SETTINGS,
-        ...readJson(SETTINGS_KEY, {})
+        webhook: DEFAULT_ATTACKS_WEBHOOK,
+        noblesWebhook: DEFAULT_NOBLES_WEBHOOK,
+        summaryWebhook: DEFAULT_SUMMARY_WEBHOOK,
+        troopsWebhook: DEFAULT_TROOPS_WEBHOOK,
+        verificationWebhook: DEFAULT_VERIFICATION_WEBHOOK,
+        verificationMention: '',
+        verificationMentionEnabled: false,
+        verificationUserSlots: [],
+        verificationCouncilTag: '',
+        verificationCouncilTagEnabled: false,
+        verificationCouncilSlots: [],
+        notifyNormalAttacks: false,
+        notifyNobleAttacks: false,
+        notifyAttackSummary: false,
+        notifyDefenseTroops: false,
+        notifyVerificationAlerts: false,
+        summaryIntervalHours: DEFAULT_SUMMARY_INTERVAL_HOURS,
+        summaryScheduleMode: SCHEDULE_MODE_INTERVAL,
+        summaryDailyTime: DEFAULT_SUMMARY_DAILY_TIME,
+        troopsScheduleMode: SCHEDULE_MODE_INTERVAL,
+        troopsDailyTime: DEFAULT_TROOPS_DAILY_TIME,
+        troopsIntervalHours: DEFAULT_TROOPS_INTERVAL_HOURS,
+        troopsSummaryMode: TROOPS_SUMMARY_MODE_COMPLETE,
+        checkInterval: CHECK_INTERVAL,
+        nobleTrainDelay: NOBLE_TRAIN_DELAY
     };
-}
 
-function saveSettings(settings) {
-    writeJson(SETTINGS_KEY, {
-        ...getSettings(),
-        ...settings
-    });
-}
-
-function randomBetweenMs(minMinutes, maxMinutes) {
-    const min = minMinutes * 60 * 1000;
-    const max = maxMinutes * 60 * 1000;
-
-    return Math.floor(min + Math.random() * (max - min + 1));
-}
-
-function getCheckInterval() {
-    const value = getSettings().checkInterval || CHECK_INTERVAL;
-
-    if (String(value) === 'test' || Number(value) === 2000) {
-        return 2000;
+    let storedTabId = sessionStorage.getItem(TAB_SESSION_KEY);
+    if (!storedTabId) {
+        storedTabId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        sessionStorage.setItem(TAB_SESSION_KEY, storedTabId);
     }
 
-    if (String(value) === 'safe' || Number(value) === 30000) {
-        return randomBetweenMs(5, 15);
-    }
-
-    return randomBetweenMs(1, 5);
-}
-
-function getNobleTrainDelay() {
-    return NOBLE_TRAIN_DELAY;
-}
+    const TAB_ID = storedTabId;
 
     let checking = false;
     let sending = false;
@@ -158,283 +147,384 @@ function getNobleTrainDelay() {
         return new Set(readJson(key, []));
     }
 
+    function getSettings() {
+        return Object.assign({}, DEFAULT_SETTINGS, readJson(SETTINGS_KEY, {}));
+    }
+
+    function saveSettings(settings) {
+        writeJson(SETTINGS_KEY, Object.assign({}, getSettings(), settings));
+    }
+
     function saveSent() {
         const ids = Array.from(alreadySent).slice(-1000);
         alreadySent = new Set(ids);
         writeJson(SENT_KEY, ids);
     }
 
-    function cleanText(value) {
-        return (value || '').replace(/\s+/g, ' ').trim();
+    function saveNobleSent() {
+        const ids = Array.from(nobleAlreadySent).slice(-1000);
+        nobleAlreadySent = new Set(ids);
+        writeJson(NOBLE_SENT_KEY, ids);
     }
 
-function isTwVerificationPage(doc) {
-    if (!doc || !doc.body) return false;
+    function cleanText(value) {
+        return String(value || '').replace(/\s+/g, ' ').trim();
+    }
 
-    const title = cleanText(doc.title || '').toLowerCase();
-    const text = cleanText(doc.body.innerText || '').toLowerCase();
-    const html = (doc.documentElement ? doc.documentElement.innerHTML : '').toLowerCase();
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
 
-    const hasTwBotProtectionPage =
-        text.includes('proteção contra bots') ||
-        text.includes('protecao contra bots') ||
-        text.includes('verificação de proteção de bots') ||
-        text.includes('verificacao de protecao de bots') ||
-        text.includes('inicia a verificação da proteção do bot') ||
-        text.includes('inicia a verificacao da protecao do bot') ||
-        text.includes('antes de poderes continuar a jogar');
+    function randomBetweenMs(minMinutes, maxMinutes) {
+        const min = minMinutes * 60 * 1000;
+        const max = maxMinutes * 60 * 1000;
+        return Math.floor(min + Math.random() * (max - min + 1));
+    }
 
-    if (hasTwBotProtectionPage) {
+    function getCheckInterval() {
+        const value = getSettings().checkInterval || CHECK_INTERVAL;
+
+        if (String(value) === 'test' || Number(value) === 2000) {
+            return 2000;
+        }
+
+        if (String(value) === 'safe' || Number(value) === 30000) {
+            return randomBetweenMs(5, 15);
+        }
+
+        return randomBetweenMs(1, 5);
+    }
+
+    function getCurrentCheckInterval() {
+        return getCheckInterval() + errorBackoff;
+    }
+
+    function normalizeIntervalHours(value, fallback) {
+        const hours = Number(value);
+        return hours === 8 || hours === 16 || hours === 24 ? hours : fallback;
+    }
+
+    function normalizeScheduleMode(value) {
+        return value === SCHEDULE_MODE_DAILY ? SCHEDULE_MODE_DAILY : SCHEDULE_MODE_INTERVAL;
+    }
+
+    function normalizeDailyTime(value, fallback) {
+        const text = String(value || '').trim();
+        const match = text.match(/^(\d{2}):(\d{2})$/);
+
+        if (!match) return fallback;
+
+        const hour = Number(match[1]);
+        const minute = Number(match[2]);
+
+        if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+            return fallback;
+        }
+
+        return text;
+    }
+
+    function normalizeTroopsSummaryMode(value) {
+        return value === TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE
+            ? TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE
+            : TROOPS_SUMMARY_MODE_COMPLETE;
+    }
+
+    function getSummaryIntervalMs() {
+        return normalizeIntervalHours(
+            getSettings().summaryIntervalHours,
+            DEFAULT_SUMMARY_INTERVAL_HOURS
+        ) * HOUR_MS;
+    }
+
+    function getTroopsIntervalMs() {
+        return normalizeIntervalHours(
+            getSettings().troopsIntervalHours,
+            DEFAULT_TROOPS_INTERVAL_HOURS
+        ) * HOUR_MS;
+    }
+
+    function getNobleTrainDelay() {
+        return Number(getSettings().nobleTrainDelay || NOBLE_TRAIN_DELAY);
+    }
+
+    function getLocalDateKey(date) {
+        return [
+            date.getFullYear(),
+            String(date.getMonth() + 1).padStart(2, '0'),
+            String(date.getDate()).padStart(2, '0')
+        ].join('-');
+    }
+
+    function shouldSendBySchedule(lastSentKey, dailySentKey, scheduleMode, intervalMs, dailyTime, defaultDailyTime) {
+        const mode = normalizeScheduleMode(scheduleMode);
+        const nowDate = new Date();
+        const now = nowDate.getTime();
+
+        if (mode === SCHEDULE_MODE_DAILY) {
+            const time = normalizeDailyTime(dailyTime, defaultDailyTime);
+            const parts = time.split(':');
+            const targetDate = new Date();
+            targetDate.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
+
+            const todayKey = getLocalDateKey(nowDate);
+
+            if (now < targetDate.getTime()) return false;
+            if (localStorage.getItem(dailySentKey) === todayKey) return false;
+
+            localStorage.setItem(dailySentKey, todayKey);
+            localStorage.setItem(lastSentKey, String(now));
+            return true;
+        }
+
+        const lastSent = Number(localStorage.getItem(lastSentKey) || 0);
+        if (now - lastSent < intervalMs) return false;
+
+        localStorage.setItem(lastSentKey, String(now));
         return true;
     }
 
-    const hasCaptchaElement = Boolean(doc.querySelector([
-        '.g-recaptcha',
-        '.h-captcha',
-        'iframe[src*="recaptcha"]',
-        'iframe[src*="hcaptcha"]',
-        'iframe[src*="hcaptcha.com"]',
-        'iframe[title*="recaptcha"]',
-        'iframe[title*="hcaptcha"]',
-        'textarea[name="g-recaptcha-response"]',
-        'textarea[name="h-captcha-response"]',
-        '[data-sitekey]',
-        '[data-hcaptcha-widget-id]'
-    ].join(',')));
-
-    const hasCaptchaCode =
-        html.includes('hcaptcha.com') ||
-        html.includes('h-captcha') ||
-        html.includes('hcaptcha') ||
-        html.includes('g-recaptcha') ||
-        html.includes('recaptcha');
-
-    const hasCaptchaText =
-        text.includes('sou humano') ||
-        text.includes('captcha') ||
-        text.includes('não sou um robô') ||
-        text.includes('nao sou um robo') ||
-        text.includes('i\'m not a robot') ||
-        text.includes('not a robot');
-
-    return Boolean(hasCaptchaElement || hasCaptchaCode || hasCaptchaText);
-}
-
     function getCurrentWorldValue() {
-    const hostname = window.location.hostname;
-    const world = hostname.split('.')[0].toUpperCase();
-    const url = `https://${hostname}/game.php`;
+        const hostname = window.location.hostname;
+        const world = hostname.split('.')[0].toUpperCase();
+        const url = 'https://' + hostname + '/game.php';
+        return '[' + world + '](' + url + ')';
+    }
 
-    return `[${world}](${url})`;
-}
+    function formatTribe(tribe) {
+        if (!tribe || !tribe.name) return 'Sem tribo';
+        return tribe.url ? '[' + tribe.name + '](' + tribe.url + ')' : tribe.name;
+    }
+
+    function getAbsoluteUrl(href) {
+        if (!href) return null;
+        return new URL(href, window.location.origin).toString();
+    }
+
+    function isTwVerificationPage(doc) {
+        if (!doc || !doc.body) return false;
+
+        const text = cleanText(doc.body.innerText || '').toLowerCase();
+        const html = (doc.documentElement ? doc.documentElement.innerHTML : '').toLowerCase();
+        const currentUrl = window.location.href;
+
+        const isLoginOrPortalPage =
+            !currentUrl.includes('/game.php') ||
+            Boolean(doc.querySelector('input[type="password"], form[action*="login"]')) ||
+            text.includes('iniciar sessão') ||
+            text.includes('iniciar sessao') ||
+            text.includes('palavra-passe') ||
+            text.includes('password') ||
+            text.includes('entrar no mundo');
+
+        if (isLoginOrPortalPage) return false;
+
+        const hasTwBotProtectionPage =
+            text.includes('proteção contra bots') ||
+            text.includes('protecao contra bots') ||
+            text.includes('verificação de proteção de bots') ||
+            text.includes('verificacao de protecao de bots') ||
+            text.includes('inicia a verificação da proteção do bot') ||
+            text.includes('inicia a verificacao da protecao do bot') ||
+            text.includes('antes de poderes continuar a jogar');
+
+        if (hasTwBotProtectionPage) return true;
+
+        const hasCaptchaElement = Boolean(doc.querySelector([
+            '.g-recaptcha',
+            '.h-captcha',
+            'iframe[src*="recaptcha"]',
+            'iframe[src*="hcaptcha"]',
+            'iframe[src*="hcaptcha.com"]',
+            'iframe[title*="recaptcha"]',
+            'iframe[title*="hcaptcha"]',
+            'textarea[name="g-recaptcha-response"]',
+            'textarea[name="h-captcha-response"]',
+            '[data-sitekey]',
+            '[data-hcaptcha-widget-id]'
+        ].join(',')));
+
+        const hasCaptchaCode =
+            html.includes('hcaptcha.com') ||
+            html.includes('h-captcha') ||
+            html.includes('hcaptcha') ||
+            html.includes('g-recaptcha') ||
+            html.includes('recaptcha');
+
+        const hasCaptchaText =
+            text.includes('sou humano') ||
+            text.includes('captcha') ||
+            text.includes('não sou um robô') ||
+            text.includes('nao sou um robo') ||
+            text.includes('i\'m not a robot') ||
+            text.includes('not a robot');
+
+        return Boolean((hasCaptchaElement || hasCaptchaCode) && hasCaptchaText);
+    }
 
     function getVerificationWebhook() {
-    const settings = getSettings();
-    const verificationWebhook = cleanText(settings.verificationWebhook);
+        const settings = getSettings();
+        const verificationWebhook = cleanText(settings.verificationWebhook);
 
-    return verificationWebhook && verificationWebhook !== DEFAULT_VERIFICATION_WEBHOOK
-        ? verificationWebhook
-        : cleanText(settings.webhook);
-}
-
-function notifyVerificationPageDetected(source) {
-    if (!getSettings().notifyVerificationAlerts) {
-    return;
-}
-    const now = Date.now();
-    const lastSent = Number(localStorage.getItem(VERIFICATION_ALERT_KEY) || 0);
-
-    if (now - lastSent < VERIFICATION_ALERT_COOLDOWN_MS) {
-        return;
+        return verificationWebhook && verificationWebhook !== DEFAULT_VERIFICATION_WEBHOOK
+            ? verificationWebhook
+            : cleanText(settings.webhook);
     }
 
-    localStorage.setItem(VERIFICATION_ALERT_KEY, String(now));
+    function getSummaryWebhook() {
+        const settings = getSettings();
+        const summaryWebhook = cleanText(settings.summaryWebhook);
 
-    queueDiscordEmbed({
-        title: '⚠️ Verificação do Tribal Wars Captcha',
-description: [
-    `Foi detetada uma página de verificação no mundo ${getCurrentWorldValue()}.`,
-    `Jogador: **${getDefenderValue()}**`,
-    source ? `Origem: **${source}**.` : '',
-    '',
-    'O script ficou em pausa para evitar novos pedidos.',
-    'Abre o jogo e valida manualmente.'
-].join('\n'),
-        color: 16776960,
-        footer: { text: 'Tribal Wars PT' },
-        timestamp: new Date().toISOString()
-    }, 'TW Verification Alert', getVerificationWebhook());
-}
-
-function pauseForVerification(source) {
-    verificationPaused = true;
-    console.warn('[TW] Pagina de verificacao detetada. Script em pausa:', source);
-    notifyVerificationPageDetected(source);
-}
-
-function getSummaryWebhook() {
-    const settings = getSettings();
-    const summaryWebhook = cleanText(settings.summaryWebhook);
-
-    return summaryWebhook && summaryWebhook !== DEFAULT_SUMMARY_WEBHOOK
-        ? summaryWebhook
-        : cleanText(settings.webhook);
-}
-
-function getTroopsWebhook() {
-    const settings = getSettings();
-    const troopsWebhook = cleanText(settings.troopsWebhook);
-
-    return troopsWebhook && troopsWebhook !== DEFAULT_TROOPS_WEBHOOK
-        ? troopsWebhook
-        : cleanText(settings.webhook);
-}
-
-    function extractStableArrival(row, timerText) {
-    const rowText = cleanText(row.innerText).replace(timerText || '', ' ');
-
-    const match = rowText.match(
-        /((Hoje|Amanhã|Amanha|Ontem|\d{1,2}\.\d{1,2}(?:\.\d{2,4})?)\s*)?(?:às\s*)?(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i
-    );
-
-    if (!match) return '';
-
-    const day = cleanText(match[1] || '');
-    const time = cleanText(match[3] || '');
-
-    return cleanText(`${day} ${time}`);
-}
-
-    function delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+        return summaryWebhook && summaryWebhook !== DEFAULT_SUMMARY_WEBHOOK
+            ? summaryWebhook
+            : cleanText(settings.webhook);
     }
 
-    function parseDurationMs(value) {
-    const text = cleanText(value);
+    function getNoblesWebhook() {
+        const settings = getSettings();
+        const noblesWebhook = cleanText(settings.noblesWebhook);
 
-    let match = text.match(/^(\d+):(\d{2}):(\d{2})(?::\d{3})?$/);
-    if (match) {
-        return ((Number(match[1]) * 3600) + (Number(match[2]) * 60) + Number(match[3])) * 1000;
+        return noblesWebhook && noblesWebhook !== DEFAULT_NOBLES_WEBHOOK
+            ? noblesWebhook
+            : cleanText(settings.webhook);
     }
 
-    match = text.match(/^(\d+):(\d{2})$/);
-    if (match) {
-        return ((Number(match[1]) * 60) + Number(match[2])) * 1000;
+    function getTroopsWebhook() {
+        const settings = getSettings();
+        const troopsWebhook = cleanText(settings.troopsWebhook);
+
+        return troopsWebhook && troopsWebhook !== DEFAULT_TROOPS_WEBHOOK
+            ? troopsWebhook
+            : cleanText(settings.webhook);
     }
 
-    return 0;
-}
+    function uniqueList(values) {
+        return Array.from(new Set(values.filter(Boolean)));
+    }
 
-function getEstimatedEndKey(timerText) {
-    const durationMs = parseDurationMs(timerText);
-    if (!durationMs) return '';
+    function normalizeVerificationSlots(settings, slotsKey, legacyValueKey, legacyEnabledKey) {
+        const savedSlots = Array.isArray(settings[slotsKey]) ? settings[slotsKey] : [];
+        const legacyValue = cleanText(settings[legacyValueKey] || '');
+        const legacyEnabled = settings[legacyEnabledKey] !== false;
+        const slots = [];
 
-    return String(Math.round((Date.now() + durationMs) / 1000));
-}
+        for (let index = 0; index < VERIFICATION_SLOT_COUNT; index++) {
+            const savedSlot = savedSlots[index] || {};
+            const savedValue = cleanText(savedSlot.value || '');
+            const hasSavedSlot = index < savedSlots.length;
+            const fallbackValue = index === 0 ? legacyValue : '';
 
-function getFallbackCounts() {
-    return readJson(FALLBACK_COUNT_KEY, {});
-}
-
-    function syncFallbackCountsToVisibleAttacks(attacks) {
-    const fallbackCounts = getFallbackCounts();
-    const visibleCounts = {};
-
-    attacks.forEach(attack => {
-        if (attack.hasRealId) return;
-
-        const baseId = attack.baseId || attack.id;
-        visibleCounts[baseId] = (visibleCounts[baseId] || 0) + 1;
-    });
-
-    Object.keys(fallbackCounts).forEach(baseId => {
-        const knownCount = Number(fallbackCounts[baseId] || 0);
-        const visibleCount = Number(visibleCounts[baseId] || 0);
-
-        if (visibleCount === 0) {
-            delete fallbackCounts[baseId];
-            return;
+            slots.push({
+                enabled: hasSavedSlot ? Boolean(savedSlot.enabled && savedValue) : Boolean(fallbackValue && legacyEnabled),
+                value: savedValue || fallbackValue
+            });
         }
 
-        if (visibleCount < knownCount) {
-            fallbackCounts[baseId] = visibleCount;
-        }
-    });
+        return slots;
+    }
 
-    saveFallbackCounts(fallbackCounts);
-}
+    function getEnabledVerificationSlots(settings, slotsKey, legacyValueKey, legacyEnabledKey) {
+        return normalizeVerificationSlots(settings, slotsKey, legacyValueKey, legacyEnabledKey)
+            .filter(slot => slot.enabled && cleanText(slot.value));
+    }
 
-function saveFallbackCounts(counts) {
-    writeJson(FALLBACK_COUNT_KEY, counts);
-}
+    function getVerificationUserMention() {
+        const settings = getSettings();
+        const parts = [];
 
-function rememberKnownAttacks(attacks) {
-    const fallbackCounts = getFallbackCounts();
-    const fallbackGroups = {};
+        getEnabledVerificationSlots(settings, 'verificationUserSlots', 'verificationMention', 'verificationMentionEnabled')
+            .forEach(slot => {
+                const value = cleanText(slot.value);
 
-    attacks.forEach(attack => {
-        if (attack.hasRealId) {
-            alreadySent.add(attack.id);
-            return;
-        }
+                if (value === '@everyone' || value === '@here') {
+                    parts.push(value);
+                    return;
+                }
 
-        const baseId = attack.baseId || attack.id;
-        fallbackGroups[baseId] = (fallbackGroups[baseId] || 0) + 1;
-    });
+                const userIds = value.match(/\d{17,20}/g);
 
-    Object.entries(fallbackGroups).forEach(([baseId, count]) => {
-        fallbackCounts[baseId] = Math.max(Number(fallbackCounts[baseId] || 0), count);
-
-        for (let i = 1; i <= count; i++) {
-            alreadySent.add(`${baseId}#${i}`);
-        }
-    });
-
-    saveSent();
-    saveFallbackCounts(fallbackCounts);
-}
-
-function collectNewAttacks(attacks) {
-    const fallbackCounts = getFallbackCounts();
-    const fallbackGroups = new Map();
-    const newAttacks = [];
-
-    attacks.forEach(attack => {
-        if (attack.hasRealId) {
-            if (!alreadySent.has(attack.id)) {
-                newAttacks.push(attack);
-            }
-
-            return;
-        }
-
-        const baseId = attack.baseId || attack.id;
-
-        if (!fallbackGroups.has(baseId)) {
-            fallbackGroups.set(baseId, []);
-        }
-
-        fallbackGroups.get(baseId).push(attack);
-    });
-
-    fallbackGroups.forEach((group, baseId) => {
-        const knownCount = Number(fallbackCounts[baseId] || 0);
-        const currentCount = group.length;
-
-        if (currentCount > knownCount) {
-            group.slice(knownCount).forEach((attack, index) => {
-                attack.id = `${baseId}#${knownCount + index + 1}`;
-                newAttacks.push(attack);
+                if (userIds && userIds.length) {
+                    userIds.forEach(id => parts.push(`<@${id}>`));
+                }
             });
 
-            fallbackCounts[baseId] = currentCount;
-        }
-    });
+        return uniqueList(parts).join(' ');
+    }
 
-    saveFallbackCounts(fallbackCounts);
+    function getVerificationCouncilTag() {
+        const settings = getSettings();
+        const parts = [];
 
-    return newAttacks;
-}
+        getEnabledVerificationSlots(settings, 'verificationCouncilSlots', 'verificationCouncilTag', 'verificationCouncilTagEnabled')
+            .forEach(slot => {
+                const value = cleanText(slot.value);
+
+                if (!value) return;
+
+                if (/<@&\d{17,20}>/.test(value)) {
+                    parts.push(value);
+                    return;
+                }
+
+                parts.push(value.replace(/\b(\d{17,20})\b/g, '<@&$1>'));
+            });
+
+        return uniqueList(parts).join(' ');
+    }
+
+    function getVerificationContent() {
+        return [
+            getVerificationUserMention(),
+            getVerificationCouncilTag()
+        ].filter(Boolean).join(' ');
+    }
+
+    function notifyVerificationPageDetected(source) {
+        if (!getSettings().notifyVerificationAlerts) return;
+
+        const now = Date.now();
+        const lastSent = Number(localStorage.getItem(VERIFICATION_ALERT_KEY) || 0);
+        if (now - lastSent < VERIFICATION_ALERT_COOLDOWN_MS) return;
+
+        localStorage.setItem(VERIFICATION_ALERT_KEY, String(now));
+
+        const mention = getVerificationContent();
+        const allowedMentionTypes = [
+            /(^|\s)@(everyone|here)(\s|$)/.test(mention) ? 'everyone' : '',
+            /<@!?\d{17,20}>/.test(mention) ? 'users' : '',
+            /<@&\d{17,20}>/.test(mention) ? 'roles' : ''
+        ].filter(Boolean);
+
+        queueDiscordEmbed({
+            title: '⚠️ Verificação do Tribal Wars Captcha',
+            description: [
+                `Foi detetada uma página de verificação no mundo ${getCurrentWorldValue()}.`,
+                `Jogador: **${getDefenderValue()}**`,
+                source ? `Origem: **${source}**.` : '',
+                '',
+                'O script ficou em pausa para evitar novos pedidos.',
+                'Abre o jogo e valida manualmente.'
+            ].join('\n'),
+            color: 16776960,
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        }, 'TW Verification Alert', getVerificationWebhook(), {
+            content: mention || undefined,
+            allowed_mentions: {
+                parse: allowedMentionTypes
+            }
+        });
+    }
+
+    function pauseForVerification(source) {
+        verificationPaused = true;
+        console.warn('[TW] Pagina de verificacao detetada. Script em pausa:', source);
+        notifyVerificationPageDetected(source);
+    }
 
     function isMasterTab() {
         const now = Date.now();
@@ -449,32 +539,14 @@ function collectNewAttacks(attacks) {
         return false;
     }
 
-    setInterval(() => {
-        if (isMasterTab()) {
-            writeJson(MASTER_KEY, { id: TAB_ID, time: Date.now() });
-        }
-    }, 4000);
-
-    window.addEventListener('beforeunload', () => {
-    savePendingNobleTrains();
-
-    const master = readJson(MASTER_KEY, null);
-    if (master && master.id === TAB_ID) {
-        localStorage.removeItem(MASTER_KEY);
-    }
-});
-
     function getIncomingAttacksUrl() {
         const url = new URL(window.location.href);
-
         url.searchParams.set('screen', 'overview_villages');
         url.searchParams.set('mode', 'incomings');
         url.searchParams.set('subtype', 'attacks');
-
         url.searchParams.delete('action');
         url.searchParams.delete('ajax');
         url.searchParams.delete('h');
-
         return url.toString();
     }
 
@@ -484,62 +556,45 @@ function collectNewAttacks(attacks) {
             cache: 'no-store'
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const html = await response.text();
         return new DOMParser().parseFromString(html, 'text/html');
-    }
-
-    function getAbsoluteUrl(href) {
-        if (!href) return null;
-        return new URL(href, window.location.origin).toString();
     }
 
     function getCommandLink(root) {
         return root.querySelector('a[href*="screen=info_command"][href*="id="]');
     }
 
-function getCommandId(row) {
-    if (row.id && /command|cmd|incoming/i.test(row.id)) {
-        const match = row.id.match(/\d{5,}/);
-        if (match) return `command_${match[0]}`;
-    }
-
-    const commandLink = getCommandLink(row);
-
-    if (commandLink) {
-        const href = commandLink.getAttribute('href') || '';
-        const id = new URL(href, window.location.origin).searchParams.get('id');
-        if (id) return `command_${id}`;
-    }
-
-    const checkbox = row.querySelector('input[type="checkbox"]');
-
-    if (checkbox) {
-        const attrs = [
-            checkbox.name || '',
-            checkbox.id || ''
-        ];
-
-        for (const attr of attrs) {
-            const match = attr.match(/(?:command|cmd)[^\d]*(\d{5,})/i);
-            if (match) return `command_${match[1]}`;
+    function getCommandId(row) {
+        if (row.id && /command|cmd|incoming/i.test(row.id)) {
+            const match = row.id.match(/\d{5,}/);
+            if (match) return `command_${match[0]}`;
         }
-    }
 
-    return null;
-}
+        const commandLink = getCommandLink(row);
+        if (commandLink) {
+            const href = commandLink.getAttribute('href') || '';
+            const id = new URL(href, window.location.origin).searchParams.get('id');
+            if (id) return `command_${id}`;
+        }
+
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        if (checkbox) {
+            const attrs = [checkbox.name || '', checkbox.id || ''];
+
+            for (const attr of attrs) {
+                const match = attr.match(/(?:command|cmd)[^\d]*(\d{5,})/i);
+                if (match) return `command_${match[1]}`;
+            }
+        }
+
+        return null;
+    }
 
     function getLinkedText(cell, screen) {
         const link = cell ? cell.querySelector(`a[href*="screen=${screen}"]`) : null;
         return link ? cleanText(link.innerText) : '';
-    }
-
-    function getLinkedUrl(cell, screen) {
-        const link = cell ? cell.querySelector(`a[href*="screen=${screen}"]`) : null;
-        return link ? getAbsoluteUrl(link.getAttribute('href')) : null;
     }
 
     function parseCoords(text) {
@@ -554,57 +609,48 @@ function getCommandId(row) {
         };
     }
 
-function parseVillage(cell) {
-    const text = cleanText(cell ? cell.innerText : '');
-    const coords = parseCoords(text);
+    function parseVillage(cell) {
+        const text = cleanText(cell ? cell.innerText : '');
+        const coords = parseCoords(text);
+        const villageLink = cell
+            ? cell.querySelector('a[href*="screen=info_village"], a[href*="village="]')
+            : null;
 
-    const villageLink = cell
-        ? cell.querySelector('a[href*="screen=info_village"], a[href*="village="]')
-        : null;
+        const link = villageLink ? getAbsoluteUrl(villageLink.getAttribute('href')) : null;
+        let name = villageLink ? cleanText(villageLink.innerText) : text;
 
-    const link = villageLink ? getAbsoluteUrl(villageLink.getAttribute('href')) : null;
+        if (!name || /^\d{3}\|\d{3}/.test(name)) {
+            name = getLinkedText(cell, 'info_village') || text;
+        }
 
-    let name = villageLink ? cleanText(villageLink.innerText) : text;
+        name = name
+            .replace(/\(?\d{3}\|\d{3}\)?/g, '')
+            .replace(/\bK\d{2}\b/g, '')
+            .replace(/^[\s\-*]+/g, '');
 
-    if (!name || /^\d{3}\|\d{3}/.test(name)) {
-        name = getLinkedText(cell, 'info_village') || text;
-    }
-
-    name = name
-        .replace(/\(?\d{3}\|\d{3}\)?/g, '')
-        .replace(/\bK\d{2}\b/g, '')
-        .replace(/^[\s\-*]+/g, '');
-
-    return {
-        name: cleanText(name) || 'Desconhecida',
-        text,
-        coords,
-        url: link
-    };
-}
-
-    function getCoordsText(village) {
-        return village.coords ? `${village.coords.text} ${village.coords.continent}` : '???';
+        return {
+            name: cleanText(name) || 'Desconhecida',
+            text,
+            coords,
+            url: link
+        };
     }
 
     function getVillageName(village) {
-        return village.name || 'Desconhecida';
+        return village && village.name ? village.name : 'Desconhecida';
     }
 
     function getVillageLink(village) {
-        if (!village.url) return getVillageName(village);
-        return `[${getVillageName(village)}](${village.url})`;
+        if (!village || !village.url) return getVillageName(village);
+        return '[' + getVillageName(village) + '](' + village.url + ')';
     }
 
-    function getMapUrl(coords) {
-        if (!coords) return null;
+    function getCoordLink(village) {
+        if (!village || !village.coords) return '???';
 
-        const url = new URL(window.location.href);
-        url.searchParams.set('screen', 'map');
-        url.searchParams.set('x', String(coords.x));
-        url.searchParams.set('y', String(coords.y));
-
-        return url.toString();
+        const label = village.coords.text + ' ' + village.coords.continent;
+        const url = 'https://' + window.location.hostname + '/game.php?screen=map&x=' + village.coords.x + '&y=' + village.coords.y;
+        return '[' + label + '](' + url + ')';
     }
 
     function calculateDistance(origin, target) {
@@ -612,1089 +658,1184 @@ function parseVillage(cell) {
 
         const dx = origin.coords.x - target.coords.x;
         const dy = origin.coords.y - target.coords.y;
-
         return Math.sqrt((dx * dx) + (dy * dy)).toFixed(2);
     }
 
+    function extractStableArrival(row, timerText) {
+        const rowText = cleanText(row.innerText).replace(timerText || '', ' ');
+        const match = rowText.match(
+            /((Hoje|Amanhã|Amanha|Ontem|\d{1,2}\.\d{1,2}(?:\.\d{2,4})?)\s*)?(?:às\s*)?(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i
+        );
+
+        if (!match) return '';
+
+        const day = cleanText(match[1] || '');
+        const time = cleanText(match[3] || '');
+        return cleanText(`${day} ${time}`);
+    }
+
+    function parseDurationMs(value) {
+        const text = cleanText(value);
+
+        let match = text.match(/^(\d+):(\d{2}):(\d{2})(?::\d{3})?$/);
+        if (match) {
+            return ((Number(match[1]) * 3600) + (Number(match[2]) * 60) + Number(match[3])) * 1000;
+        }
+
+        match = text.match(/^(\d+):(\d{2})$/);
+        if (match) {
+            return ((Number(match[1]) * 60) + Number(match[2])) * 1000;
+        }
+
+        return 0;
+    }
+
+    function getEstimatedEndKey(timerText) {
+        const durationMs = parseDurationMs(timerText);
+        if (!durationMs) return '';
+        return String(Math.round((Date.now() + durationMs) / 1000));
+    }
+
+    function getPrimaryCommandName(commandName) {
+        return cleanText(commandName)
+            .split('|')[0]
+            .replace(/\breturn\b.*$/i, '')
+            .replace(/\borigem\b.*$/i, '')
+            .replace(/\borigin\b.*$/i, '')
+            .trim();
+    }
+
+    function getCommandCell(row) {
+        const commandLink = getCommandLink(row);
+        return commandLink ? commandLink.closest('td') : row.querySelector('td');
+    }
+
     function detectUnit(row, commandName) {
-    const imgTexts = Array.from(row.querySelectorAll('img'))
-        .map(img => [
-            img.getAttribute('src') || '',
-            img.getAttribute('title') || '',
-            img.getAttribute('alt') || '',
-            img.className || ''
-        ].join(' '))
-        .join(' ');
+        const commandCell = getCommandCell(row);
+        const commandUnitName = getPrimaryCommandName(commandName);
+        const imgTexts = Array.from(commandCell ? commandCell.querySelectorAll('img') : [])
+            .map(img => [
+                img.getAttribute('src') || '',
+                img.getAttribute('title') || '',
+                img.getAttribute('alt') || '',
+                img.className || ''
+            ].join(' '))
+            .join(' ');
 
-    const haystack = [
-        row.innerText || '',
-        row.innerHTML || '',
-        commandName || '',
-        imgTexts
-    ].join(' ').toLowerCase();
+        const haystack = [
+            commandUnitName || '',
+            imgTexts
+        ].join(' ').toLowerCase();
 
-    if (
-        haystack.includes('snob') ||
-        haystack.includes('nobre') ||
-        haystack.includes('nobres') ||
-        haystack.includes('noble')
-    ) {
-        return { key: 'noble', label: '👑 Nobre', color: 0xF1C40F };
+        const hasRam = haystack.includes('ram') || haystack.includes('ariete');
+        const hasCatapult = haystack.includes('catapult') || haystack.includes('catapulta');
+        const hasSpy = haystack.includes('spy') || haystack.includes('scout') || haystack.includes('explorador') || haystack.includes('batedor');
+        const hasNoble = haystack.includes('snob') || haystack.includes('nobre') || haystack.includes('nobres') || haystack.includes('noble');
+
+        if (hasNoble && !hasRam && !hasCatapult && !hasSpy) {
+            return { key: 'noble', label: '👑 Nobre', color: 0xF1C40F };
+        }
+
+        if (hasRam) {
+            return { key: 'ram', label: '🐏 Ariete', color: 0xE67E22 };
+        }
+
+        if (hasCatapult) {
+            return { key: 'catapult', label: '🪨 Catapulta', color: 0xC0392B };
+        }
+
+        if (hasSpy) {
+            return { key: 'spy', label: '🕵️ Batedor', color: 0x3498DB };
+        }
+
+        return { key: 'attack', label: '⚔️ Ataque', color: 0xE74C3C };
     }
-
-    if (
-        haystack.includes('ram') ||
-        haystack.includes('ariete')
-    ) {
-        return { key: 'ram', label: '🐏 Ariete', color: 0xE67E22 };
-    }
-
-    if (
-        haystack.includes('catapult') ||
-        haystack.includes('catapulta')
-    ) {
-        return { key: 'catapult', label: '🪨 Catapulta', color: 0xC0392B };
-    }
-
-    if (
-        haystack.includes('spy') ||
-        haystack.includes('scout') ||
-        haystack.includes('explorador') ||
-        haystack.includes('batedor')
-    ) {
-        return { key: 'spy', label: '🕵️ Batedor', color: 0x3498DB };
-    }
-
-    return { key: 'attack', label: '⚔️ Ataque', color: 0xE74C3C };
-}
 
     async function loadWorldUnitSpeed() {
-    if (cachedUnitSpeed !== null) return cachedUnitSpeed;
+        if (cachedUnitSpeed !== null) return cachedUnitSpeed;
 
-    try {
-        const response = await fetch('/interface.php?func=get_config', {
-            credentials: 'include',
-            cache: 'no-store'
-        });
+        try {
+            const response = await fetch('/interface.php?func=get_config', {
+                credentials: 'include',
+                cache: 'no-store'
+            });
 
-        const xml = await response.text();
-        const doc = new DOMParser().parseFromString(xml, 'text/xml');
+            const xml = await response.text();
+            const doc = new DOMParser().parseFromString(xml, 'text/xml');
+            const unitSpeedNode = doc.querySelector('unit_speed');
+            const unitSpeedText = unitSpeedNode ? unitSpeedNode.textContent : '';
+            const unitSpeed = Number(unitSpeedText);
 
-        const unitSpeedText = doc.querySelector('unit_speed')?.textContent;
-        const unitSpeed = Number(unitSpeedText);
-
-        if (unitSpeed && !Number.isNaN(unitSpeed)) {
-            cachedUnitSpeed = unitSpeed;
-            console.log('[TW] Unit speed carregado:', cachedUnitSpeed);
-            return cachedUnitSpeed;
+            if (unitSpeed && !Number.isNaN(unitSpeed)) {
+                cachedUnitSpeed = unitSpeed;
+                console.log('[TW] Unit speed carregado:', cachedUnitSpeed);
+                return cachedUnitSpeed;
+            }
+        } catch (error) {
+            console.warn('[TW] Erro ao carregar unit_speed:', error);
         }
-    } catch (error) {
-        console.warn('[TW] Erro ao carregar unit_speed:', error);
-    }
 
-    cachedUnitSpeed = 1;
-    return cachedUnitSpeed;
-}
+        cachedUnitSpeed = 1;
+        return cachedUnitSpeed;
+    }
 
     function getWorldUnitSpeed() {
-    return cachedUnitSpeed || 1;
-}
+        return cachedUnitSpeed || 1;
+    }
 
     function parseRemainingSeconds(value) {
-    const text = cleanText(value);
+        const text = cleanText(value);
 
-    let match = text.match(/^(\d+):(\d{2}):(\d{2})$/);
-    if (match) {
-        return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-    }
+        let match = text.match(/^(\d+):(\d{2}):(\d{2})$/);
+        if (match) return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
 
-    match = text.match(/^(\d+):(\d{2})$/);
-    if (match) {
-        return Number(match[1]) * 60 + Number(match[2]);
-    }
+        match = text.match(/^(\d+):(\d{2})$/);
+        if (match) return Number(match[1]) * 60 + Number(match[2]);
 
-    return null;
-}
-
-    function inferUnitFromTravelTime(distance, remainingText) {
-    if (!AUTO_IDENTIFY_UNITS || !distance) return null;
-
-    const remainingSeconds = parseRemainingSeconds(remainingText);
-    if (!remainingSeconds) return null;
-
-    const unitSpeed = getWorldUnitSpeed();
-
-    const units = [
-        { key: 'spy', label: '🕵️ Batedor', color: 0x3498DB, speed: 9 },
-        { key: 'light', label: '🐎 Cavalaria Leve', color: 0x2ECC71, speed: 10 },
-        { key: 'heavy', label: '🐴 Cavalaria Pesada', color: 0x1ABC9C, speed: 11 },
-        { key: 'attack', label: '⚔️ Ataque', color: 0xE74C3C, speed: 18 },
-        { key: 'sword', label: '🛡️ Espadachim', color: 0x95A5A6, speed: 22 },
-        { key: 'siege', label: '🐏 Cerco', color: 0xE67E22, speed: 30 },
-        { key: 'noble', label: '👑 Nobre', color: 0xF1C40F, speed: 35 }
-    ];
-
-    let best = null;
-
-    units.forEach(unit => {
-        const expectedSeconds = distance * unit.speed * 60 * unitSpeed;
-        const diff = Math.abs(expectedSeconds - remainingSeconds);
-
-        if (!best || diff < best.diff) {
-            best = {
-                unit,
-                diff
-            };
-        }
-    });
-
-    if (!best || best.diff > IDENTIFY_TOLERANCE_SECONDS) {
         return null;
     }
 
-    return best.unit;
-}
+    function inferUnitFromTravelTime(distance, remainingText) {
+        if (!AUTO_IDENTIFY_UNITS || !distance) return null;
+
+        const remainingSeconds = parseRemainingSeconds(remainingText);
+        if (!remainingSeconds) return null;
+
+        const unitSpeed = getWorldUnitSpeed();
+        const units = [
+            { key: 'spy', label: '🕵️ Batedor', color: 0x3498DB, speed: 9 },
+            { key: 'light', label: '🐎 Cavalaria Leve', color: 0x2ECC71, speed: 10 },
+            { key: 'heavy', label: '🐴 Cavalaria Pesada', color: 0x1ABC9C, speed: 11 },
+            { key: 'attack', label: '⚔️ Ataque', color: 0xE74C3C, speed: 18 },
+            { key: 'sword', label: '🛡️ Espadachim', color: 0x95A5A6, speed: 22 },
+            { key: 'siege', label: '🐏 Cerco', color: 0xE67E22, speed: 30 },
+            { key: 'noble', label: '👑 Nobre', color: 0xF1C40F, speed: 35 }
+        ];
+
+        let best = null;
+        units.forEach(unit => {
+            const expectedSeconds = distance * unit.speed * 60 * unitSpeed;
+            const diff = Math.abs(expectedSeconds - remainingSeconds);
+
+            if (!best || diff < best.diff) {
+                best = { unit, diff };
+            }
+        });
+
+        if (!best || best.diff > IDENTIFY_TOLERANCE_SECONDS) return null;
+        return best.unit;
+    }
 
     function parseAttackRow(row) {
-    const realId = getCommandId(row);
+        const realId = getCommandId(row);
+        const cells = Array.from(row.querySelectorAll('td'));
+        const commandLink = getCommandLink(row);
+        const commandUrl = commandLink ? getAbsoluteUrl(commandLink.getAttribute('href')) : null;
+        const playerLinks = Array.from(row.querySelectorAll('a[href*="screen=info_player"]'));
+        const playerLink =
+            playerLinks.find(link => cleanText(link.innerText) !== getDefenderName()) ||
+            playerLinks[playerLinks.length - 1] ||
+            null;
 
-    const cells = Array.from(row.querySelectorAll('td'));
+        const attacker = playerLink ? cleanText(playerLink.innerText) : 'Desconhecido';
+        const attackerUrl = playerLink ? getAbsoluteUrl(playerLink.getAttribute('href')) : null;
+        const commandImg = row.querySelector('img[title], img[alt]');
+        const commandName =
+            cleanText(commandLink ? commandLink.innerText : '') ||
+            cleanText(commandImg ? commandImg.getAttribute('title') : '') ||
+            cleanText(commandImg ? commandImg.getAttribute('alt') : '') ||
+            'Ataque';
 
-    const commandLink = getCommandLink(row);
-    const commandUrl = commandLink ? getAbsoluteUrl(commandLink.getAttribute('href')) : null;
+        const villageCells = cells.filter(cell => parseCoords(cell.innerText));
+        const attackerCell = playerLink ? playerLink.closest('td') : null;
+        const attackerCellIndex = attackerCell ? cells.indexOf(attackerCell) : -1;
+        const villageCellsBeforeAttacker = attackerCellIndex >= 0
+            ? villageCells.filter(cell => cells.indexOf(cell) < attackerCellIndex)
+            : villageCells;
 
-    const playerLinks = Array.from(row.querySelectorAll('a[href*="screen=info_player"]'));
-    const playerLink =
-    playerLinks.find(link => cleanText(link.innerText) !== getDefenderName()) ||
-    playerLinks[playerLinks.length - 1] ||
-    null;
+        const targetCell =
+            villageCellsBeforeAttacker[villageCellsBeforeAttacker.length - 1] ||
+            villageCells[1];
 
-    const attacker = playerLink ? cleanText(playerLink.innerText) : 'Desconhecido';
-    const attackerUrl = playerLink ? getAbsoluteUrl(playerLink.getAttribute('href')) : null;
+        const originCell =
+            villageCellsBeforeAttacker[villageCellsBeforeAttacker.length - 2] ||
+            villageCells[0];
 
-    const commandImg = row.querySelector('img[title], img[alt]');
-    const commandName =
-        cleanText(commandLink ? commandLink.innerText : '') ||
-        cleanText(commandImg ? commandImg.getAttribute('title') : '') ||
-        cleanText(commandImg ? commandImg.getAttribute('alt') : '') ||
-        'Ataque';
+        if (!originCell || !targetCell) return null;
 
-    const villageCells = cells.filter(cell => parseCoords(cell.innerText));
+        const origin = parseVillage(originCell);
+        const target = parseVillage(targetCell);
+        const targetIndex = cells.indexOf(targetCell);
+        const timerNode = row.querySelector('.timer, [data-endtime]');
+        const timerText = timerNode ? cleanText(timerNode.innerText) : '';
+        const endTime = timerNode ? (timerNode.getAttribute('data-endtime') || '') : '';
+        const estimatedEndTime = getEstimatedEndKey(timerText);
+        const timingTexts = cells
+            .slice(targetIndex + 1)
+            .map(cell => cleanText(cell.innerText))
+            .filter(Boolean)
+            .filter(text => text !== attacker)
+            .filter(text => text !== origin.text)
+            .filter(text => text !== target.text);
 
-    const attackerCell = playerLink ? playerLink.closest('td') : null;
-    const attackerCellIndex = attackerCell ? cells.indexOf(attackerCell) : -1;
-
-    const villageCellsBeforeAttacker = attackerCellIndex >= 0
-    ? villageCells.filter(cell => cells.indexOf(cell) < attackerCellIndex)
-    : villageCells;
-
-    const targetCell =
-    villageCellsBeforeAttacker[villageCellsBeforeAttacker.length - 1] ||
-    villageCells[1];
-
-    const originCell =
-    villageCellsBeforeAttacker[villageCellsBeforeAttacker.length - 2] ||
-    villageCells[0];
-
-    if (!originCell || !targetCell) {
-    return null;
-}
-
-    const origin = parseVillage(originCell);
-    const target = parseVillage(targetCell);
-
-    const targetIndex = cells.indexOf(targetCell);
-    const timerNode = row.querySelector('.timer, [data-endtime]');
-    const timerText = timerNode ? cleanText(timerNode.innerText) : '';
-    const endTime = timerNode ? (timerNode.getAttribute('data-endtime') || '') : '';
-    const estimatedEndTime = getEstimatedEndKey(timerText);
-
-    const timingTexts = cells
-        .slice(targetIndex + 1)
-        .map(cell => cleanText(cell.innerText))
-        .filter(Boolean)
-        .filter(text => text !== attacker)
-        .filter(text => text !== origin.text)
-        .filter(text => text !== target.text);
-
-    const stableArrival = extractStableArrival(row, timerText);
-
-    const arrival = stableArrival || timingTexts.find(text =>
-    text !== timerText &&
-    /hoje|amanh|ontem|às|\d{1,2}:\d{2}:\d{2}/i.test(text)
-    ) || timingTexts[0] || 'N/A';
+        const stableArrival = extractStableArrival(row, timerText);
+        const arrival = stableArrival || timingTexts.find(text =>
+            text !== timerText &&
+            /hoje|amanh|ontem|às|\d{1,2}:\d{2}:\d{2}/i.test(text)
+        ) || timingTexts[0] || 'N/A';
 
         const remaining = timerText || timingTexts.find(text => text !== arrival) || 'N/A';
         const distance = calculateDistance(origin, target);
-
         let unit = detectUnit(row, commandName);
 
         if (unit.key === 'attack') {
-    const inferredUnit = inferUnitFromTravelTime(Number(distance), remaining);
-
-    if (inferredUnit) {
-        unit = inferredUnit;
-    }
-}
+            const inferredUnit = inferUnitFromTravelTime(Number(distance), remaining);
+            if (inferredUnit) unit = inferredUnit;
+        }
 
         const fallbackId = [
-    'fallback',
-    attacker,
-    origin.coords ? origin.coords.text : origin.text,
-    target.coords ? target.coords.text : target.text,
-    cleanText(arrival) || endTime || estimatedEndTime
-].join('|');
+            'fallback',
+            attacker,
+            origin.coords ? origin.coords.text : origin.text,
+            target.coords ? target.coords.text : target.text,
+            cleanText(arrival) || endTime || estimatedEndTime
+        ].join('|');
 
-    return {
-        id: realId || fallbackId,
-        baseId: realId || fallbackId,
-        hasRealId: Boolean(realId),
-        commandName,
-        commandUrl,
-        attacker,
-        attackerUrl,
-        origin,
-        target,
-        arrival,
-        remaining,
-        distance,
-        unit,
-        isNoble: unit.key === 'noble',
-        targetCount: 1
-    };
-}
-
-function postDiscord(payload, webhookOverride) {
-    return new Promise(resolve => {
-        const webhook = cleanText(webhookOverride || getSettings().webhook);
-
-        if (
-            !webhook ||
-            webhook === DEFAULT_WEBHOOK ||
-            webhook === DEFAULT_ATTACKS_WEBHOOK ||
-            webhook === DEFAULT_SUMMARY_WEBHOOK ||
-            webhook === DEFAULT_TROOPS_WEBHOOK ||
-            webhook === DEFAULT_VERIFICATION_WEBHOOK
-        ) {
-            console.warn('[TW] Webhook Discord nao configurado.');
-            resolve();
-            return;
-        }
-
-        GM_xmlhttpRequest({
-            method: 'POST',
-            url: webhook,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            data: JSON.stringify(payload),
-            onload: function (response) {
-                console.log('[TW] Discord status:', response.status);
-                resolve();
-            },
-            onerror: function (error) {
-                console.warn('[TW] Erro Discord:', error);
-                resolve();
-            }
-        });
-    });
-}
-
-async function processDiscordQueue() {
-    if (sending) return;
-    sending = true;
-
-    while (discordQueue.length) {
-        const item = discordQueue.shift();
-
-        if (item && item.payload) {
-            await postDiscord(item.payload, item.webhook);
-        } else {
-            await postDiscord(item);
-        }
-
-        await delay(DISCORD_SEND_DELAY);
+        return {
+            id: realId || fallbackId,
+            baseId: realId || fallbackId,
+            hasRealId: Boolean(realId),
+            commandName,
+            commandUrl,
+            attacker,
+            attackerUrl,
+            origin,
+            target,
+            arrival,
+            remaining,
+            distance,
+            unit,
+            isNoble: unit.key === 'noble',
+            targetCount: 1
+        };
     }
 
-    sending = false;
-}
+    function getFallbackCounts() {
+        return readJson(FALLBACK_COUNT_KEY, {});
+    }
 
-function queueDiscordEmbed(embed, username, webhookOverride) {
-    discordQueue.push({
-        webhook: webhookOverride || null,
-        payload: {
-            username: username || 'TribalWars Alerts',
-            allowed_mentions: { parse: [] },
-            embeds: [embed]
+    function saveFallbackCounts(counts) {
+        writeJson(FALLBACK_COUNT_KEY, counts);
+    }
+
+    function syncFallbackCountsToVisibleAttacks(attacks) {
+        const fallbackCounts = getFallbackCounts();
+        const visibleCounts = {};
+
+        attacks.forEach(attack => {
+            if (attack.hasRealId) return;
+
+            const baseId = attack.baseId || attack.id;
+            visibleCounts[baseId] = (visibleCounts[baseId] || 0) + 1;
+        });
+
+        Object.keys(fallbackCounts).forEach(baseId => {
+            const knownCount = Number(fallbackCounts[baseId] || 0);
+            const visibleCount = Number(visibleCounts[baseId] || 0);
+
+            if (visibleCount === 0) {
+                delete fallbackCounts[baseId];
+                return;
+            }
+
+            if (visibleCount < knownCount) {
+                fallbackCounts[baseId] = visibleCount;
+            }
+        });
+
+        saveFallbackCounts(fallbackCounts);
+    }
+
+    function rememberKnownAttacks(attacks) {
+        const fallbackCounts = getFallbackCounts();
+        const fallbackGroups = {};
+
+        attacks.forEach(attack => {
+            if (attack.hasRealId) {
+                alreadySent.add(attack.id);
+                return;
+            }
+
+            const baseId = attack.baseId || attack.id;
+            fallbackGroups[baseId] = (fallbackGroups[baseId] || 0) + 1;
+        });
+
+        Object.entries(fallbackGroups).forEach(([baseId, count]) => {
+            fallbackCounts[baseId] = Math.max(Number(fallbackCounts[baseId] || 0), count);
+
+            for (let i = 1; i <= count; i++) {
+                alreadySent.add(`${baseId}#${i}`);
+            }
+        });
+
+        saveSent();
+        saveFallbackCounts(fallbackCounts);
+    }
+
+    function collectNewAttacks(attacks) {
+        const fallbackCounts = getFallbackCounts();
+        const fallbackGroups = new Map();
+        const newAttacks = [];
+
+        attacks.forEach(attack => {
+            if (attack.hasRealId) {
+                if (!alreadySent.has(attack.id)) newAttacks.push(attack);
+                return;
+            }
+
+            const baseId = attack.baseId || attack.id;
+            if (!fallbackGroups.has(baseId)) fallbackGroups.set(baseId, []);
+            fallbackGroups.get(baseId).push(attack);
+        });
+
+        fallbackGroups.forEach((group, baseId) => {
+            const knownCount = Number(fallbackCounts[baseId] || 0);
+            const currentCount = group.length;
+
+            if (currentCount > knownCount) {
+                group.slice(knownCount).forEach((attack, index) => {
+                    attack.id = `${baseId}#${knownCount + index + 1}`;
+                    newAttacks.push(attack);
+                });
+
+                fallbackCounts[baseId] = currentCount;
+            }
+        });
+
+        saveFallbackCounts(fallbackCounts);
+        return newAttacks;
+    }
+
+    function addWorldInfoToEmbed(embed) {
+        if (!embed || typeof embed !== 'object') return embed;
+
+        const worldValue = getCurrentWorldValue();
+        const description = String(embed.description || '');
+        const alreadyHasWorld =
+            description.includes(worldValue) ||
+            description.toLowerCase().includes('mundo') ||
+            (Array.isArray(embed.fields) && embed.fields.some(field =>
+                String(field.name || '').toLowerCase().includes('mundo') ||
+                String(field.value || '').includes(worldValue)
+            ));
+
+        if (alreadyHasWorld) return embed;
+
+        return Object.assign({}, embed, {
+            description: [
+                `🌍 Mundo: ${worldValue}`,
+                description
+            ].filter(Boolean).join('\n\n')
+        });
+    }
+
+    function addWorldInfoToPayload(payload) {
+        if (!payload || !Array.isArray(payload.embeds)) return payload;
+
+        return Object.assign({}, payload, {
+            embeds: payload.embeds.map(addWorldInfoToEmbed)
+        });
+    }
+
+    function postDiscord(payload, webhookOverride) {
+        return new Promise(resolve => {
+            const webhook = cleanText(webhookOverride || getSettings().webhook);
+
+            if (
+                !webhook ||
+                webhook === DEFAULT_WEBHOOK ||
+                webhook === DEFAULT_ATTACKS_WEBHOOK ||
+                webhook === DEFAULT_NOBLES_WEBHOOK ||
+                webhook === DEFAULT_SUMMARY_WEBHOOK ||
+                webhook === DEFAULT_TROOPS_WEBHOOK ||
+                webhook === DEFAULT_VERIFICATION_WEBHOOK
+            ) {
+                console.warn('[TW] Webhook Discord nao configurado.');
+                resolve();
+                return;
+            }
+
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: webhook,
+                headers: { 'Content-Type': 'application/json' },
+                data: JSON.stringify(addWorldInfoToPayload(payload)),
+                onload: function (response) {
+                    console.log('[TW] Discord status:', response.status);
+                    resolve();
+                },
+                onerror: function (error) {
+                    console.warn('[TW] Erro Discord:', error);
+                    resolve();
+                }
+            });
+        });
+    }
+
+    function delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function processDiscordQueue() {
+        if (sending) return;
+        sending = true;
+
+        while (discordQueue.length) {
+            const item = discordQueue.shift();
+
+            if (item && item.payload) {
+                await postDiscord(item.payload, item.webhook);
+            } else {
+                await postDiscord(item);
+            }
+
+            await delay(DISCORD_SEND_DELAY);
         }
-    });
 
-    processDiscordQueue();
-}
+        sending = false;
+    }
+
+    function queueDiscordEmbed(embed, username, webhookOverride, options = {}) {
+        discordQueue.push({
+            webhook: webhookOverride || null,
+            payload: {
+                username: username || 'TribalWars Alerts',
+                content: options.content || undefined,
+                allowed_mentions: options.allowed_mentions || { parse: [] },
+                embeds: [embed]
+            }
+        });
+
+        processDiscordQueue();
+    }
 
     function getAttackerValue(attack) {
         return attack.attackerUrl
-            ? `[${attack.attacker}](${attack.attackerUrl})`
+            ? '[' + attack.attacker + '](' + attack.attackerUrl + ')'
             : attack.attacker;
     }
 
     function getCommandValue(attack) {
         const label = attack.unit ? attack.unit.label : attack.commandName;
-
-        return attack.commandUrl
-            ? `[${label}](${attack.commandUrl})`
-            : label;
+        return attack.commandUrl ? '[' + label + '](' + attack.commandUrl + ')' : label;
     }
 
     function getDefenderName() {
-    try {
-        if (typeof game_data !== 'undefined' && game_data.player && game_data.player.name) {
-            return cleanText(game_data.player.name);
-        }
+        try {
+            if (typeof game_data !== 'undefined' && game_data.player && game_data.player.name) {
+                return cleanText(game_data.player.name);
+            }
 
-        if (window.game_data && window.game_data.player && window.game_data.player.name) {
-            return cleanText(window.game_data.player.name);
-        }
-    } catch (_) {}
+            if (window.game_data && window.game_data.player && window.game_data.player.name) {
+                return cleanText(window.game_data.player.name);
+            }
+        } catch (_) {}
 
-    return 'Desconhecido';
-}
+        return 'Desconhecido';
+    }
 
     function getDefenderValue() {
-    const name = getDefenderName();
+        const name = getDefenderName();
 
-    try {
-        if (typeof game_data !== 'undefined' && game_data.player && game_data.player.id) {
-            const url = new URL(window.location.href);
-            url.searchParams.set('screen', 'info_player');
-            url.searchParams.set('id', String(game_data.player.id));
-            return `[${name}](${url.toString()})`;
-        }
+        try {
+            if (typeof game_data !== 'undefined' && game_data.player && game_data.player.id) {
+                const url = new URL(window.location.href);
+                url.searchParams.set('screen', 'info_player');
+                url.searchParams.set('id', String(game_data.player.id));
+                return '[' + name + '](' + url.toString() + ')';
+            }
 
-        if (window.game_data && window.game_data.player && window.game_data.player.id) {
-            const url = new URL(window.location.href);
-            url.searchParams.set('screen', 'info_player');
-            url.searchParams.set('id', String(window.game_data.player.id));
-            return `[${name}](${url.toString()})`;
-        }
-    } catch (_) {}
+            if (window.game_data && window.game_data.player && window.game_data.player.id) {
+                const url = new URL(window.location.href);
+                url.searchParams.set('screen', 'info_player');
+                url.searchParams.set('id', String(window.game_data.player.id));
+                return '[' + name + '](' + url.toString() + ')';
+            }
+        } catch (_) {}
 
-    return name;
-}
-
-function getCoordLink(village) {
-    if (!village || !village.coords) {
-        return '???';
+        return name;
     }
 
-    const label = `${village.coords.text} ${village.coords.continent}`;
-    const url = `https://${window.location.hostname}/game.php?screen=map&x=${village.coords.x}&y=${village.coords.y}`;
-
-    return `[${label}](${url})`;
-}
-
-function formatArrivalText(value) {
-    return cleanText(value).replace(/^hoje\b/i, 'Hoje');
-}
+    function formatArrivalText(value) {
+        return cleanText(value).replace(/^hoje\b/i, 'Hoje');
+    }
 
     function getDefenderProfileUrl() {
-    try {
-        const player = typeof game_data !== 'undefined' ? game_data.player : window.game_data?.player;
+        try {
+            const player = typeof game_data !== 'undefined'
+                ? game_data.player
+                : (window.game_data && window.game_data.player ? window.game_data.player : null);
 
-        if (player && player.id) {
-            return `https://${window.location.hostname}/game.php?screen=info_player&id=${player.id}`;
-        }
-    } catch (_) {}
-
-    return null;
-}
-
-function getPlayerCacheKey(playerUrl) {
-    try {
-        return new URL(playerUrl).searchParams.get('id') || playerUrl;
-    } catch (_) {
-        return playerUrl || 'unknown';
-    }
-}
-
-function formatTribe(tribe) {
-    if (!tribe || !tribe.name) return 'Sem tribo';
-    return tribe.url ? `[${tribe.name}](${tribe.url})` : tribe.name;
-}
-
-async function getPlayerTribe(playerUrl) {
-    if (!playerUrl) {
-        return { name: 'Desconhecida', url: null };
-    }
-
-    const cache = readJson(PLAYER_TRIBE_CACHE_KEY, {});
-    const cacheKey = getPlayerCacheKey(playerUrl);
-    const cached = cache[cacheKey];
-
-    if (cached && Date.now() - cached.time < PLAYER_TRIBE_CACHE_MS) {
-        return cached.tribe;
-    }
-
-    try {
-        const response = await fetch(playerUrl, {
-            credentials: 'include',
-            cache: 'no-store'
-        });
-
-        const html = await response.text();
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-
-        const tribeLink = doc.querySelector('a[href*="screen=info_ally"][href*="id="]');
-
-        const tribe = tribeLink
-            ? {
-                name: cleanText(tribeLink.innerText),
-                url: getAbsoluteUrl(tribeLink.getAttribute('href'))
+            if (player && player.id) {
+                return `https://${window.location.hostname}/game.php?screen=info_player&id=${player.id}`;
             }
-            : {
-                name: 'Sem tribo',
-                url: null
-            };
+        } catch (_) {}
 
-        cache[cacheKey] = {
-            tribe,
-            time: Date.now()
-        };
-
-        writeJson(PLAYER_TRIBE_CACHE_KEY, cache);
-
-        return tribe;
-    } catch (error) {
-        console.warn('[TW] Erro ao carregar tribo:', error);
-        return { name: 'Desconhecida', url: null };
+        return null;
     }
-}
 
-async function enrichAttackWithTribes(attack) {
-    const [defenderTribe, attackerTribe] = await Promise.all([
-        getPlayerTribe(getDefenderProfileUrl()),
-        getPlayerTribe(attack.attackerUrl)
-    ]);
+    function getPlayerCacheKey(playerUrl) {
+        try {
+            return new URL(playerUrl).searchParams.get('id') || playerUrl;
+        } catch (_) {
+            return playerUrl || 'unknown';
+        }
+    }
 
-    attack.defenderTribe = defenderTribe;
-    attack.attackerTribe = attackerTribe;
-}
+    async function getPlayerTribe(playerUrl) {
+        if (!playerUrl) return { name: 'Desconhecida', url: null };
+
+        const cache = readJson(PLAYER_TRIBE_CACHE_KEY, {});
+        const cacheKey = getPlayerCacheKey(playerUrl);
+        const cached = cache[cacheKey];
+
+        if (cached && Date.now() - cached.time < PLAYER_TRIBE_CACHE_MS) {
+            return cached.tribe;
+        }
+
+        try {
+            const response = await fetch(playerUrl, {
+                credentials: 'include',
+                cache: 'no-store'
+            });
+
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const tribeLink = doc.querySelector('a[href*="screen=info_ally"][href*="id="]');
+            const tribe = tribeLink
+                ? {
+                    name: cleanText(tribeLink.innerText),
+                    url: getAbsoluteUrl(tribeLink.getAttribute('href'))
+                }
+                : {
+                    name: 'Sem tribo',
+                    url: null
+                };
+
+            cache[cacheKey] = { tribe, time: Date.now() };
+            writeJson(PLAYER_TRIBE_CACHE_KEY, cache);
+            return tribe;
+        } catch (error) {
+            console.warn('[TW] Erro ao carregar tribo:', error);
+            return { name: 'Desconhecida', url: null };
+        }
+    }
+
+    async function enrichAttackWithTribes(attack) {
+        const results = await Promise.all([
+            getPlayerTribe(getDefenderProfileUrl()),
+            getPlayerTribe(attack.attackerUrl)
+        ]);
+
+        attack.defenderTribe = results[0];
+        attack.attackerTribe = results[1];
+    }
 
     function buildAttackEmbed(attack, totalAttacks) {
-    const defenderValue = getDefenderValue();
-    const attackerValue = getAttackerValue(attack);
-    const commandValue = getCommandValue(attack);
+        const title = attack.isNoble
+            ? '👑 ━━━ 1 NOBRE ━━━ 👑'
+            : '🚨 ━━━ NOVO ATAQUE ━━━ 🚨';
 
-    const targetCoordsValue = getCoordLink(attack.origin);
-    const originCoordsValue = getCoordLink(attack.target);
-
-    const title = attack.isNoble
-        ? '👑 ━━━ 1 NOBRE ━━━ 👑'
-        : '🚨 ━━━ NOVO ATAQUE ━━━ 🚨';
-
-    return {
-        title,
-        url: attack.commandUrl || undefined,
-        color: attack.isNoble ? 16753920 : attack.unit.color,
-        fields: [
-{
-    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Defensor',
-    value: [
-        `**${defenderValue}**`,
-        `🏰 Tribo: ${formatTribe(attack.defenderTribe)}`,
-        '',
-        `🏘️ Aldeia: ${getVillageLink(attack.origin)}`,
-        `📍 Coordenadas: ${targetCoordsValue}`,
-        '',
-        `🛡️ Unidade: ${commandValue}`,
-        `🕒 Chegada: **${formatArrivalText(attack.arrival)}**`,
-        `⌛ Restante: **${attack.remaining}**`
-    ].join('\n'),
-    inline: false
-},
-{
-    name: '━━━━━━━━━━━━━━━━━━━━\n⚔️ Atacante',
-    value: [
-        `**${attackerValue}**`,
-        `🏰 Tribo: ${formatTribe(attack.attackerTribe)}`,
-        '',
-        `🏠 Origem: ${getVillageLink(attack.target)}`,
-        `📌 Coordenadas: ${originCoordsValue}`
-    ].join('\n'),
-    inline: false
-},
-{
-    name: '━━━━━━━━━━━━━━━━━━━━\n📊 Situação da Aldeia',
-    value: [
-        `Ataques neste alvo: **${attack.targetCount}**`,
-        `Ataques totais: **${totalAttacks}**`
-    ].join('\n'),
-    inline: false
-}
-        ],
-        footer: {
-            text: 'Tribal Wars PT'
-        },
-        timestamp: new Date().toISOString()
-    };
-}
+        return {
+            title,
+            url: attack.commandUrl || undefined,
+            color: attack.isNoble ? 16753920 : attack.unit.color,
+            fields: [
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Defensor',
+                    value: [
+                        `**${getDefenderValue()}**`,
+                        `🏰 Tribo: ${formatTribe(attack.defenderTribe)}`,
+                        '',
+                        `🏘️ Aldeia: ${getVillageLink(attack.origin)}`,
+                        `📍 Coordenadas: ${getCoordLink(attack.origin)}`,
+                        '',
+                        `🛡️ Unidade: ${getCommandValue(attack)}`,
+                        `🕒 Chegada: **${formatArrivalText(attack.arrival)}**`,
+                        `⌛ Restante: **${attack.remaining}**`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n⚔️ Atacante',
+                    value: [
+                        `**${getAttackerValue(attack)}**`,
+                        `🏰 Tribo: ${formatTribe(attack.attackerTribe)}`,
+                        '',
+                        `🏠 Origem: ${getVillageLink(attack.target)}`,
+                        `📌 Coordenadas: ${getCoordLink(attack.target)}`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n📊 Situação da Aldeia',
+                    value: [
+                        `Ataques neste alvo: **${attack.targetCount}**`,
+                        `Ataques totais: **${totalAttacks}**`
+                    ].join('\n'),
+                    inline: false
+                }
+            ],
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        };
+    }
 
     function getNobleTrainKey(attack) {
-    const target = attack.target.coords ? attack.target.coords.text : attack.target.name;
-    const attacker = attack.attacker || 'Desconhecido';
-
-    return `${target}|${attacker}`;
-}
+        const target = attack.origin.coords ? attack.origin.coords.text : attack.origin.name;
+        const attacker = attack.attacker || 'Desconhecido';
+        return target + '|' + attacker;
+    }
 
     function numberIcon(index) {
         const icons = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
         return icons[index] || `${index + 1}.`;
     }
 
-    function getNobleUniqueId(attack) {
-    return [
-        attack.id,
-        attack.attacker,
-        attack.origin.coords ? attack.origin.coords.text : attack.origin.text,
-        attack.target.coords ? attack.target.coords.text : attack.target.text,
-        attack.arrival,
-        attack.commandUrl || ''
-    ].join('|');
-}
+    function getCommandIdFromUrl(url) {
+        if (!url) return '';
 
-    function saveNobleSent() {
-    const ids = Array.from(nobleAlreadySent).slice(-1000);
-    nobleAlreadySent = new Set(ids);
-    writeJson(NOBLE_SENT_KEY, ids);
-}
-
-function getCommandIdFromUrl(url) {
-    if (!url) return '';
-
-    try {
-        return new URL(url, window.location.origin).searchParams.get('id') || '';
-    } catch (_) {
-        return '';
-    }
-}
-
-function normalizeNobleKeyText(value) {
-    return cleanText(value)
-        .toLowerCase()
-        .replace(/\bhoje\b/g, '')
-        .replace(/\bamanhã\b/g, '')
-        .replace(/\bamanha\b/g, '')
-        .replace(/\bontem\b/g, '')
-        .replace(/\bàs\b/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-function getNobleAlertKey(attack) {
-    const commandId = getCommandIdFromUrl(attack.commandUrl);
-
-    if (commandId) {
-        return `noble_command_${commandId}`;
+        try {
+            return new URL(url, window.location.origin).searchParams.get('id') || '';
+        } catch (_) {
+            return '';
+        }
     }
 
-    return [
-        'noble',
-        normalizeNobleKeyText(attack.attacker),
-        attack.origin.coords ? attack.origin.coords.text : normalizeNobleKeyText(attack.origin.text),
-        attack.target.coords ? attack.target.coords.text : normalizeNobleKeyText(attack.target.text),
-        normalizeNobleKeyText(attack.arrival)
-    ].join('|');
-}
+    function normalizeNobleKeyText(value) {
+        return cleanText(value)
+            .toLowerCase()
+            .replace(/\bhoje\b/g, '')
+            .replace(/\bamanhã\b/g, '')
+            .replace(/\bamanha\b/g, '')
+            .replace(/\bontem\b/g, '')
+            .replace(/\bàs\b/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
 
-function wasNobleAlertSent(attack) {
-    nobleAlreadySent = loadSet(NOBLE_SENT_KEY);
-    return nobleAlreadySent.has(getNobleAlertKey(attack));
-}
+    function getNobleAlertKey(attack) {
+        const commandId = getCommandIdFromUrl(attack.commandUrl);
+        if (commandId) return `noble_command_${commandId}`;
 
-function markNobleAlertSent(attack) {
-    nobleAlreadySent.add(getNobleAlertKey(attack));
-    saveNobleSent();
-}
+        return [
+            'noble',
+            normalizeNobleKeyText(attack.attacker),
+            attack.origin.coords ? attack.origin.coords.text : normalizeNobleKeyText(attack.origin.text),
+            attack.target.coords ? attack.target.coords.text : normalizeNobleKeyText(attack.target.text),
+            normalizeNobleKeyText(attack.arrival)
+        ].join('|');
+    }
+
+    function wasNobleAlertSent(attack) {
+        nobleAlreadySent = loadSet(NOBLE_SENT_KEY);
+        return nobleAlreadySent.has(getNobleAlertKey(attack));
+    }
+
+    function markNobleAlertSent(attack) {
+        nobleAlreadySent.add(getNobleAlertKey(attack));
+        saveNobleSent();
+    }
+
+    function hasExplicitNonNobleCommandName(commandName) {
+        const commandUnitName = getPrimaryCommandName(commandName).toLowerCase();
+        return commandUnitName.includes('ram') ||
+            commandUnitName.includes('ariete') ||
+            commandUnitName.includes('catapult') ||
+            commandUnitName.includes('catapulta') ||
+            commandUnitName.includes('spy') ||
+            commandUnitName.includes('scout') ||
+            commandUnitName.includes('explorador') ||
+            commandUnitName.includes('batedor');
+    }
+
+    function filterFalseNobleAttacks(attacks) {
+        return (attacks || []).filter(attack => !hasExplicitNonNobleCommandName(attack.commandName));
+    }
 
     function addNobleToTrain(attack, totalAttacks) {
-    const key = getNobleTrainKey(attack);
-    const uniqueId = getNobleAlertKey(attack);
+        if (hasExplicitNonNobleCommandName(attack.commandName)) {
+            console.log('[TW] Nobre ignorado porque o comando indica outra unidade:', attack.commandName);
+            return;
+        }
 
-    let train = nobleTrains.get(key);
+        const key = getNobleTrainKey(attack);
+        const uniqueId = getNobleAlertKey(attack);
+        let train = nobleTrains.get(key);
 
-    if (!train) {
-        train = {
-            attacks: [],
-            totalAttacks: totalAttacks || 1,
-            flushAt: Date.now() + getNobleTrainDelay(),
-            timer: null
-        };
+        if (!train) {
+            train = {
+                attacks: [],
+                totalAttacks: totalAttacks || 1,
+                flushAt: Date.now() + getNobleTrainDelay(),
+                timer: null
+            };
 
-        nobleTrains.set(key, train);
+            nobleTrains.set(key, train);
+        }
+
+        const alreadyInTrain = train.attacks.some(existingAttack =>
+            getNobleAlertKey(existingAttack) === uniqueId
+        );
+
+        if (alreadyInTrain) {
+            console.log('[TW] Nobre duplicado ignorado no comboio:', uniqueId);
+            return;
+        }
+
+        train.attacks.push(attack);
+        train.totalAttacks = totalAttacks || train.totalAttacks || train.attacks.length;
+        train.flushAt = Date.now() + getNobleTrainDelay();
+        savePendingNobleTrains();
+        scheduleNobleTrainFlush(key, getNobleTrainDelay());
+        console.log('[TW] Nobre adicionado ao comboio:', key, train.attacks.length);
     }
 
-    const alreadyInTrain = train.attacks.some(existingAttack =>
-        getNobleAlertKey(existingAttack) === uniqueId
-    );
+    function savePendingNobleTrains() {
+        const saved = {};
 
-    if (alreadyInTrain) {
-        console.log('[TW] Nobre duplicado ignorado no comboio:', uniqueId);
-        return;
-    }
+        nobleTrains.forEach((train, key) => {
+            if (!train.attacks || !train.attacks.length) return;
 
-    train.attacks.push(attack);
-    train.totalAttacks = totalAttacks || train.totalAttacks || train.attacks.length;
-    train.flushAt = Date.now() + getNobleTrainDelay();
-
-    savePendingNobleTrains();
-    scheduleNobleTrainFlush(key, getNobleTrainDelay());
-
-    console.log('[TW] Nobre adicionado ao comboio:', key, train.attacks.length);
-}
-
-function savePendingNobleTrains() {
-    const saved = {};
-
-    nobleTrains.forEach((train, key) => {
-        if (!train.attacks || !train.attacks.length) return;
-
-        saved[key] = {
-            attacks: train.attacks,
-            totalAttacks: train.totalAttacks || train.attacks.length,
-            flushAt: train.flushAt || Date.now() + getNobleTrainDelay()
-        };
-    });
-
-    if (Object.keys(saved).length) {
-        writeJson(NOBLE_PENDING_KEY, saved);
-    } else {
-        localStorage.removeItem(NOBLE_PENDING_KEY);
-    }
-}
-
-function removePendingNobleTrain(key) {
-    const saved = readJson(NOBLE_PENDING_KEY, {});
-    delete saved[key];
-
-    if (Object.keys(saved).length) {
-        writeJson(NOBLE_PENDING_KEY, saved);
-    } else {
-        localStorage.removeItem(NOBLE_PENDING_KEY);
-    }
-}
-
-function scheduleNobleTrainFlush(key, delayMs) {
-    const train = nobleTrains.get(key);
-    if (!train) return;
-
-    clearTimeout(train.timer);
-
-    train.timer = setTimeout(() => {
-        flushNobleTrain(key).catch(error => {
-            console.warn('[TW] Erro ao enviar comboio de nobres:', error);
+            saved[key] = {
+                attacks: train.attacks,
+                totalAttacks: train.totalAttacks || train.attacks.length,
+                flushAt: train.flushAt || Date.now() + getNobleTrainDelay()
+            };
         });
-    }, Math.max(500, delayMs));
-}
 
-function restorePendingNobleTrains() {
-    const saved = readJson(NOBLE_PENDING_KEY, {});
+        if (Object.keys(saved).length) {
+            writeJson(NOBLE_PENDING_KEY, saved);
+        } else {
+            localStorage.removeItem(NOBLE_PENDING_KEY);
+        }
+    }
 
-    Object.entries(saved).forEach(([key, train]) => {
-        if (!train || !Array.isArray(train.attacks) || !train.attacks.length) {
+    function removePendingNobleTrain(key) {
+        const saved = readJson(NOBLE_PENDING_KEY, {});
+        delete saved[key];
+
+        if (Object.keys(saved).length) {
+            writeJson(NOBLE_PENDING_KEY, saved);
+        } else {
+            localStorage.removeItem(NOBLE_PENDING_KEY);
+        }
+    }
+
+    function scheduleNobleTrainFlush(key, delayMs) {
+        const train = nobleTrains.get(key);
+        if (!train) return;
+
+        clearTimeout(train.timer);
+        train.timer = setTimeout(() => {
+            flushNobleTrain(key).catch(error => {
+                console.warn('[TW] Erro ao enviar comboio de nobres:', error);
+            });
+        }, Math.max(500, delayMs));
+    }
+
+    function restorePendingNobleTrains() {
+        const saved = readJson(NOBLE_PENDING_KEY, {});
+
+        Object.entries(saved).forEach(([key, train]) => {
+            if (!train || !Array.isArray(train.attacks) || !train.attacks.length) {
+                removePendingNobleTrain(key);
+                return;
+            }
+
+            const validAttacks = filterFalseNobleAttacks(train.attacks);
+
+            if (!validAttacks.length) {
+                removePendingNobleTrain(key);
+                console.log('[TW] Comboio pendente removido por unidade nao nobre:', key);
+                return;
+            }
+
+            if (nobleTrains.has(key)) return;
+
+            nobleTrains.set(key, {
+                attacks: validAttacks,
+                totalAttacks: train.totalAttacks || validAttacks.length,
+                flushAt: train.flushAt || Date.now() + getNobleTrainDelay(),
+                timer: null
+            });
+
+            const restoredTrain = nobleTrains.get(key);
+            scheduleNobleTrainFlush(key, restoredTrain.flushAt - Date.now());
+            console.log('[TW] Comboio de nobres restaurado:', key);
+        });
+    }
+
+    async function flushNobleTrain(key) {
+        const pending = readJson(NOBLE_PENDING_KEY, {});
+        let train = nobleTrains.get(key);
+
+        if (!train && pending[key]) {
+            train = {
+                attacks: pending[key].attacks || [],
+                totalAttacks: pending[key].totalAttacks || 1,
+                flushAt: pending[key].flushAt || Date.now(),
+                timer: null
+            };
+
+            nobleTrains.set(key, train);
+        }
+
+        if (!train || !train.attacks || !train.attacks.length) {
+            nobleTrains.delete(key);
             removePendingNobleTrain(key);
             return;
         }
 
-        if (nobleTrains.has(key)) return;
+        train.attacks = filterFalseNobleAttacks(train.attacks);
 
-        nobleTrains.set(key, {
-            attacks: train.attacks,
-            totalAttacks: train.totalAttacks || train.attacks.length,
-            flushAt: train.flushAt || Date.now() + getNobleTrainDelay(),
-            timer: null
-        });
+        if (!train.attacks.length) {
+            nobleTrains.delete(key);
+            removePendingNobleTrain(key);
+            console.log('[TW] Comboio de nobres removido por unidade nao nobre:', key);
+            return;
+        }
 
-        const restoredTrain = nobleTrains.get(key);
-        scheduleNobleTrainFlush(key, restoredTrain.flushAt - Date.now());
-        console.log('[TW] Comboio de nobres restaurado:', key);
-    });
-}
+        if (!isMasterTab()) {
+            scheduleNobleTrainFlush(key, 1000);
+            return;
+        }
 
-async function flushNobleTrain(key) {
-    const pending = readJson(NOBLE_PENDING_KEY, {});
-    let train = nobleTrains.get(key);
+        if (!getSettings().notifyNobleAttacks) {
+            nobleTrains.delete(key);
+            removePendingNobleTrain(key);
+            console.log('[TW] Comboio de nobres ignorado por configuracao:', key);
+            return;
+        }
 
-    if (!train && pending[key]) {
-        train = {
-            attacks: pending[key].attacks || [],
-            totalAttacks: pending[key].totalAttacks || 1,
-            flushAt: pending[key].flushAt || Date.now(),
-            timer: null
-        };
+        nobleAlreadySent = loadSet(NOBLE_SENT_KEY);
+        train.attacks = train.attacks.filter(attack => !wasNobleAlertSent(attack));
 
-        nobleTrains.set(key, train);
-    }
+        if (!train.attacks.length) {
+            nobleTrains.delete(key);
+            removePendingNobleTrain(key);
+            console.log('[TW] Comboio pendente removido porque ja tinha sido notificado:', key);
+            return;
+        }
 
-    if (!train || !train.attacks || !train.attacks.length) {
+        train.attacks.sort((a, b) => String(a.arrival).localeCompare(String(b.arrival)));
+        await enrichAttackWithTribes(train.attacks[0]);
+
+        if (train.attacks.length === 1) {
+            queueDiscordEmbed(buildAttackEmbed(train.attacks[0], train.totalAttacks), 'TribalWars Alerts', getNoblesWebhook());
+        } else {
+            queueDiscordEmbed(buildNobleTrainEmbed(train), 'TW Noble Train', getNoblesWebhook());
+        }
+
+        train.attacks.forEach(markNobleAlertSent);
         nobleTrains.delete(key);
         removePendingNobleTrain(key);
-        return;
+        console.log('[TW] Comboio de nobres enviado:', key);
     }
-
-    if (!isMasterTab()) {
-        scheduleNobleTrainFlush(key, 1000);
-        return;
-    }
-
-if (!getSettings().notifyNobleAttacks) {
-    nobleTrains.delete(key);
-    removePendingNobleTrain(key);
-    console.log('[TW] Comboio de nobres ignorado por configuracao:', key);
-    return;
-}
-
-nobleAlreadySent = loadSet(NOBLE_SENT_KEY);
-
-train.attacks = train.attacks.filter(attack => !wasNobleAlertSent(attack));
-
-if (!train.attacks.length) {
-    nobleTrains.delete(key);
-    removePendingNobleTrain(key);
-    console.log('[TW] Comboio pendente removido porque ja tinha sido notificado:', key);
-    return;
-}
-
-    train.attacks.sort((a, b) => String(a.arrival).localeCompare(String(b.arrival)));
-
-    await enrichAttackWithTribes(train.attacks[0]);
-
-    if (train.attacks.length === 1) {
-        queueDiscordEmbed(buildAttackEmbed(train.attacks[0], train.totalAttacks), 'TribalWars Alerts');
-    } else {
-        queueDiscordEmbed(buildNobleTrainEmbed(train), 'TW Noble Train');
-    }
-
-    train.attacks.forEach(markNobleAlertSent);
-
-    nobleTrains.delete(key);
-    removePendingNobleTrain(key);
-
-    console.log('[TW] Comboio de nobres enviado:', key);
-}
 
     function buildNobleTrainEmbed(train) {
-    const first = train.attacks[0];
-
-    const defenderValue = getDefenderValue();
-    const attackerValue = getAttackerValue(first);
-
-    const targetCoordsValue = getCoordLink(first.origin);
-    const originCoordsValue = getCoordLink(first.target);
-
-    const arrivals = train.attacks
-        .map((attack, index) => {
-            return [
+        const first = train.attacks[0];
+        const arrivals = train.attacks
+            .map((attack, index) => [
                 `${numberIcon(index)} **${formatArrivalText(attack.arrival)}**`,
                 `⌛ Restante: **${attack.remaining}**`
-            ].join('\n');
-        })
-        .join('\n\n');
+            ].join('\n'))
+            .join('\n\n');
 
-    return {
-        title: `👑 ━━━ ${train.attacks.length} NOBRE${train.attacks.length === 1 ? '' : 'S'} ━━━ 👑`,
-        url: first.commandUrl || undefined,
-        color: 16753920,
-        fields: [
-            {
-                name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Defensor',
-                value: [
-                    `**${defenderValue}**`,
-                    `🏰 Tribo: ${formatTribe(first.defenderTribe)}`,
-                    '',
-                    `🏘️ Aldeia: ${getVillageLink(first.origin)}`,
-                    `📍 Coordenadas: ${targetCoordsValue}`,
-                    '',
-                    `🛡️ Unidade: 👑 Nobre`,
-                    `🕒 Chegadas:\n${arrivals}`
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '━━━━━━━━━━━━━━━━━━━━\n⚔️ Atacante',
-                value: [
-                    `**${attackerValue}**`,
-                    `🏰 Tribo: ${formatTribe(first.attackerTribe)}`,
-                    '',
-                    `🏠 Origem: ${getVillageLink(first.target)}`,
-                    `📌 Coordenadas: ${originCoordsValue}`
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '━━━━━━━━━━━━━━━━━━━━\n📊 Situação da Aldeia',
-                value: [
-                    `Nobres: **${train.attacks.length}**`,
-                    `Ataques neste alvo: **${first.targetCount}**`,
-                    `Ataques totais: **${train.totalAttacks}**`
-                ].join('\n'),
-                inline: false
-            }
-        ],
-        footer: {
-            text: 'Tribal Wars PT'
-        },
-        timestamp: new Date().toISOString()
-    };
-}
+        return {
+            title: `👑 ━━━ ${train.attacks.length} NOBRE${train.attacks.length === 1 ? '' : 'S'} ━━━ 👑`,
+            url: first.commandUrl || undefined,
+            color: 16753920,
+            fields: [
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Defensor',
+                    value: [
+                        `**${getDefenderValue()}**`,
+                        `🏰 Tribo: ${formatTribe(first.defenderTribe)}`,
+                        '',
+                        `🏘️ Aldeia: ${getVillageLink(first.origin)}`,
+                        `📍 Coordenadas: ${getCoordLink(first.origin)}`,
+                        '',
+                        `🛡️ Unidade: 👑 Nobre`,
+                        `🕒 Chegadas:\n${arrivals}`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n⚔️ Atacante',
+                    value: [
+                        `**${getAttackerValue(first)}**`,
+                        `🏰 Tribo: ${formatTribe(first.attackerTribe)}`,
+                        '',
+                        `🏠 Origem: ${getVillageLink(first.target)}`,
+                        `📌 Coordenadas: ${getCoordLink(first.target)}`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n📊 Situação da Aldeia',
+                    value: [
+                        `Nobres: **${train.attacks.length}**`,
+                        `Ataques neste alvo: **${first.targetCount}**`,
+                        `Ataques totais: **${train.totalAttacks}**`
+                    ].join('\n'),
+                    inline: false
+                }
+            ],
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        };
+    }
 
-function getTargetKey(attack) {
-    return attack.origin.coords ? attack.origin.coords.text : attack.origin.text;
-}
+    function getTargetKey(attack) {
+        return attack.origin.coords ? attack.origin.coords.text : attack.origin.text;
+    }
 
     function getAttackSummaryState(attacks) {
-    const groups = {};
+        const groups = {};
 
-    attacks.forEach(attack => {
-        const key = getTargetKey(attack);
+        attacks.forEach(attack => {
+            const key = getTargetKey(attack);
+            if (!groups[key]) groups[key] = { total: 0, nobles: 0 };
 
-        if (!groups[key]) {
-            groups[key] = {
-                total: 0,
-                nobles: 0
-            };
-        }
+            groups[key].total += 1;
+            if (attack.isNoble) groups[key].nobles += 1;
+        });
 
-        groups[key].total += 1;
-
-        if (attack.isNoble) {
-            groups[key].nobles += 1;
-        }
-    });
-
-    return Object.keys(groups)
-        .sort()
-        .map(key => `${key}:${groups[key].total}:${groups[key].nobles}`)
-        .join('|');
-}
-
-function saveAttackSummaryState(attacks) {
-    localStorage.setItem(SUMMARY_STATE_KEY, getAttackSummaryState(attacks));
-}
-
-function shouldSendAttackSummary(attacks) {
-    if (!attacks.length) return false;
-
-    const lastSent = Number(localStorage.getItem(SUMMARY_LAST_SENT_KEY) || 0);
-    const now = Date.now();
-
-    if (now - lastSent < SUMMARY_INTERVAL_MS) {
-        return false;
+        return Object.keys(groups)
+            .sort()
+            .map(key => `${key}:${groups[key].total}:${groups[key].nobles}`)
+            .join('|');
     }
 
-    localStorage.setItem(SUMMARY_LAST_SENT_KEY, String(now));
-    localStorage.setItem(SUMMARY_STATE_KEY, getAttackSummaryState(attacks));
-
-    return true;
-}
-
-async function enrichSummaryWithDefenderTribe(attacks) {
-    if (!attacks.length) return;
-
-    attacks[0].defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
-}
-
-function splitSummaryLines(lines) {
-    const chunks = [];
-
-    for (let i = 0; i < lines.length; i += 8) {
-        chunks.push(lines.slice(i, i + 8).join('\n'));
+    function saveAttackSummaryState(attacks) {
+        localStorage.setItem(SUMMARY_STATE_KEY, getAttackSummaryState(attacks));
     }
 
-    return chunks;
-}
+    function shouldSendAttackSummary(attacks) {
+        if (!attacks.length) return false;
 
-function buildAttackSummaryEmbed(attacks) {
-    const defenderValue = getDefenderValue();
-    const groups = new Map();
-
-    attacks.forEach(attack => {
-        const key = getTargetKey(attack);
-
-        if (!groups.has(key)) {
-            groups.set(key, {
-    target: attack.origin,
-    total: 0,
-    nobles: 0
-});
+        const settings = getSettings();
+        if (!shouldSendBySchedule(
+            SUMMARY_LAST_SENT_KEY,
+            SUMMARY_DAILY_SENT_KEY,
+            settings.summaryScheduleMode,
+            getSummaryIntervalMs(),
+            settings.summaryDailyTime,
+            DEFAULT_SUMMARY_DAILY_TIME
+        )) {
+            return false;
         }
 
-        const group = groups.get(key);
-        group.total += 1;
+        localStorage.setItem(SUMMARY_STATE_KEY, getAttackSummaryState(attacks));
+        return true;
+    }
 
-        if (attack.isNoble) {
-            group.nobles += 1;
-        }
-    });
+    async function enrichSummaryWithDefenderTribe(attacks) {
+        if (!attacks.length) return;
+        attacks[0].defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
+    }
 
-    const sortedGroups = Array.from(groups.values())
-        .sort((a, b) => {
+    function buildAttackSummaryEmbed(attacks) {
+        const groups = new Map();
+
+        attacks.forEach(attack => {
+            const key = getTargetKey(attack);
+            if (!groups.has(key)) {
+                groups.set(key, { target: attack.origin, total: 0, nobles: 0 });
+            }
+
+            const group = groups.get(key);
+            group.total += 1;
+            if (attack.isNoble) group.nobles += 1;
+        });
+
+        const sortedGroups = Array.from(groups.values()).sort((a, b) => {
             if (b.nobles !== a.nobles) return b.nobles - a.nobles;
             return b.total - a.total;
         });
 
-    const totalNobles = attacks.filter(attack => attack.isNoble).length;
+        const totalNobles = attacks.filter(attack => attack.isNoble).length;
+        const villageLines = sortedGroups.map(group => {
+            const coords = group.target.coords
+                ? `${group.target.coords.text} ${group.target.coords.continent}`
+                : '???';
+            const nobleText = group.nobles > 0 ? ` 👑${group.nobles}` : '';
 
-    const villageLines = sortedGroups.map(group => {
-        const villageName = cleanText(getVillageName(group.target)).slice(0, 24);
-        const coords = group.target.coords
-            ? `${group.target.coords.text} ${group.target.coords.continent}`
-            : '???';
-        const nobleText = group.nobles > 0 ? ` 👑${group.nobles}` : '';
-
-        return `⚔️${group.total}${nobleText} ${getVillageLink(group.target)} | 📍 ${coords}`;
-    });
-
-    const chunks = [];
-
-    for (let i = 0; i < villageLines.length; i += 6) {
-        chunks.push(villageLines.slice(i, i + 6).join('\n'));
-    }
-
-    const fields = [
-        {
-            name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Defensor',
-            value: [
-                `**${defenderValue}**`,
-                `Tribo: ${formatTribe(attacks[0].defenderTribe)}`,
-                `Ataques: **${attacks.length}** | Aldeias: **${sortedGroups.length}** | Nobres: **${totalNobles}**`
-            ].join('\n'),
-            inline: false
-        }
-    ];
-
-    chunks.forEach((chunk, index) => {
-        fields.push({
-            name: index === 0 ? '🏘️ Aldeias' : `🏘️ Aldeias ${index + 1}`,
-            value: chunk,
-            inline: false
+            return `⚔️${group.total}${nobleText} ${getVillageLink(group.target)} | 📍 ${coords}`;
         });
-    });
 
-    return {
-        title: totalNobles > 0
-    ? '👑 ━━━ ATAQUES A CHEGAR ━━━ 👑'
-    : '📊 ━━━ ATAQUES A CHEGAR ━━━ 📊',
-        color: totalNobles > 0 ? 16753920 : 16711680,
-        fields,
-        footer: {
-            text: 'Tribal Wars PT'
-        },
-        timestamp: new Date().toISOString()
-    };
-}
+        const chunks = [];
+        for (let i = 0; i < villageLines.length; i += 6) {
+            chunks.push(villageLines.slice(i, i + 6).join('\n'));
+        }
+
+        const fields = [
+            {
+                name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Defensor',
+                value: [
+                    `**${getDefenderValue()}**`,
+                    `Tribo: ${formatTribe(attacks[0].defenderTribe)}`,
+                    `Ataques: **${attacks.length}** | Aldeias: **${sortedGroups.length}** | Nobres: **${totalNobles}**`
+                ].join('\n'),
+                inline: false
+            }
+        ];
+
+        chunks.forEach((chunk, index) => {
+            fields.push({
+                name: index === 0 ? '🏘️ Aldeias' : `🏘️ Aldeias ${index + 1}`,
+                value: chunk,
+                inline: false
+            });
+        });
+
+        return {
+            title: totalNobles > 0
+                ? '👑 ━━━ ATAQUES A CHEGAR ━━━ 👑'
+                : '📊 ━━━ ATAQUES A CHEGAR ━━━ 📊',
+            color: totalNobles > 0 ? 16753920 : 16711680,
+            fields,
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        };
+    }
 
     function shouldSendTroopSummary() {
-    const lastSent = Number(localStorage.getItem(TROOPS_LAST_SENT_KEY) || 0);
-    const now = Date.now();
+        const settings = getSettings();
+        const nowDate = new Date();
+        const now = nowDate.getTime();
 
-    if (now - lastSent < TROOPS_INTERVAL_MS) {
-        return false;
-    }
+        if (now - SCRIPT_STARTED_AT < STARTUP_GRACE_MS) {
+            const mode = normalizeScheduleMode(settings.troopsScheduleMode);
 
-    localStorage.setItem(TROOPS_LAST_SENT_KEY, String(now));
-    return true;
-}
+            if (mode === SCHEDULE_MODE_DAILY) {
+                const time = normalizeDailyTime(settings.troopsDailyTime, DEFAULT_TROOPS_DAILY_TIME);
+                const parts = time.split(':');
+                const targetDate = new Date();
+                targetDate.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
 
-async function checkIncomingAttacks() {
-    if (checking) return;
-    checking = true;
+                if (now >= targetDate.getTime()) {
+                    localStorage.setItem(TROOPS_DAILY_SENT_KEY, getLocalDateKey(nowDate));
+                    localStorage.setItem(TROOPS_LAST_SENT_KEY, String(now));
+                }
+            } else {
+                const lastSent = Number(localStorage.getItem(TROOPS_LAST_SENT_KEY) || 0);
+                if (!lastSent || now - lastSent >= getTroopsIntervalMs()) {
+                    localStorage.setItem(TROOPS_LAST_SENT_KEY, String(now));
+                }
+            }
 
-    try {
-        alreadySent = loadSet(SENT_KEY);
-        nobleAlreadySent = loadSet(NOBLE_SENT_KEY);
-
-        await loadWorldUnitSpeed();
-
-        const doc = await fetchIncomingAttacksDocument();
-        if (isTwVerificationPage(doc)) {
-    pauseForVerification('ataques a chegar');
-    return;
-}
-        const rows = Array.from(doc.querySelectorAll('#incomings_table tbody tr'));
-        errorBackoff = 0;
-
-        const attacks = rows
-            .map(parseAttackRow)
-            .filter(Boolean);
-
-        syncFallbackCountsToVisibleAttacks(attacks);
-
-if (!attacks.length) {
-    syncFallbackCountsToVisibleAttacks([]);
-    saveAttackSummaryState([]);
-
-    if (getSettings().notifyDefenseTroops && shouldSendTroopSummary()) {
-        try {
-            await sendTroopSummary();
-            console.log('[TW] Resumo automatico de tropas enviado.');
-        } catch (error) {
-            console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
+            return false;
         }
+
+        return shouldSendBySchedule(
+            TROOPS_LAST_SENT_KEY,
+            TROOPS_DAILY_SENT_KEY,
+            settings.troopsScheduleMode,
+            getTroopsIntervalMs(),
+            settings.troopsDailyTime,
+            DEFAULT_TROOPS_DAILY_TIME
+        );
     }
 
-    return;
-}
-        const targetCounts = {};
+    async function checkIncomingAttacks() {
+        if (checking) return;
+        checking = true;
 
-        attacks.forEach(attack => {
-            const key = getTargetKey(attack);
-            targetCounts[key] = (targetCounts[key] || 0) + 1;
-        });
+        try {
+            alreadySent = loadSet(SENT_KEY);
+            nobleAlreadySent = loadSet(NOBLE_SENT_KEY);
+            await loadWorldUnitSpeed();
 
-        attacks.forEach(attack => {
-            attack.targetCount = targetCounts[getTargetKey(attack)] || 1;
-        });
+            const doc = await fetchIncomingAttacksDocument();
+            if (isTwVerificationPage(doc)) {
+                pauseForVerification('ataques a chegar');
+                return;
+            }
 
-        const bootstrapped = localStorage.getItem(BOOTSTRAPPED_KEY) === '1';
+            const rows = Array.from(doc.querySelectorAll('#incomings_table tbody tr'));
+            errorBackoff = 0;
 
-        if (!bootstrapped && !SEND_EXISTING_ON_START) {
-            rememberKnownAttacks(attacks);
-            saveAttackSummaryState(attacks);
+            const attacks = rows
+                .map(parseAttackRow)
+                .filter(Boolean);
 
-            if (!localStorage.getItem(SUMMARY_LAST_SENT_KEY)) {
-                localStorage.setItem(SUMMARY_LAST_SENT_KEY, String(Date.now()));
+            syncFallbackCountsToVisibleAttacks(attacks);
+
+            if (!attacks.length) {
+                syncFallbackCountsToVisibleAttacks([]);
+                saveAttackSummaryState([]);
+
+                if (getSettings().notifyDefenseTroops && shouldSendTroopSummary()) {
+                    try {
+                        await sendTroopSummary();
+                        console.log('[TW] Resumo automatico de tropas enviado.');
+                    } catch (error) {
+                        console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
+                    }
+                }
+
+                return;
+            }
+
+            const targetCounts = {};
+            attacks.forEach(attack => {
+                const key = getTargetKey(attack);
+                targetCounts[key] = (targetCounts[key] || 0) + 1;
+            });
+
+            attacks.forEach(attack => {
+                attack.targetCount = targetCounts[getTargetKey(attack)] || 1;
+            });
+
+            const bootstrapped = localStorage.getItem(BOOTSTRAPPED_KEY) === '1';
+            if (!bootstrapped && !SEND_EXISTING_ON_START) {
+                rememberKnownAttacks(attacks);
+                saveAttackSummaryState(attacks);
+
+                if (!localStorage.getItem(SUMMARY_LAST_SENT_KEY)) {
+                    localStorage.setItem(SUMMARY_LAST_SENT_KEY, String(Date.now()));
+                }
+
+                localStorage.setItem(BOOTSTRAPPED_KEY, '1');
+                console.log(`[TW] ${attacks.length} ataques existentes guardados sem enviar.`);
+                return;
             }
 
             localStorage.setItem(BOOTSTRAPPED_KEY, '1');
-            console.log(`[TW] ${attacks.length} ataques existentes guardados sem enviar.`);
-            return;
-        }
 
-        localStorage.setItem(BOOTSTRAPPED_KEY, '1');
+            const newAttacks = collectNewAttacks(attacks);
+            for (const attack of newAttacks.reverse()) {
+                alreadySent.add(attack.id);
+                saveSent();
+                await enrichAttackWithTribes(attack);
 
-        const newAttacks = collectNewAttacks(attacks);
+                if (attack.isNoble) {
+                    if (!getSettings().notifyNobleAttacks) {
+                        console.log('[TW] Nobre ignorado por configuracao:', attack.id);
+                        continue;
+                    }
 
-        for (const attack of newAttacks.reverse()) {
-            alreadySent.add(attack.id);
-            saveSent();
+                    if (wasNobleAlertSent(attack)) {
+                        console.log('[TW] Nobre ja notificado:', getNobleAlertKey(attack));
+                        continue;
+                    }
 
-            await enrichAttackWithTribes(attack);
-
-            if (attack.isNoble) {
-    if (!getSettings().notifyNobleAttacks) {
-        console.log('[TW] Nobre ignorado por configuracao:', attack.id);
-        continue;
-    }
-
-    if (wasNobleAlertSent(attack)) {
-        console.log('[TW] Nobre ja notificado:', getNobleAlertKey(attack));
-        continue;
-    }
-
-    console.log('[TW] Nobre detectado:', attack);
-    addNobleToTrain(attack, attacks.length);
-    continue;
-}
+                    console.log('[TW] Nobre detectado:', attack);
+                    addNobleToTrain(attack, attacks.length);
+                    continue;
+                }
 
                 if (!getSettings().notifyNormalAttacks) {
                     console.log('[TW] Ataque ignorado por configuracao:', attack.id);
@@ -1705,708 +1846,2018 @@ if (!attacks.length) {
                 console.log('[TW] Novo ataque enviado para Discord:', attack.id);
             }
 
-        if (getSettings().notifyAttackSummary && shouldSendAttackSummary(attacks)) {
-            await enrichSummaryWithDefenderTribe(attacks);
-            queueDiscordEmbed(buildAttackSummaryEmbed(attacks), 'TW Attack Summary', getSummaryWebhook());
-            console.log('[TW] Resumo total de ataques enviado.');
-        }
-        if (getSettings().notifyDefenseTroops && shouldSendTroopSummary()) {
-    try {
-        await sendTroopSummary();
-        console.log('[TW] Resumo automatico de tropas enviado.');
-    } catch (error) {
-        console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
-    }
-}
-
-    } catch (error) {
-        errorBackoff = Math.min(errorBackoff + 5000, 60000);
-        console.warn('[TW] Erro ao verificar ataques:', error, 'Backoff:', errorBackoff);
-    } finally {
-        checking = false;
-    }
-}
-
-async function runCheckLoop() {
-    if (verificationPaused) return;
-
-    if (isTwVerificationPage(document)) {
-        pauseForVerification('pagina atual');
-        return;
-    }
-
-    if (!isMasterTab()) return;
-
-    await checkIncomingAttacks();
-}
-
-    function escapeHtml(value) {
-    return String(value || '')
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
-
-    function getTroopsOverviewUrl() {
-    const url = new URL(window.location.href);
-
-    url.searchParams.set('screen', 'overview_villages');
-    url.searchParams.set('mode', 'units');
-    url.searchParams.set('page', '-1');
-
-    url.searchParams.delete('action');
-    url.searchParams.delete('ajax');
-    url.searchParams.delete('h');
-
-    return url.toString();
-}
-
-async function fetchTroopsOverviewDocument() {
-    const response = await fetch(getTroopsOverviewUrl(), {
-        credentials: 'include',
-        cache: 'no-store'
-    });
-
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-
-    const html = await response.text();
-    return new DOMParser().parseFromString(html, 'text/html');
-}
-
-function detectTroopUnitKey(cell) {
-    const imgTexts = Array.from(cell.querySelectorAll('img'))
-        .map(img => [
-            img.getAttribute('src') || '',
-            img.getAttribute('title') || '',
-            img.getAttribute('alt') || '',
-            img.className || ''
-        ].join(' '))
-        .join(' ');
-
-    const haystack = [
-        cell.innerText || '',
-        cell.innerHTML || '',
-        cell.className || '',
-        imgTexts
-    ].join(' ').toLowerCase();
-
-    const aliases = {
-        spear: ['unit_spear', 'unit-spear', 'unit-item-spear', 'spear.png', 'lanceiro'],
-        sword: ['unit_sword', 'unit-sword', 'unit-item-sword', 'sword.png', 'espadachim'],
-        axe: ['unit_axe', 'unit-axe', 'unit-item-axe', 'axe.png', 'barbaro', 'bárbaro'],
-        archer: ['unit_archer', 'unit-archer', 'unit-item-archer', 'archer.png', 'arqueiro'],
-        spy: ['unit_spy', 'unit-spy', 'unit-item-spy', 'spy.png', 'explorador', 'batedor'],
-        light: ['unit_light', 'unit-light', 'unit-item-light', 'light.png', 'cavalaria leve'],
-        marcher: ['unit_marcher', 'unit-marcher', 'unit-item-marcher', 'marcher.png', 'arqueiro a cavalo'],
-        heavy: ['unit_heavy', 'unit-heavy', 'unit-item-heavy', 'heavy.png', 'cavalaria pesada'],
-        ram: ['unit_ram', 'unit-ram', 'unit-item-ram', 'ram.png', 'ariete'],
-        catapult: ['unit_catapult', 'unit-catapult', 'unit-item-catapult', 'catapult.png', 'catapulta'],
-        knight: ['unit_knight', 'unit-knight', 'unit-item-knight', 'knight.png', 'paladino'],
-        snob: ['unit_snob', 'unit-snob', 'unit-item-snob', 'snob.png', 'nobre'],
-        militia: ['unit_militia', 'unit-militia', 'unit-item-militia', 'militia.png', 'milicia', 'milícia']
-    };
-
-    return Object.keys(aliases).find(key =>
-        aliases[key].some(alias => haystack.includes(alias))
-    ) || null;
-}
-
-function getCellAtColumn(row, columnIndex) {
-    let currentIndex = 0;
-
-    for (const cell of Array.from(row.children)) {
-        const colspan = Number(cell.getAttribute('colspan') || 1);
-
-        if (columnIndex >= currentIndex && columnIndex < currentIndex + colspan) {
-            return cell;
-        }
-
-        currentIndex += colspan;
-    }
-
-    return null;
-}
-
-function getTroopColumns(table) {
-    let bestColumns = [];
-
-    Array.from(table.querySelectorAll('tr')).forEach(row => {
-        const columns = [];
-        let columnIndex = 0;
-
-        Array.from(row.children).forEach(cell => {
-            const unitKey = detectTroopUnitKey(cell);
-
-            if (unitKey) {
-                columns.push({
-                    index: columnIndex,
-                    key: unitKey
-                });
+            if (getSettings().notifyAttackSummary && shouldSendAttackSummary(attacks)) {
+                await enrichSummaryWithDefenderTribe(attacks);
+                queueDiscordEmbed(buildAttackSummaryEmbed(attacks), 'TW Attack Summary', getSummaryWebhook());
+                console.log('[TW] Resumo total de ataques enviado.');
             }
 
-            columnIndex += Number(cell.getAttribute('colspan') || 1);
+            if (getSettings().notifyDefenseTroops && shouldSendTroopSummary()) {
+                try {
+                    await sendTroopSummary();
+                    console.log('[TW] Resumo automatico de tropas enviado.');
+                } catch (error) {
+                    console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
+                }
+            }
+        } catch (error) {
+            errorBackoff = Math.min(errorBackoff + 5000, 60000);
+            console.warn('[TW] Erro ao verificar ataques:', error, 'Backoff:', errorBackoff);
+        } finally {
+            checking = false;
+        }
+    }
+
+    async function runCheckLoop() {
+        if (verificationPaused) return;
+
+        if (isTwVerificationPage(document)) {
+            pauseForVerification('Página Atual do Jogo');
+            return;
+        }
+
+        if (!isMasterTab()) return;
+        await checkIncomingAttacks();
+    }
+
+    function getTroopsOverviewUrl() {
+        const url = new URL(window.location.href);
+        url.searchParams.set('screen', 'overview_villages');
+        url.searchParams.set('mode', 'units');
+        url.searchParams.set('page', '-1');
+        url.searchParams.delete('action');
+        url.searchParams.delete('ajax');
+        url.searchParams.delete('h');
+        return url.toString();
+    }
+
+    async function fetchTroopsOverviewDocument() {
+        const response = await fetch(getTroopsOverviewUrl(), {
+            credentials: 'include',
+            cache: 'no-store'
         });
 
-        if (columns.length > bestColumns.length) {
-            bestColumns = columns;
-        }
-    });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    return bestColumns;
-}
-
-function parseTroopNumber(value) {
-    const raw = String(value || '').replace(/\u00a0/g, ' ').trim();
-
-    if (!raw || raw === '-' || raw === '—') return 0;
-
-    const lines = raw
-        .split(/\r?\n/)
-        .map(cleanText)
-        .filter(Boolean);
-
-    if (lines.length > 1) {
-        const numericLines = lines.filter(line => /^\d[\d.\s]*$/.test(line));
-
-        if (numericLines.length === 1) {
-            return Number(numericLines[0].replace(/[.\s]/g, '')) || 0;
-        }
-
-        console.warn('[TW] Celula de tropas ignorada por conter varios valores:', raw);
-        return 0;
+        const html = await response.text();
+        return new DOMParser().parseFromString(html, 'text/html');
     }
 
-    const text = cleanText(raw);
+    function detectTroopUnitKey(cell) {
+        const imgTexts = Array.from(cell.querySelectorAll('img'))
+            .map(img => [
+                img.getAttribute('src') || '',
+                img.getAttribute('title') || '',
+                img.getAttribute('alt') || '',
+                img.className || ''
+            ].join(' '))
+            .join(' ');
 
-    if (!/^\d[\d.\s]*$/.test(text)) {
-        return 0;
+        const haystack = [
+            cell.innerText || '',
+            cell.innerHTML || '',
+            cell.className || '',
+            imgTexts
+        ].join(' ').toLowerCase();
+
+        const aliases = {
+            spear: ['unit_spear', 'unit-spear', 'unit-item-spear', 'spear.png', 'lanceiro'],
+            sword: ['unit_sword', 'unit-sword', 'unit-item-sword', 'sword.png', 'espadachim'],
+            axe: ['unit_axe', 'unit-axe', 'unit-item-axe', 'axe.png', 'barbaro', 'bárbaro'],
+            archer: ['unit_archer', 'unit-archer', 'unit-item-archer', 'archer.png', 'arqueiro'],
+            spy: ['unit_spy', 'unit-spy', 'unit-item-spy', 'spy.png', 'explorador', 'batedor'],
+            light: ['unit_light', 'unit-light', 'unit-item-light', 'light.png', 'cavalaria leve'],
+            marcher: ['unit_marcher', 'unit-marcher', 'unit-item-marcher', 'marcher.png', 'arqueiro a cavalo'],
+            heavy: ['unit_heavy', 'unit-heavy', 'unit-item-heavy', 'heavy.png', 'cavalaria pesada'],
+            ram: ['unit_ram', 'unit-ram', 'unit-item-ram', 'ram.png', 'ariete'],
+            catapult: ['unit_catapult', 'unit-catapult', 'unit-item-catapult', 'catapult.png', 'catapulta'],
+            knight: ['unit_knight', 'unit-knight', 'unit-item-knight', 'knight.png', 'paladino'],
+            snob: ['unit_snob', 'unit-snob', 'unit-item-snob', 'snob.png', 'nobre'],
+            militia: ['unit_militia', 'unit-militia', 'unit-item-militia', 'militia.png', 'milicia', 'milícia']
+        };
+
+        return Object.keys(aliases).find(key =>
+            aliases[key].some(alias => haystack.includes(alias))
+        ) || null;
     }
 
-    return Number(text.replace(/[.\s]/g, '')) || 0;
-}
+    function getCellAtColumn(row, columnIndex) {
+        let currentIndex = 0;
 
-function parseTroopsOverview(doc) {
-    const tables = Array.from(doc.querySelectorAll('#units_table, table.vis, table'));
-    let bestTable = null;
-    let bestColumns = [];
+        for (const cell of Array.from(row.children)) {
+            const colspan = Number(cell.getAttribute('colspan') || 1);
+            if (columnIndex >= currentIndex && columnIndex < currentIndex + colspan) {
+                return cell;
+            }
 
-    tables.forEach(table => {
-        const columns = getTroopColumns(table);
-
-        if (columns.length > bestColumns.length) {
-            bestTable = table;
-            bestColumns = columns;
+            currentIndex += colspan;
         }
-    });
 
-    if (!bestTable || !bestColumns.length) {
         return null;
     }
 
-    const totals = {};
+    function getTroopColumns(table) {
+        let bestColumns = [];
 
-    Object.keys(TROOP_UNIT_LABELS).forEach(key => {
-        totals[key] = 0;
-    });
+        Array.from(table.querySelectorAll('tr')).forEach(row => {
+            const columns = [];
+            let columnIndex = 0;
 
-    const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'))
-        .filter(row => /\d{3}\|\d{3}/.test(cleanText(row.innerText)));
+            Array.from(row.children).forEach(cell => {
+                const unitKey = detectTroopUnitKey(cell);
+                if (unitKey) {
+                    columns.push({ index: columnIndex, key: unitKey });
+                }
 
-    rows.forEach(row => {
-        bestColumns.forEach(column => {
-            const cell = getCellAtColumn(row, column.index);
-            totals[column.key] += parseTroopNumber(cell ? cell.innerText : '');
+                columnIndex += Number(cell.getAttribute('colspan') || 1);
+            });
+
+            if (columns.length > bestColumns.length) bestColumns = columns;
         });
-    });
 
-    return {
-        totals,
-        villageCount: rows.length
-    };
-}
-
-function formatTroopNumber(value) {
-    return Number(value || 0).toLocaleString('pt-PT');
-}
-
-function sumTroopUnits(totals, units) {
-    return units.reduce((sum, unit) => sum + Number(totals[unit] || 0), 0);
-}
-
-function formatTroopLines(totals, units) {
-    const lines = units
-        .filter(unit => Number(totals[unit] || 0) > 0)
-        .map(unit => `${TROOP_UNIT_LABELS[unit]}: **${formatTroopNumber(totals[unit])}**`);
-
-    return lines.length ? lines.join('\n') : 'Sem tropas detectadas.';
-}
-
-function buildTroopSummaryEmbed(summary) {
-    const defenseTotal = sumTroopUnits(summary.totals, TROOP_DEFENSE_UNITS);
-    const attackTotal = sumTroopUnits(summary.totals, TROOP_ATTACK_UNITS);
-    const totalTroops = defenseTotal + attackTotal;
-
-    return {
-        title: '📦 ━━ TROPAS MÓVEIS ━━ 📦',
-        color: 5763719,
-        fields: [
-            {
-                name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Jogador',
-                value: [
-                    `**${getDefenderValue()}**`,
-                    `Tribo: ${formatTribe(summary.defenderTribe)}`
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🛡️ Defesa',
-                value: [
-                    `Total: **${formatTroopNumber(defenseTotal)}**`,
-                    '',
-                    formatTroopLines(summary.totals, TROOP_DEFENSE_UNITS),
-                    '',
-                    '━━━━━━━━━━━━━━━━━━━━'
-                ].join('\n'),
-                inline: false
-            },
-{
-    name: '⚔️ Ataque',
-    value: [
-        `Total: **${formatTroopNumber(attackTotal)}**`,
-        '',
-        formatTroopLines(summary.totals, TROOP_ATTACK_UNITS),
-        '',
-        '━━━━━━━━━━━━━━━━━━━━'
-    ].join('\n'),
-    inline: false
-},
-{
-    name: '🏘️ Geral',
-                value: [
-                    `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`,
-                    `Tropas totais: **${formatTroopNumber(totalTroops)}**`
-                ].join('\n'),
-                inline: false
-            }
-        ],
-        footer: {
-            text: 'Tribal Wars PT'
-        },
-        timestamp: new Date().toISOString()
-    };
-}
-
-async function sendTroopSummary() {
-    const doc = await fetchTroopsOverviewDocument();
-    const summary = parseTroopsOverview(doc);
-
-    if (!summary || !summary.villageCount) {
-        console.log('[TW] Sem tropas para enviar.');
-        return false;
+        return bestColumns;
     }
 
-    summary.defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
+    function parseTroopNumber(value) {
+        const raw = String(value || '').replace(/\u00a0/g, ' ').trim();
+        if (!raw || raw === '-' || raw === '—') return 0;
 
-    queueDiscordEmbed(buildTroopSummaryEmbed(summary), 'TW Troop Summary', getTroopsWebhook());
-    console.log('[TW] Resumo total de tropas enviado.');
+        const lines = raw
+            .split(/\r?\n/)
+            .map(cleanText)
+            .filter(Boolean);
 
-    return true;
-}
+        if (lines.length > 1) {
+            const numericLines = lines.filter(line => /^\d[\d.\s]*$/.test(line));
+            if (numericLines.length === 1) {
+                return Number(numericLines[0].replace(/[.\s]/g, '')) || 0;
+            }
+
+            console.warn('[TW] Celula de tropas ignorada por conter varios valores:', raw);
+            return 0;
+        }
+
+        const text = cleanText(raw);
+        if (!/^\d[\d.\s]*$/.test(text)) return 0;
+
+        return Number(text.replace(/[.\s]/g, '')) || 0;
+    }
+
+    function parseTroopsOverview(doc) {
+        const tables = Array.from(doc.querySelectorAll('#units_table, table.vis, table'));
+        let bestTable = null;
+        let bestColumns = [];
+
+        tables.forEach(table => {
+            const columns = getTroopColumns(table);
+            if (columns.length > bestColumns.length) {
+                bestTable = table;
+                bestColumns = columns;
+            }
+        });
+
+        if (!bestTable || !bestColumns.length) return null;
+
+        const totals = {};
+        Object.keys(TROOP_UNIT_LABELS).forEach(key => {
+            totals[key] = 0;
+        });
+
+        const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'))
+            .filter(row => /\d{3}\|\d{3}/.test(cleanText(row.innerText)));
+
+        rows.forEach(row => {
+            bestColumns.forEach(column => {
+                const cell = getCellAtColumn(row, column.index);
+                totals[column.key] += parseTroopNumber(cell ? cell.innerText : '');
+            });
+        });
+
+        return { totals, villageCount: rows.length };
+    }
+
+    function formatTroopNumber(value) {
+        return Number(value || 0).toLocaleString('pt-PT');
+    }
+
+    function sumTroopUnits(totals, units) {
+        return units.reduce((sum, unit) => sum + Number(totals[unit] || 0), 0);
+    }
+
+    function formatTroopLines(totals, units) {
+        const lines = units
+            .filter(unit => Number(totals[unit] || 0) > 0)
+            .map(unit => `${TROOP_UNIT_LABELS[unit]}: **${formatTroopNumber(totals[unit])}**`);
+
+        return lines.length ? lines.join('\n') : 'Sem tropas detectadas.';
+    }
+
+    function getTroopsSummaryMode() {
+        return normalizeTroopsSummaryMode(getSettings().troopsSummaryMode);
+    }
+
+    function buildSimpleDefenseTroopSummaryEmbed(summary) {
+        const totals = summary.totals || {};
+        const defenseTotal = sumTroopUnits(summary.totals, TROOP_DEFENSE_UNITS);
+        const lines = [
+            `🔱 Lanceiros: **${formatTroopNumber(totals.spear)}**`,
+            `🗡️ Espadachins: **${formatTroopNumber(totals.sword)}**`
+        ];
+
+        if (Number(totals.archer || 0) > 0) lines.push(`🏹 Arqueiros: **${formatTroopNumber(totals.archer)}**`);
+        if (Number(totals.heavy || 0) > 0) lines.push(`🐴 Cavalaria Pesada: **${formatTroopNumber(totals.heavy)}**`);
+        if (Number(totals.knight || 0) > 0) lines.push(`⚜️ Paladino: **${formatTroopNumber(totals.knight)}**`);
+        if (Number(totals.militia || 0) > 0) lines.push(`🏘️ Milicia: **${formatTroopNumber(totals.militia)}**`);
+
+        if (Number(totals.spy || 0) > 0) lines.push(`${TROOP_UNIT_LABELS.spy}: **${formatTroopNumber(totals.spy)}**`);
+
+        return {
+            title: '📦 ━━ TROPAS MÓVEIS ━━ 📦',
+            color: 5763719,
+            description: [
+                '━━━━━━━━━━━━━━━━━━━━',
+                '🛡️ **Jogador**',
+                `**${getDefenderValue()}**`,
+                `Tribo: ${formatTribe(summary.defenderTribe)}`,
+                '',
+                '🛡️ **Defesa**',
+                `Total: **${formatTroopNumber(defenseTotal)}**`,
+                '',
+                lines.join('\n')
+            ].join('\n'),
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    function buildTroopSummaryEmbed(summary) {
+        const defenseTotal = sumTroopUnits(summary.totals, TROOP_DEFENSE_UNITS);
+        const attackTotal = sumTroopUnits(summary.totals, TROOP_ATTACK_UNITS);
+        const totalTroops = defenseTotal + attackTotal;
+
+        return {
+            title: '📦 ━━ TROPAS MÓVEIS ━━ 📦',
+            color: 5763719,
+            fields: [
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Jogador',
+                    value: [
+                        `**${getDefenderValue()}**`,
+                        `Tribo: ${formatTribe(summary.defenderTribe)}`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '🛡️ Defesa',
+                    value: [
+                        `Total: **${formatTroopNumber(defenseTotal)}**`,
+                        '',
+                        formatTroopLines(summary.totals, TROOP_DEFENSE_UNITS),
+                        '',
+                        '━━━━━━━━━━━━━━━━━━━━'
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '⚔️ Ataque',
+                    value: [
+                        `Total: **${formatTroopNumber(attackTotal)}**`,
+                        '',
+                        formatTroopLines(summary.totals, TROOP_ATTACK_UNITS),
+                        '',
+                        '━━━━━━━━━━━━━━━━━━━━'
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '🏘️ Geral',
+                    value: [
+                        `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`,
+                        `Tropas totais: **${formatTroopNumber(totalTroops)}**`
+                    ].join('\n'),
+                    inline: false
+                }
+            ],
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    async function sendTroopSummary() {
+        const doc = await fetchTroopsOverviewDocument();
+        const summary = parseTroopsOverview(doc);
+
+        if (!summary || !summary.villageCount) {
+            console.log('[TW] Sem tropas para enviar.');
+            return false;
+        }
+
+        const simpleMode = getTroopsSummaryMode() === TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE;
+        summary.defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
+
+        const embed = simpleMode
+            ? buildSimpleDefenseTroopSummaryEmbed(summary)
+            : buildTroopSummaryEmbed(summary);
+
+        queueDiscordEmbed(
+            embed,
+            simpleMode ? 'Tribos Defesa Bot' : 'TW Troop Summary',
+            getTroopsWebhook()
+        );
+
+        console.log('[TW] Resumo total de tropas enviado.');
+        return true;
+    }
 
     async function sendAttackSummaryTest() {
         await loadWorldUnitSpeed();
 
-    const doc = await fetchIncomingAttacksDocument();
-    const rows = Array.from(doc.querySelectorAll('#incomings_table tbody tr'));
+        const doc = await fetchIncomingAttacksDocument();
+        const rows = Array.from(doc.querySelectorAll('#incomings_table tbody tr'));
+        const attacks = rows.map(parseAttackRow).filter(Boolean);
 
-    const attacks = rows
-        .map(parseAttackRow)
-        .filter(Boolean);
-
-    if (!attacks.length) {
-        console.log('[TW] Sem ataques para testar resumo.');
-        return false;
-    }
-
-    const targetCounts = {};
-
-    attacks.forEach(attack => {
-        const key = getTargetKey(attack);
-        targetCounts[key] = (targetCounts[key] || 0) + 1;
-    });
-
-    attacks.forEach(attack => {
-        attack.targetCount = targetCounts[getTargetKey(attack)] || 1;
-    });
-
-    await enrichSummaryWithDefenderTribe(attacks);
-
-    queueDiscordEmbed(buildAttackSummaryEmbed(attacks), 'TW Attack Summary', getSummaryWebhook());
-
-    console.log('[TW] Teste de resumo total enviado.');
-    return true;
-}
-
-    function createSettingsUi() {
-let uiWin = window;
-let uiDoc = document;
-
-try {
-    if (window.top && window.top.document) {
-        uiWin = window.top;
-        uiDoc = window.top.document;
-    }
-} catch (_) {}
-
-if (uiDoc.getElementById('tw-discord-alerts-ui')) return;
-
-const settings = getSettings();
-
-const style = uiDoc.createElement('style');
-
-    style.textContent = `
-#tw-discord-alerts-ui {
-    position: absolute !important;
-    top: 16px !important;
-    right: 16px !important;
-    z-index: 2147483647 !important;
-    font-family: Arial, sans-serif;
-}
-
-#tw-discord-alerts-toggle {
-    position: relative;
-    min-width: 165px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    cursor: pointer;
-    color: #fff;
-    font-size: 12px;
-    font-weight: bold;
-    text-shadow: 1px 1px 1px #000;
-    border: 1px solid #1b0d07;
-    border-radius: 3px;
-    background:
-        linear-gradient(to bottom, rgba(255,255,255,.18), rgba(0,0,0,.18)),
-        linear-gradient(to bottom, #8f2e1c 0%, #5f170f 48%, #2b0906 100%);
-    box-shadow:
-        inset 0 0 0 1px #d6a35a,
-        inset 0 2px 2px rgba(255,255,255,.18),
-        inset 0 -2px 2px rgba(0,0,0,.45),
-        0 2px 5px rgba(0,0,0,.45);
-    padding: 0 10px;
-}
-
-#tw-discord-alerts-toggle:hover {
-    background:
-        linear-gradient(to bottom, rgba(255,255,255,.22), rgba(0,0,0,.14)),
-        linear-gradient(to bottom, #a63a24 0%, #711d12 48%, #35100a 100%);
-}
-
-#tw-discord-alerts-toggle:active {
-    transform: translateY(1px);
-}
-
-.tw-alerts-eye {
-    width: 18px;
-    height: 18px;
-    position: relative;
-    flex: 0 0 18px;
-    border-radius: 50%;
-    background: radial-gradient(circle at center, #111 0%, #050505 68%, #7a4b24 70%, #d6a35a 100%);
-    box-shadow: inset 0 1px 1px rgba(255,255,255,.35), 0 1px 1px #000;
-}
-
-.tw-alerts-eye::before {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 6px;
-    width: 10px;
-    height: 6px;
-    border-radius: 50%;
-    background: #f2f2f2;
-}
-
-.tw-alerts-eye::after {
-    content: '';
-    position: absolute;
-    left: 7px;
-    top: 7px;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: #111;
-}
-
-#tw-discord-alerts-panel {
-    display: none;
-    width: 310px;
-    margin-top: 8px;
-            background: #f4e4bc;
-            color: #2b1a0d;
-            border: 2px solid #7b2d26;
-            border-radius: 4px;
-            padding: 10px;
-            box-shadow: 0 4px 18px rgba(0,0,0,.45);
+        if (!attacks.length) {
+            console.log('[TW] Sem ataques para testar resumo.');
+            return false;
         }
 
-        #tw-discord-alerts-panel.tw-open {
-            display: block;
-        }
-
-        #tw-discord-alerts-panel h3 {
-            margin: 0 0 8px;
-            font-size: 14px;
-            color: #7b2d26;
-        }
-
-        #tw-discord-alerts-panel label {
-            display: block;
-            margin: 7px 0 3px;
-            font-weight: bold;
-            font-size: 12px;
-        }
-
-#tw-discord-alerts-panel input[type="text"],
-#tw-discord-alerts-panel input[type="number"],
-#tw-discord-alerts-panel select {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 5px;
-    border: 1px solid #b98b45;
-    border-radius: 3px;
-}
-
-        .tw-alerts-check {
-            display: flex;
-            gap: 6px;
-            align-items: center;
-            margin: 7px 0;
-            font-size: 12px;
-        }
-
-        .tw-alerts-buttons {
-            display: flex;
-            gap: 6px;
-            margin-top: 10px;
-        }
-
-        .tw-alerts-buttons button {
-            flex: 1;
-            cursor: pointer;
-            border: 1px solid #7b2d26;
-            background: #7b2d26;
-            color: #fff;
-            padding: 6px;
-            border-radius: 3px;
-            font-weight: bold;
-        }
-
-        #tw-alerts-status {
-            margin-top: 7px;
-            font-size: 12px;
-            color: #4b2c12;
-        }
-    `;
-    (uiDoc.head || uiDoc.documentElement).appendChild(style);
-
-    const root = uiDoc.createElement('div');
-    root.id = 'tw-discord-alerts-ui';
-
-    root.innerHTML = `
-<button id="tw-discord-alerts-toggle" type="button">
-    <span class="tw-alerts-eye"></span>
-    <span>Alertas Discord</span>
-</button>
-
-        <div id="tw-discord-alerts-panel">
-            <h3>TW Discord Alerts</h3>
-
-<label>Webhook Discord - Ataques/Nobres</label>
-<input id="tw-alerts-webhook" type="text" value="${escapeHtml(settings.webhook || '')}">
-
-<label>Webhook Discord - Ataques a Chegar</label>
-<input id="tw-alerts-summary-webhook" type="text" value="${escapeHtml(settings.summaryWebhook || '')}">
-
-<label>Webhook Discord - Tropas Móveis</label>
-<input id="tw-alerts-troops-webhook" type="text" value="${escapeHtml(settings.troopsWebhook || '')}">
-
-<label>Webhook Discord - Verificação/Captcha</label>
-<input id="tw-alerts-verification-webhook" type="text" value="${escapeHtml(settings.verificationWebhook || '')}">
-
-            <div class="tw-alerts-check">
-                <input id="tw-alerts-normal" type="checkbox" ${settings.notifyNormalAttacks ? 'checked' : ''}>
-                <span>Notificar Ataques</span>
-            </div>
-
-            <div class="tw-alerts-check">
-                <input id="tw-alerts-nobles" type="checkbox" ${settings.notifyNobleAttacks ? 'checked' : ''}>
-                <span>Notificar Nobres</span>
-            </div>
-
-<div class="tw-alerts-check">
-    <input id="tw-alerts-summary" type="checkbox" ${settings.notifyAttackSummary ? 'checked' : ''}>
-    <span>Notificar Ataques a Chegar</span>
-</div>
-
-<div class="tw-alerts-check">
-    <input id="tw-alerts-defense-troops" type="checkbox" ${settings.notifyDefenseTroops ? 'checked' : ''}>
-    <span>Notificar Tropas Móveis</span>
-</div>
-
-<div class="tw-alerts-check">
-    <input id="tw-alerts-verification" type="checkbox" ${settings.notifyVerificationAlerts ? 'checked' : ''}>
-    <span>Notificar Verificação do Bot no Jogo (Em Teste)</span>
-</div>
-
-<label>Modo de verificação</label>
-<select id="tw-alerts-interval">
-    <option value="test" ${String(settings.checkInterval) === 'test' || Number(settings.checkInterval) === 2000 ? 'selected' : ''}>Teste - 2 segundos</option>
-    <option value="normal" ${String(settings.checkInterval) === 'normal' || Number(settings.checkInterval) === 10000 ? 'selected' : ''}>Normal - aleatorio 1 a 5 minutos</option>
-    <option value="safe" ${String(settings.checkInterval) === 'safe' || Number(settings.checkInterval) === 30000 ? 'selected' : ''}>Seguro - aleatorio 5 a 15 minutos</option>
-</select>
-
-<div class="tw-alerts-buttons">
-    <button id="tw-alerts-save">Guardar</button>
-    <button id="tw-alerts-test">Testar</button>
-</div>
-
-<div class="tw-alerts-buttons">
-    <button id="tw-alerts-test-summary" type="button">Enviar Ataques a Chegar</button>
-</div>
-
-<div class="tw-alerts-buttons">
-    <button id="tw-alerts-troops" type="button">Enviar Tropas Móveis</button>
-</div>
-
-            <div id="tw-alerts-status"></div>
-        </div>
-    `;
-
-(uiDoc.body || uiDoc.documentElement).appendChild(root);
-
-root.style.setProperty('position', 'absolute', 'important');
-root.style.setProperty('top', '16px', 'important');
-root.style.setProperty('right', '16px', 'important');
-root.style.setProperty('left', 'auto', 'important');
-root.style.setProperty('bottom', 'auto', 'important');
-root.style.setProperty('margin', '0', 'important');
-root.style.setProperty('z-index', '2147483647', 'important');
-root.style.setProperty('transform', 'none', 'important');
-
-    const panel = root.querySelector('#tw-discord-alerts-panel');
-    const status = root.querySelector('#tw-alerts-status');
-
-    root.querySelector('#tw-discord-alerts-toggle').addEventListener('click', () => {
-        panel.classList.toggle('tw-open');
-    });
-
-    function readFormSettings() {
-        return {
-            webhook: root.querySelector('#tw-alerts-webhook').value.trim(),
-            summaryWebhook: root.querySelector('#tw-alerts-summary-webhook').value.trim(),
-            troopsWebhook: root.querySelector('#tw-alerts-troops-webhook').value.trim(),
-            verificationWebhook: root.querySelector('#tw-alerts-verification-webhook').value.trim(),
-            notifyNormalAttacks: root.querySelector('#tw-alerts-normal').checked,
-            notifyNobleAttacks: root.querySelector('#tw-alerts-nobles').checked,
-            notifyAttackSummary: root.querySelector('#tw-alerts-summary').checked,
-            notifyDefenseTroops: root.querySelector('#tw-alerts-defense-troops').checked,
-            notifyVerificationAlerts: root.querySelector('#tw-alerts-verification').checked,
-            checkInterval: root.querySelector('#tw-alerts-interval').value || CHECK_INTERVAL,
-            nobleTrainDelay: 2000
-        };
-    }
-
-    root.querySelector('#tw-alerts-save').addEventListener('click', () => {
-        saveSettings(readFormSettings());
-        status.textContent = 'Configuracao guardada.';
-    });
-
-    root.querySelector('#tw-alerts-test').addEventListener('click', async () => {
-    saveSettings(readFormSettings());
-    status.textContent = 'A enviar teste...';
-
-    await postDiscord({
-            username: 'TribalWars Alerts',
-            allowed_mentions: { parse: [] },
-        embeds: [{
-            title: '✅ Teste TW Discord Alerts',
-            description: [
-                'Webhook configurado corretamente.',
-                '',
-                `Jogador: **${getDefenderValue()}**`
-            ].join('\n'),
-            color: 5763719,
-            footer: { text: 'Tribal Wars PT' },
-            timestamp: new Date().toISOString()
-        }]
-
+        const targetCounts = {};
+        attacks.forEach(attack => {
+            const key = getTargetKey(attack);
+            targetCounts[key] = (targetCounts[key] || 0) + 1;
         });
 
-        status.textContent = 'Teste enviado.';
-    });
+        attacks.forEach(attack => {
+            attack.targetCount = targetCounts[getTargetKey(attack)] || 1;
+        });
 
-    root.querySelector('#tw-alerts-troops').addEventListener('click', async () => {
-    saveSettings(readFormSettings());
-    status.textContent = 'A enviar tropas...';
-
-    try {
-        const sent = await sendTroopSummary();
-        status.textContent = sent
-            ? 'Tropas enviadas.'
-            : 'Sem tropas para enviar.';
-    } catch (error) {
-        console.warn('[TW] Erro ao enviar tropas:', error);
-        status.textContent = 'Erro ao enviar tropas.';
-    }
-});
-
-    root.querySelector('#tw-alerts-test-summary').addEventListener('click', async () => {
-    saveSettings(readFormSettings());
-    status.textContent = 'A enviar resumo...';
-
-    try {
-        const sent = await sendAttackSummaryTest();
-        status.textContent = sent
-            ? 'Resumo enviado.'
-            : 'Sem ataques para resumir.';
-    } catch (error) {
-        console.warn('[TW] Erro ao testar resumo:', error);
-        status.textContent = 'Erro ao enviar resumo.';
-    }
-});
-}
-
-createSettingsUi();
-restorePendingNobleTrains();
-
-async function scheduleCheckLoop() {
-    restorePendingNobleTrains();
-    await runCheckLoop();
-    setTimeout(scheduleCheckLoop, getCurrentCheckInterval());
-}
-
-function getCurrentCheckInterval() {
-    return getCheckInterval() + errorBackoff;
-}
-
-    function checkCurrentPageVerification() {
-    if (isTwVerificationPage(document)) {
-        pauseForVerification('pagina atual');
+        await enrichSummaryWithDefenderTribe(attacks);
+        queueDiscordEmbed(buildAttackSummaryEmbed(attacks), 'TW Attack Summary', getSummaryWebhook());
+        console.log('[TW] Teste de resumo total enviado.');
         return true;
     }
 
-    return false;
+    function createSettingsUi() {
+        let uiDoc = document;
+
+        try {
+            if (window.top && window.top.document) {
+                uiDoc = window.top.document;
+            }
+        } catch (_) {}
+
+        if (uiDoc.getElementById('tw-discord-alerts-ui')) return;
+
+        const settings = getSettings();
+        const style = uiDoc.createElement('style');
+        style.textContent = `
+#tw-discord-alerts-ui {
+    position: fixed !important;
+    top: 14px !important;
+    right: 14px !important;
+    z-index: 2147483647 !important;
+    font-family: Verdana, Arial, sans-serif !important;
+    color: #3b1607 !important;
 }
 
-checkCurrentPageVerification();
-setInterval(checkCurrentPageVerification, 5000);
-setTimeout(scheduleCheckLoop, Math.floor(Math.random() * 1000));
+#tw-discord-alerts-toggle {
+    position: relative !important;
+    z-index: 4 !important;
+    min-width: 210px !important;
+    height: 32px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    cursor: pointer !important;
+    border: 1px solid #4f120f !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.45) !important;
+    color: #fff !important;
+    font-size: 12px !important;
+    font-weight: bold !important;
+    text-shadow: 1px 1px 1px #000 !important;
+    padding: 0 10px !important;
+}
 
+#tw-discord-alerts-toggle:hover {
+    background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
+}
+
+#tw-discord-alerts-backdrop {
+    display: none !important;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 1 !important;
+    background: rgba(0,0,0,.58) !important;
+}
+
+#tw-discord-alerts-backdrop.tw-open {
+    display: block !important;
+}
+
+.tw-alerts-eye {
+    width: 16px !important;
+    height: 16px !important;
+    border-radius: 50% !important;
+    background: radial-gradient(circle at center, #f6f2e8 0 24%, #111 26% 52%, #d6a35a 55% 100%) !important;
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.35), 0 1px 1px #000 !important;
+}
+
+#tw-discord-alerts-panel {
+    display: none !important;
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    z-index: 3 !important;
+    transform: translate(-50%, -50%) !important;
+    width: 840px !important;
+    max-width: calc(100vw - 28px) !important;
+    max-height: calc(100vh - 104px) !important;
+    overflow-y: auto !important;
+    margin: 0 !important;
+    padding: 15px 14px 14px !important;
+    background: #f3dfaa !important;
+    border: 1px solid #4c2a12 !important;
+    border-radius: 3px !important;
+    box-shadow: 0 0 0 2px #d8c79b, 0 0 0 4px #735027, 0 0 0 6px #cfc7aa, 0 0 0 8px #3d3428, 0 8px 26px rgba(0,0,0,.62) !important;
+}
+
+#tw-discord-alerts-panel.tw-open {
+    display: block !important;
+}
+
+#tw-discord-alerts-panel::before {
+    content: "" !important;
+    position: absolute !important;
+    inset: 7px !important;
+    pointer-events: none !important;
+    border: 2px solid #a7221e !important;
+    border-radius: 2px !important;
+    box-shadow: inset 0 0 0 1px rgba(255,245,205,.75) !important;
+}
+
+#tw-alerts-close {
+    position: absolute !important;
+    top: -13px !important;
+    right: -13px !important;
+    z-index: 3 !important;
+    width: 20px !important;
+    height: 20px !important;
+    line-height: 18px !important;
+    padding: 0 !important;
+    cursor: pointer !important;
+    border: 2px solid #4c2a12 !important;
+    border-radius: 2px !important;
+    background: #f6d28b !important;
+    color: #1b0d07 !important;
+    font-size: 18px !important;
+    font-weight: bold !important;
+    text-align: center !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,.5) !important;
+}
+
+.tw-alerts-frame {
+    position: relative !important;
+    z-index: 1 !important;
+    border: 1px solid #c99545 !important;
+    background: rgba(255,239,188,.38) !important;
+}
+
+.tw-alerts-header {
+    margin: 0 !important;
+    padding: 12px 14px 10px !important;
+    background: linear-gradient(to bottom, #f8e8b8, #efd38c) !important;
+    border-bottom: 1px solid #c8913e !important;
+}
+
+.tw-alerts-header h3 {
+    margin: 0 !important;
+    color: #9d1714 !important;
+    font-size: 16px !important;
+    font-weight: bold !important;
+}
+
+.tw-alerts-header span {
+    display: block !important;
+    margin-top: 3px !important;
+    color: #5a250d !important;
+    font-size: 11px !important;
+}
+
+.tw-alerts-body {
+    padding: 0 !important;
+}
+
+.tw-alerts-section {
+    display: grid !important;
+    grid-template-columns: 240px minmax(0, 1fr) !important;
+    gap: 12px !important;
+    margin: 0 !important;
+    padding: 11px 12px !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-bottom: 1px solid #caa45e !important;
+    border-left: 4px solid #9b6a2f !important;
+}
+
+.tw-alerts-section:last-child {
+    border-bottom: 0 !important;
+}
+
+.tw-alerts-attacks { border-left-color: #c72d2d !important; }
+.tw-alerts-summary { border-left-color: #1f9ac5 !important; }
+.tw-alerts-security { border-left-color: #e0a51d !important; }
+.tw-alerts-system { border-left-color: #7b4fc2 !important; }
+.tw-alerts-actions-section { border-left-color: #8a6424 !important; }
+
+.tw-alerts-section-title {
+    margin: 0 0 4px !important;
+    color: #9d1714 !important;
+    font-size: 14px !important;
+    font-weight: bold !important;
+    text-transform: uppercase !important;
+}
+
+.tw-alerts-section-desc {
+    margin: 0 !important;
+    color: #4f210b !important;
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+}
+
+.tw-alerts-section-options {
+    min-width: 0 !important;
+}
+
+.tw-alerts-subblock {
+    display: grid !important;
+    grid-template-columns: minmax(190px, .8fr) minmax(0, 1.2fr) !important;
+    gap: 12px !important;
+    align-items: start !important;
+    padding: 8px 0 !important;
+}
+
+.tw-alerts-subblock:first-child {
+    padding-top: 0 !important;
+}
+
+.tw-alerts-subblock:last-child {
+    padding-bottom: 0 !important;
+}
+
+.tw-alerts-subblock + .tw-alerts-subblock {
+    border-top: 1px solid rgba(158,112,45,.45) !important;
+}
+
+.tw-alerts-subblock-main,
+.tw-alerts-subblock-fields,
+.tw-alerts-field {
+    min-width: 0 !important;
+}
+
+.tw-alerts-subblock-fields {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 8px !important;
+}
+
+.tw-alerts-subblock-fields.schedule-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.tw-alerts-subblock-fields.troops-schedule-fields {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+.tw-alerts-subblock-fields.two-fields {
+    grid-template-columns: minmax(0, 1.4fr) minmax(150px, .8fr) !important;
+}
+
+.tw-alerts-webhook-field {
+    grid-column: 1 / -1 !important;
+}
+
+.tw-alerts-check-top {
+    display: flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+    margin-bottom: 5px !important;
+    color: #111 !important;
+    font-size: 12px !important;
+    font-weight: bold !important;
+}
+
+.tw-alerts-check-top input {
+    width: 14px !important;
+    height: 14px !important;
+    margin: 0 !important;
+    accent-color: #d9152f !important;
+}
+
+.tw-alerts-mini-desc {
+    margin-left: 21px !important;
+    color: #4f210b !important;
+    font-size: 11px !important;
+    line-height: 1.28 !important;
+}
+
+.tw-alerts-field label {
+    display: flex !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    margin-bottom: 3px !important;
+    color: #111 !important;
+    font-size: 11px !important;
+    font-weight: bold !important;
+}
+
+.tw-alerts-hint {
+    color: #6f4a1e !important;
+    font-size: 10px !important;
+    font-weight: normal !important;
+}
+
+#tw-discord-alerts-panel input[type="text"],
+#tw-discord-alerts-panel input[type="time"],
+#tw-discord-alerts-panel select {
+    width: 100% !important;
+    height: 29px !important;
+    box-sizing: border-box !important;
+    padding: 5px 7px !important;
+    background: #fff6d7 !important;
+    border: 1px solid #b57d2e !important;
+    border-radius: 2px !important;
+    color: #241006 !important;
+    font-size: 11px !important;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,.12) !important;
+}
+
+#tw-discord-alerts-panel input[type="text"]:focus,
+#tw-discord-alerts-panel input[type="time"]:focus,
+#tw-discord-alerts-panel select:focus {
+    outline: 2px solid rgba(167,34,30,.25) !important;
+    border-color: #a7221e !important;
+}
+
+.tw-alerts-actions {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+}
+
+.tw-alerts-button,
+.tw-alerts-actions button {
+    min-height: 32px !important;
+    cursor: pointer !important;
+    border: 1px solid #681511 !important;
+    border-radius: 3px !important;
+    background: linear-gradient(to bottom, #b13a34, #922722 55%, #731914) !important;
+    color: #fff !important;
+    font-size: 11px !important;
+    font-weight: bold !important;
+    text-shadow: 1px 1px 1px #000 !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.3) !important;
+}
+
+.tw-alerts-button:hover,
+.tw-alerts-actions button:hover {
+    background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
+}
+
+.tw-alerts-button-wide {
+    width: 100% !important;
+    margin-top: 8px !important;
+}
+
+.tw-alerts-button-secondary,
+#tw-alerts-reset {
+    background: linear-gradient(to bottom, #9b342f, #7e211d 55%, #5d1411) !important;
+    border-color: #53100d !important;
+}
+
+#tw-alerts-status {
+    min-height: 17px !important;
+    margin-top: 9px !important;
+    color: #5a250d !important;
+    font-size: 11px !important;
+}
+
+/* Design compacto igual ao painel Defesa ThePlaguePT */
+#tw-discord-alerts-panel {
+    width: 850px !important;
+    max-width: calc(100vw - 48px) !important;
+    max-height: calc(100vh - 76px) !important;
+    box-sizing: border-box !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 14px !important;
+    background: linear-gradient(to bottom, #d8cbb0 0%, #b5a07a 100%) !important;
+    border: 1px solid #2c2419 !important;
+    border-radius: 5px !important;
+    box-shadow:
+        0 0 0 1px #efe3c3,
+        0 0 0 2px #7f6d52,
+        0 0 0 3px #d0c3a8,
+        0 0 0 5px #5f513f,
+        0 0 0 6px #b7ac98,
+        0 0 0 8px #30291f,
+        0 6px 18px rgba(0,0,0,.68) !important;
+}
+
+#tw-discord-alerts-panel *,
+#tw-discord-alerts-panel *::before,
+#tw-discord-alerts-panel *::after {
+    box-sizing: border-box !important;
+}
+
+#tw-discord-alerts-panel::before {
+    inset: 5px !important;
+    border: 1px solid #f2e5c7 !important;
+    border-radius: 4px !important;
+    box-shadow:
+        inset 0 0 0 1px #5f4d35,
+        inset 0 0 0 2px #c9b895,
+        inset 0 0 0 3px #8a7555 !important;
+}
+
+#tw-alerts-close {
+    top: -12px !important;
+    right: -12px !important;
+    width: 19px !important;
+    height: 19px !important;
+    line-height: 15px !important;
+    border: 2px solid #3b160f !important;
+    border-radius: 3px !important;
+    background: #f4e4b8 !important;
+    color: #170704 !important;
+    font-family: Arial, Verdana, sans-serif !important;
+    font-size: 19px !important;
+    box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,.55),
+        0 1px 2px rgba(0,0,0,.6) !important;
+}
+
+.tw-alerts-frame {
+    width: 100% !important;
+    border: 1px solid #7e211c !important;
+    border-radius: 4px !important;
+    background: #f4e4b8 !important;
+    color: #3b2508 !important;
+    font-family: Arial, Verdana, sans-serif !important;
+    overflow: hidden !important;
+    box-shadow:
+        0 0 0 1px #f8edc9,
+        inset 0 0 0 1px rgba(255,250,224,.8) !important;
+}
+
+.tw-alerts-header {
+    padding: 12px 14px 9px !important;
+    border-bottom: 1px solid #c98c48 !important;
+    background: linear-gradient(to bottom, #f7e8c1 0%, #edd49a 100%) !important;
+}
+
+.tw-alerts-header h3 {
+    color: #8f2b25 !important;
+    font-size: 16px !important;
+    line-height: 20px !important;
+}
+
+.tw-alerts-header span {
+    margin-top: 2px !important;
+    color: #5e3b16 !important;
+    font-size: 12px !important;
+    line-height: 15px !important;
+}
+
+.tw-alerts-body {
+    padding: 10px 12px 14px !important;
+}
+
+.tw-alerts-section {
+    grid-template-columns: minmax(190px, 230px) minmax(0, 1fr) !important;
+    gap: 10px 18px !important;
+    padding: 11px 0 12px 10px !important;
+    border-top: 1px solid #d5b579 !important;
+    border-bottom: 0 !important;
+    border-left-width: 4px !important;
+}
+
+.tw-alerts-section:first-child {
+    border-top: 0 !important;
+}
+
+.tw-alerts-section-copy,
+.tw-alerts-section-options {
+    min-width: 0 !important;
+}
+
+.tw-alerts-section-title {
+    color: #8f2b25 !important;
+    font-size: 13px !important;
+    line-height: 16px !important;
+}
+
+.tw-alerts-section-desc {
+    margin-top: 3px !important;
+    color: #5e3b16 !important;
+    font-size: 11px !important;
+    line-height: 14px !important;
+}
+
+.tw-alerts-section-options {
+    display: grid !important;
+    gap: 9px !important;
+}
+
+.tw-alerts-subblock {
+    grid-template-columns: minmax(190px, .78fr) minmax(0, 1fr) !important;
+    gap: 8px 14px !important;
+    padding: 0 !important;
+}
+
+.tw-alerts-subblock + .tw-alerts-subblock {
+    padding-top: 9px !important;
+    border-top: 1px solid #d5b579 !important;
+}
+
+.tw-alerts-check-top {
+    display: grid !important;
+    grid-template-columns: 20px minmax(0, 1fr) !important;
+    gap: 2px 6px !important;
+    align-items: start !important;
+    margin: 0 !important;
+    color: #2b1b08 !important;
+    font-size: 12px !important;
+    line-height: 15px !important;
+}
+
+.tw-alerts-check-top input {
+    margin-top: 1px !important;
+}
+
+.tw-alerts-mini-desc {
+    margin: 2px 0 0 26px !important;
+    color: #6f4b16 !important;
+    font-size: 11px !important;
+    line-height: 14px !important;
+}
+
+.tw-alerts-subblock-fields {
+    gap: 7px !important;
+    align-content: start !important;
+}
+
+.tw-alerts-subblock-fields.schedule-fields {
+    grid-template-columns: minmax(0, 1.2fr) minmax(96px, .7fr) minmax(86px, .55fr) !important;
+}
+
+.tw-alerts-subblock-fields.troops-schedule-fields {
+    grid-template-columns: minmax(0, 1.15fr) minmax(86px, .65fr) minmax(96px, .72fr) minmax(78px, .5fr) !important;
+}
+
+.tw-alerts-subblock-fields.two-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(140px, .7fr) !important;
+}
+
+.tw-alerts-field label {
+    margin-bottom: 3px !important;
+    color: #2b1b08 !important;
+    font-size: 11px !important;
+    line-height: 14px !important;
+}
+
+#tw-discord-alerts-panel input[type="text"],
+#tw-discord-alerts-panel input[type="time"],
+#tw-discord-alerts-panel select {
+    min-width: 0 !important;
+    height: 28px !important;
+    padding: 4px 6px !important;
+    background: #fff4c9 !important;
+    border: 1px solid #b06b25 !important;
+    border-radius: 2px !important;
+    color: #2b1b08 !important;
+    font-size: 11px !important;
+    box-shadow: inset 1px 1px 2px rgba(60,35,8,.14) !important;
+}
+
+.tw-alerts-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+}
+
+.tw-alerts-button,
+.tw-alerts-actions button {
+    min-height: 31px !important;
+    border: 1px solid #5a1d18 !important;
+    border-radius: 3px !important;
+    background: linear-gradient(to bottom, #a73a33 0%, #842821 100%) !important;
+    color: #fff7dd !important;
+    font-size: 11px !important;
+    font-weight: bold !important;
+    text-shadow: 1px 1px 1px #2b0e0b !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.22) !important;
+}
+
+.tw-alerts-button:hover,
+.tw-alerts-actions button:hover {
+    background: linear-gradient(to bottom, #b8483f 0%, #932e27 100%) !important;
+}
+
+.tw-alerts-button-secondary,
+#tw-alerts-reset {
+    background: linear-gradient(to bottom, #70402b 0%, #512c20 100%) !important;
+}
+
+@media (max-width: 760px) {
+    #tw-discord-alerts-panel {
+        width: calc(100vw - 28px) !important;
+        max-height: calc(100vh - 76px) !important;
+    }
+
+    .tw-alerts-section,
+    .tw-alerts-subblock {
+        grid-template-columns: 1fr !important;
+    }
+
+    .tw-alerts-subblock-fields.schedule-fields,
+    .tw-alerts-subblock-fields.troops-schedule-fields,
+    .tw-alerts-subblock-fields.two-fields {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* v1.0.1 - reset final da janela para ficar como o modal Defesa ThePlaguePT */
+#tw-discord-alerts-panel {
+    width: 850px !important;
+    max-width: calc(100vw - 42px) !important;
+    max-height: calc(100vh - 72px) !important;
+    padding: 8px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    background: #9f9174 !important;
+    border: 1px solid #2a2118 !important;
+    border-radius: 4px !important;
+    box-shadow:
+        0 0 0 1px #efe3c5,
+        0 0 0 3px #5c5141,
+        0 0 0 4px #b9ad94,
+        0 3px 12px rgba(0,0,0,.55) !important;
+}
+
+#tw-discord-alerts-panel::before {
+    content: none !important;
+}
+
+#tw-alerts-close {
+    top: -12px !important;
+    right: -12px !important;
+    width: 19px !important;
+    height: 19px !important;
+    line-height: 15px !important;
+    padding: 0 !important;
+    background: #f3dfaa !important;
+    border: 2px solid #2a2118 !important;
+    border-radius: 3px !important;
+    color: #110705 !important;
+    font-size: 18px !important;
+    font-weight: bold !important;
+    box-shadow: inset 0 0 0 1px #fff0c8, 0 1px 2px rgba(0,0,0,.55) !important;
+}
+
+.tw-alerts-frame {
+    width: 820px !important;
+    max-width: calc(100vw - 48px) !important;
+    border: 2px solid #7e211c !important;
+    border-radius: 4px !important;
+    background: #f4e4b8 !important;
+    color: #3b2508 !important;
+    font-family: Arial, Verdana, sans-serif !important;
+    box-sizing: border-box !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+}
+
+.tw-alerts-frame *,
+.tw-alerts-frame *::before,
+.tw-alerts-frame *::after {
+    box-sizing: border-box !important;
+}
+
+.tw-alerts-header {
+    padding: 12px 14px 9px !important;
+    background: linear-gradient(to bottom, #f7e8c1 0%, #edd49a 100%) !important;
+    border-bottom: 1px solid #c98c48 !important;
+}
+
+.tw-alerts-body {
+    padding: 10px 12px 14px !important;
+    background: #f4e4b8 !important;
+}
+
+.tw-alerts-section {
+    display: grid !important;
+    grid-template-columns: 230px minmax(0, 1fr) !important;
+    gap: 10px 18px !important;
+    padding: 11px 0 12px 10px !important;
+    border-top: 1px solid #d5b579 !important;
+    border-bottom: 0 !important;
+    border-left-width: 4px !important;
+}
+
+.tw-alerts-section:first-child {
+    border-top: 0 !important;
+}
+
+.tw-alerts-subblock {
+    grid-template-columns: minmax(205px, .82fr) minmax(0, 1fr) !important;
+    gap: 8px 14px !important;
+    padding: 0 !important;
+}
+
+.tw-alerts-subblock + .tw-alerts-subblock {
+    padding-top: 9px !important;
+    border-top: 1px solid #d5b579 !important;
+}
+
+.tw-alerts-subblock-fields.schedule-fields {
+    grid-template-columns: minmax(0, 1fr) 96px 84px !important;
+}
+
+.tw-alerts-subblock-fields.troops-schedule-fields {
+    grid-template-columns: minmax(0, 1fr) 86px 96px 78px !important;
+}
+
+.tw-alerts-subblock-fields.two-fields {
+    grid-template-columns: minmax(0, 1fr) 140px !important;
+}
+
+.tw-alerts-webhook-field {
+    grid-column: 1 / -1 !important;
+}
+
+.tw-alerts-field label {
+    display: block !important;
+    margin-bottom: 3px !important;
+}
+
+#tw-discord-alerts-panel input[type="text"],
+#tw-discord-alerts-panel input[type="time"],
+#tw-discord-alerts-panel select,
+.tw-alerts-frame input[type="text"],
+.tw-alerts-frame input[type="time"],
+.tw-alerts-frame select {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 28px !important;
+    padding: 4px 6px !important;
+    background: #fff4c9 !important;
+    border: 1px solid #b06b25 !important;
+    border-radius: 2px !important;
+    color: #2b1b08 !important;
+    font-size: 11px !important;
+    box-shadow: inset 1px 1px 2px rgba(60,35,8,.14) !important;
+}
+
+.tw-alerts-frame input[type="text"]:focus,
+.tw-alerts-frame input[type="time"]:focus,
+.tw-alerts-frame select:focus {
+    outline: 2px solid rgba(167,34,30,.25) !important;
+    border-color: #a7221e !important;
+}
+
+/* v1.0.7 - largura util, campos de mencao multiplos e botoes compactos */
+#popup_box_twDiscordAlertsSettings,
+#popup_box_twDiscordAlertsSettings .popup_box_content {
+    width: auto !important;
+    max-width: calc(100vw - 24px) !important;
+}
+
+#popup_box_twDiscordAlertsSettings .popup_box_content {
+    overflow-x: hidden !important;
+}
+
+.tw-alerts-frame {
+    width: 1280px !important;
+    max-width: calc(100vw - 36px) !important;
+}
+
+.tw-alerts-body {
+    padding: 9px 14px 12px !important;
+}
+
+.tw-alerts-section {
+    grid-template-columns: 255px minmax(0, 1fr) !important;
+    gap: 8px 22px !important;
+    padding: 10px 0 10px 10px !important;
+}
+
+.tw-alerts-subblock {
+    grid-template-columns: 245px minmax(0, 1fr) !important;
+    gap: 7px 18px !important;
+}
+
+.tw-alerts-section-options {
+    gap: 8px !important;
+}
+
+.tw-alerts-subblock-fields {
+    gap: 6px 10px !important;
+    width: 100% !important;
+}
+
+.tw-alerts-subblock-fields.schedule-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(170px, .42fr) minmax(110px, .28fr) !important;
+}
+
+.tw-alerts-subblock-fields.troops-schedule-fields {
+    grid-template-columns: minmax(190px, 1.15fr) minmax(155px, .95fr) minmax(170px, .95fr) minmax(110px, .65fr) !important;
+}
+
+.tw-alerts-subblock-fields.two-fields {
+    grid-template-columns: minmax(0, 1fr) 190px !important;
+}
+
+.tw-alerts-subblock-fields.verification-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.tw-alerts-slot-group {
+    min-width: 0 !important;
+}
+
+.tw-alerts-slot-title {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    margin-bottom: 3px !important;
+    color: #2b1b08 !important;
+    font-size: 11px !important;
+    line-height: 14px !important;
+    font-weight: bold !important;
+    white-space: nowrap !important;
+}
+
+.tw-alerts-slot-title .tw-alerts-hint {
+    margin-left: auto !important;
+}
+
+.tw-alerts-slot-row {
+    display: grid !important;
+    grid-template-columns: 16px minmax(0, 1fr) !important;
+    gap: 6px !important;
+    align-items: center !important;
+    margin-top: 3px !important;
+}
+
+.tw-alerts-slot-row input[type="checkbox"] {
+    width: 13px !important;
+    height: 13px !important;
+    margin: 0 !important;
+}
+
+.tw-alerts-slot-row input[type="text"] {
+    height: 24px !important;
+}
+
+.tw-alerts-field label {
+    white-space: nowrap !important;
+}
+
+.tw-alerts-inline-check {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+.tw-alerts-inline-check input[type="checkbox"] {
+    width: 13px !important;
+    height: 13px !important;
+    margin: 0 !important;
+}
+
+.tw-alerts-inline-check .tw-alerts-hint {
+    margin-left: auto !important;
+}
+
+.tw-alerts-field input[type="time"] {
+    font-family: Consolas, "Courier New", monospace !important;
+}
+
+.tw-alerts-system .tw-alerts-check-top {
+    display: block !important;
+}
+
+.tw-alerts-system .tw-alerts-mini-desc {
+    margin-left: 0 !important;
+}
+
+.tw-alerts-actions {
+    gap: 5px 8px !important;
+}
+
+.tw-alerts-button-wide {
+    margin-top: 5px !important;
+}
+
+.tw-alerts-button,
+.tw-alerts-actions button {
+    min-height: 24px !important;
+    padding: 2px 8px !important;
+    font-size: 11px !important;
+}
+
+@media (max-width: 760px) {
+    #tw-discord-alerts-panel {
+        width: calc(100vw - 28px) !important;
+        max-width: calc(100vw - 28px) !important;
+        max-height: calc(100vh - 64px) !important;
+    }
+
+    .tw-alerts-section,
+    .tw-alerts-subblock,
+    .tw-alerts-subblock-fields.schedule-fields,
+    .tw-alerts-subblock-fields.troops-schedule-fields,
+    .tw-alerts-subblock-fields.two-fields,
+    .tw-alerts-subblock-fields.verification-fields {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* v1.0.9 - organizacao final do painel */
+#popup_box_twDiscordAlertsSettings .popup_box_content {
+    padding: 8px !important;
+}
+
+.tw-alerts-frame {
+    width: 1260px !important;
+    max-width: calc(100vw - 28px) !important;
+}
+
+.tw-alerts-body {
+    padding: 8px 14px 10px !important;
+}
+
+.tw-alerts-section {
+    grid-template-columns: 270px minmax(0, 1fr) !important;
+    gap: 8px 18px !important;
+    padding: 9px 0 9px 10px !important;
+    align-items: start !important;
+}
+
+.tw-alerts-section-copy {
+    padding-top: 2px !important;
+}
+
+.tw-alerts-section-title {
+    margin-bottom: 5px !important;
+    line-height: 16px !important;
+}
+
+.tw-alerts-section-desc {
+    max-width: 240px !important;
+    line-height: 14px !important;
+}
+
+.tw-alerts-section-options {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 7px !important;
+    min-width: 0 !important;
+}
+
+.tw-alerts-subblock {
+    grid-template-columns: 255px minmax(0, 1fr) !important;
+    gap: 6px 16px !important;
+    align-items: start !important;
+}
+
+.tw-alerts-subblock + .tw-alerts-subblock {
+    padding-top: 8px !important;
+}
+
+.tw-alerts-check-top {
+    margin-bottom: 3px !important;
+    line-height: 15px !important;
+}
+
+.tw-alerts-mini-desc {
+    line-height: 13px !important;
+}
+
+.tw-alerts-field {
+    margin-bottom: 0 !important;
+}
+
+.tw-alerts-field label,
+.tw-alerts-slot-title {
+    height: 15px !important;
+    line-height: 15px !important;
+}
+
+.tw-alerts-subblock-fields {
+    gap: 5px 10px !important;
+}
+
+.tw-alerts-subblock-fields.schedule-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(160px, .38fr) 110px !important;
+}
+
+.tw-alerts-subblock-fields.troops-schedule-fields {
+    grid-template-columns: minmax(190px, 1fr) minmax(150px, .75fr) minmax(160px, .8fr) 110px !important;
+}
+
+.tw-alerts-subblock-fields.verification-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    gap: 6px 14px !important;
+}
+
+.tw-alerts-slot-row {
+    grid-template-columns: 16px minmax(0, 1fr) !important;
+    gap: 6px !important;
+    margin-top: 3px !important;
+}
+
+.tw-alerts-slot-row input[type="text"] {
+    height: 23px !important;
+}
+
+.tw-alerts-frame input[type="text"],
+.tw-alerts-frame input[type="time"],
+.tw-alerts-frame select {
+    height: 27px !important;
+}
+
+.tw-alerts-actions-section .tw-alerts-section-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px 10px !important;
+}
+
+.tw-alerts-actions-section .tw-alerts-actions {
+    display: contents !important;
+}
+
+.tw-alerts-actions-section .tw-alerts-button {
+    width: 100% !important;
+    min-height: 25px !important;
+    margin-top: 0 !important;
+}
+
+.tw-alerts-actions-section #tw-alerts-reset,
+.tw-alerts-actions-section #tw-alerts-status {
+    grid-column: 1 / -1 !important;
+}
+
+@media (max-width: 960px) {
+    .tw-alerts-section,
+    .tw-alerts-subblock,
+    .tw-alerts-subblock-fields.schedule-fields,
+    .tw-alerts-subblock-fields.troops-schedule-fields,
+    .tw-alerts-subblock-fields.verification-fields,
+    .tw-alerts-actions-section .tw-alerts-section-options {
+        grid-template-columns: 1fr !important;
+    }
+
+    .tw-alerts-section-desc {
+        max-width: none !important;
+    }
+}
+
+/* v1.0.15 - toolbar por grupos com reset abaixo do guardar */
+.tw-alerts-actions-section .tw-alerts-section-options {
+    display: grid !important;
+    grid-template-columns: minmax(120px, .8fr) 58px minmax(120px, .9fr) minmax(120px, .9fr) 58px minmax(140px, 1fr) minmax(120px, .9fr) !important;
+    gap: 6px 7px !important;
+    align-items: center !important;
+}
+
+.tw-alerts-actions-section .tw-alerts-actions {
+    display: contents !important;
+}
+
+.tw-alerts-actions-section .tw-alerts-button {
+    min-height: 24px !important;
+    height: 24px !important;
+    padding: 1px 8px !important;
+    margin: 0 !important;
+    font-size: 11px !important;
+    line-height: 14px !important;
+}
+
+.tw-alerts-actions-section #tw-alerts-save {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+}
+
+.tw-alerts-actions-section #tw-alerts-save::before {
+    content: "" !important;
+}
+
+.tw-alerts-actions-section .tw-alerts-actions::before {
+    content: "Testar:" !important;
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    align-self: center !important;
+    justify-self: end !important;
+    color: #5f3315 !important;
+    font-size: 11px !important;
+    font-weight: bold !important;
+}
+
+.tw-alerts-actions-section #tw-alerts-test {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+}
+
+.tw-alerts-actions-section #tw-alerts-test-verification {
+    grid-column: 4 !important;
+    grid-row: 1 !important;
+}
+
+.tw-alerts-actions-section .tw-alerts-section-options::before {
+    content: "Enviar:" !important;
+    grid-column: 5 !important;
+    grid-row: 1 !important;
+    align-self: center !important;
+    justify-self: end !important;
+    color: #5f3315 !important;
+    font-size: 11px !important;
+    font-weight: bold !important;
+}
+
+.tw-alerts-actions-section #tw-alerts-test-summary {
+    grid-column: 6 !important;
+    grid-row: 1 !important;
+}
+
+.tw-alerts-actions-section #tw-alerts-troops {
+    grid-column: 7 !important;
+    grid-row: 1 !important;
+}
+
+.tw-alerts-actions-section #tw-alerts-reset {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    justify-self: stretch !important;
+    min-height: 24px !important;
+    height: 24px !important;
+    opacity: .92 !important;
+}
+
+.tw-alerts-actions-section #tw-alerts-status {
+    grid-column: 1 / -1 !important;
+    grid-row: 3 !important;
+    margin-top: 0 !important;
+}
+
+@media (max-width: 960px) {
+    .tw-alerts-actions-section .tw-alerts-section-options {
+        grid-template-columns: 1fr !important;
+    }
+
+    .tw-alerts-actions-section #tw-alerts-save,
+    .tw-alerts-actions-section #tw-alerts-test,
+    .tw-alerts-actions-section #tw-alerts-test-verification,
+    .tw-alerts-actions-section #tw-alerts-test-summary,
+    .tw-alerts-actions-section #tw-alerts-troops,
+    .tw-alerts-actions-section #tw-alerts-reset,
+    .tw-alerts-actions-section #tw-alerts-status {
+        grid-column: 1 !important;
+        grid-row: auto !important;
+    }
+}
+`;
+
+        (uiDoc.head || uiDoc.documentElement).appendChild(style);
+
+        const verificationUserSlots = normalizeVerificationSlots(
+            settings,
+            'verificationUserSlots',
+            'verificationMention',
+            'verificationMentionEnabled'
+        );
+        const verificationCouncilSlots = normalizeVerificationSlots(
+            settings,
+            'verificationCouncilSlots',
+            'verificationCouncilTag',
+            'verificationCouncilTagEnabled'
+        );
+
+        function buildVerificationSlotRows(type, slots, placeholder) {
+            return slots.map((slot, index) => `
+                                <label class="tw-alerts-slot-row" data-tw-verification-slot="${type}">
+                                    <input type="checkbox" ${slot.enabled ? 'checked' : ''}>
+                                    <input type="text" value="${escapeHtml(slot.value || '')}" placeholder="${escapeHtml(placeholder)} ${index + 1}">
+                                </label>
+            `).join('');
+        }
+
+        const root = uiDoc.createElement('div');
+        root.id = 'tw-discord-alerts-ui';
+        root.innerHTML = `
+<button id="tw-discord-alerts-toggle" type="button">
+    <span class="tw-alerts-eye"></span>
+    <span>Alertas Discord - ThePlaguePT</span>
+</button>
+
+<div id="tw-discord-alerts-backdrop"></div>
+
+<div id="tw-discord-alerts-panel">
+    <button id="tw-alerts-close" type="button" title="Fechar">×</button>
+    <div class="tw-alerts-frame" data-tw-alerts-settings="template">
+        <div class="tw-alerts-header">
+            <h3>TW Discord Alerts - ThePlaguePT</h3>
+            <span>Alertas, resumos e segurança para Tribal Wars!</span>
+        </div>
+
+        <div class="tw-alerts-body">
+            <div class="tw-alerts-section tw-alerts-attacks">
+                <div class="tw-alerts-section-copy">
+                    <div class="tw-alerts-section-title">⚔️ Ataques em Tempo Real</div>
+                    <div class="tw-alerts-section-desc">Notificações imediatas quando aparecem ataques novos.</div>
+                </div>
+
+                <div class="tw-alerts-section-options">
+                    <div class="tw-alerts-subblock">
+                        <div class="tw-alerts-subblock-main">
+                            <label class="tw-alerts-check-top">
+                                <input id="tw-alerts-normal" type="checkbox" ${settings.notifyNormalAttacks ? 'checked' : ''}>
+                                <span>Notificar ataques normais</span>
+                            </label>
+                            <div class="tw-alerts-mini-desc">Alertas imediatos para ataques sem nobre.</div>
+                        </div>
+                        <div class="tw-alerts-subblock-fields">
+                            <div class="tw-alerts-field tw-alerts-webhook-field">
+                                <label>Webhook - Ataques</label>
+                                <input id="tw-alerts-webhook" type="text" value="${escapeHtml(settings.webhook || '')}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tw-alerts-subblock">
+                        <div class="tw-alerts-subblock-main">
+                            <label class="tw-alerts-check-top">
+                                <input id="tw-alerts-nobles" type="checkbox" ${settings.notifyNobleAttacks ? 'checked' : ''}>
+                                <span>Notificar nobres e comboios</span>
+                            </label>
+                            <div class="tw-alerts-mini-desc">Agrupa nobres detetados na mesma aldeia.</div>
+                        </div>
+                        <div class="tw-alerts-subblock-fields">
+                            <div class="tw-alerts-field tw-alerts-webhook-field">
+                                <label>Webhook - Nobres</label>
+                                <input id="tw-alerts-nobles-webhook" type="text" value="${escapeHtml(settings.noblesWebhook || '')}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tw-alerts-section tw-alerts-summary">
+                <div class="tw-alerts-section-copy">
+                    <div class="tw-alerts-section-title">📊 Resumos Automáticos</div>
+                    <div class="tw-alerts-section-desc">Relatórios periódicos de ataques a chegar e tropas móveis.</div>
+                </div>
+
+                <div class="tw-alerts-section-options">
+                    <div class="tw-alerts-subblock">
+                        <div class="tw-alerts-subblock-main">
+                            <label class="tw-alerts-check-top">
+                                <input id="tw-alerts-summary" type="checkbox" ${settings.notifyAttackSummary ? 'checked' : ''}>
+                                <span>Resumo de ataques a chegar</span>
+                            </label>
+                            <div class="tw-alerts-mini-desc">Relatório periódico das aldeias sob ataque.</div>
+                        </div>
+                        <div class="tw-alerts-subblock-fields schedule-fields">
+                            <div class="tw-alerts-field tw-alerts-webhook-field">
+                                <label>Webhook</label>
+                                <input id="tw-alerts-summary-webhook" type="text" value="${escapeHtml(settings.summaryWebhook || '')}">
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Modo</label>
+                                <select id="tw-alerts-summary-schedule-mode">
+                                    <option value="interval" ${settings.summaryScheduleMode !== 'daily' ? 'selected' : ''}>Intervalo</option>
+                                    <option value="daily" ${settings.summaryScheduleMode === 'daily' ? 'selected' : ''}>Hora fixa</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Intervalo</label>
+                                <select id="tw-alerts-summary-interval">
+                                    <option value="8" ${Number(settings.summaryIntervalHours) === 8 ? 'selected' : ''}>De 8 em 8 horas</option>
+                                    <option value="16" ${Number(settings.summaryIntervalHours) === 16 ? 'selected' : ''}>De 16 em 16 horas</option>
+                                    <option value="24" ${Number(settings.summaryIntervalHours) === 24 ? 'selected' : ''}>De 24 em 24 horas</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Hora</label>
+                                <input id="tw-alerts-summary-daily-time" type="time" value="${escapeHtml(settings.summaryDailyTime || DEFAULT_SUMMARY_DAILY_TIME)}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tw-alerts-subblock">
+                        <div class="tw-alerts-subblock-main">
+                            <label class="tw-alerts-check-top">
+                                <input id="tw-alerts-defense-troops" type="checkbox" ${settings.notifyDefenseTroops ? 'checked' : ''}>
+                                <span>Resumo de tropas móveis</span>
+                            </label>
+                            <div class="tw-alerts-mini-desc">Envia totais de tropas móveis por categoria.</div>
+                        </div>
+                        <div class="tw-alerts-subblock-fields schedule-fields troops-schedule-fields">
+                            <div class="tw-alerts-field tw-alerts-webhook-field">
+                                <label>Webhook</label>
+                                <input id="tw-alerts-troops-webhook" type="text" value="${escapeHtml(settings.troopsWebhook || '')}">
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Tipo</label>
+                                <select id="tw-alerts-troops-mode">
+                                    <option value="complete" ${settings.troopsSummaryMode !== 'simple_defense' ? 'selected' : ''}>Completo</option>
+                                    <option value="simple_defense" ${settings.troopsSummaryMode === 'simple_defense' ? 'selected' : ''}>Simples - Defesa</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Modo</label>
+                                <select id="tw-alerts-troops-schedule-mode">
+                                    <option value="interval" ${settings.troopsScheduleMode !== 'daily' ? 'selected' : ''}>Intervalo</option>
+                                    <option value="daily" ${settings.troopsScheduleMode === 'daily' ? 'selected' : ''}>Hora fixa</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Intervalo</label>
+                                <select id="tw-alerts-troops-interval">
+                                    <option value="8" ${Number(settings.troopsIntervalHours) === 8 ? 'selected' : ''}>De 8 em 8 horas</option>
+                                    <option value="16" ${Number(settings.troopsIntervalHours) === 16 ? 'selected' : ''}>De 16 em 16 horas</option>
+                                    <option value="24" ${Number(settings.troopsIntervalHours) === 24 ? 'selected' : ''}>De 24 em 24 horas</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Hora</label>
+                                <input id="tw-alerts-troops-daily-time" type="time" value="${escapeHtml(settings.troopsDailyTime || DEFAULT_TROOPS_DAILY_TIME)}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tw-alerts-section tw-alerts-security">
+                <div class="tw-alerts-section-copy">
+                    <div class="tw-alerts-section-title">⚠️ Captcha / Segurança</div>
+                    <div class="tw-alerts-section-desc">Aviso quando o jogo pedir verificação manual.</div>
+                </div>
+
+                <div class="tw-alerts-section-options">
+                    <div class="tw-alerts-subblock">
+                        <div class="tw-alerts-subblock-main">
+                            <label class="tw-alerts-check-top">
+                                <input id="tw-alerts-verification" type="checkbox" ${settings.notifyVerificationAlerts ? 'checked' : ''}>
+                                <span>Notificar verificação/captcha</span>
+                            </label>
+                            <div class="tw-alerts-mini-desc">Pausa o script e avisa no Discord.</div>
+                        </div>
+                        <div class="tw-alerts-subblock-fields verification-fields">
+                            <div class="tw-alerts-field tw-alerts-webhook-field">
+                                <label>Webhook</label>
+                                <input id="tw-alerts-verification-webhook" type="text" value="${escapeHtml(settings.verificationWebhook || '')}">
+                            </div>
+                            <div class="tw-alerts-slot-group">
+                                <div class="tw-alerts-slot-title">
+                                    <span>IDs de Utilizador</span>
+                                    <span class="tw-alerts-hint">@ID</span>
+                                </div>
+${buildVerificationSlotRows('user', verificationUserSlots, 'ID utilizador')}
+                            </div>
+                            <div class="tw-alerts-slot-group">
+                                <div class="tw-alerts-slot-title">
+                                    <span>ID de Cargo no Discord</span>
+                                    <span class="tw-alerts-hint">@ID</span>
+                                </div>
+${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tw-alerts-section tw-alerts-system">
+                <div class="tw-alerts-section-copy">
+                    <div class="tw-alerts-section-title">🕒 Verificação do Script</div>
+                    <div class="tw-alerts-section-desc">Define a frequência com que o script procura novidades.</div>
+                </div>
+
+                <div class="tw-alerts-section-options">
+                    <div class="tw-alerts-subblock">
+                        <div class="tw-alerts-subblock-main">
+                            <div class="tw-alerts-check-top">
+                                <span>Frequência de Procura</span>
+                            </div>
+                            <div class="tw-alerts-mini-desc">Controla quando o script procura novos dados.</div>
+                        </div>
+                        <div class="tw-alerts-subblock-fields">
+                            <div class="tw-alerts-field">
+                                <label>Modo de verificação</label>
+                                <select id="tw-alerts-interval">
+                                    <option value="test" ${String(settings.checkInterval) === 'test' || Number(settings.checkInterval) === 2000 ? 'selected' : ''}>Teste - 2 segundos</option>
+                                    <option value="normal" ${String(settings.checkInterval) === 'normal' || Number(settings.checkInterval) === 10000 ? 'selected' : ''}>Normal - aleatório 1 a 5 minutos</option>
+                                    <option value="safe" ${String(settings.checkInterval) === 'safe' || Number(settings.checkInterval) === 30000 ? 'selected' : ''}>Seguro - aleatório 5 a 15 minutos</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tw-alerts-section tw-alerts-actions-section">
+                <div class="tw-alerts-section-copy">
+                    <div class="tw-alerts-section-title">🧪 Ações</div>
+                    <div class="tw-alerts-section-desc">Guardar, testar e enviar relatórios manualmente.</div>
+                </div>
+
+                <div class="tw-alerts-section-options">
+                    <div class="tw-alerts-actions">
+                        <button id="tw-alerts-save" class="tw-alerts-button" type="button">Guardar</button>
+                        <button id="tw-alerts-test" class="tw-alerts-button" type="button">Teste Simples</button>
+                    </div>
+                    <button id="tw-alerts-test-summary" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Ataques a Chegar</button>
+                    <button id="tw-alerts-troops" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Tropas Móveis</button>
+                    <button id="tw-alerts-test-verification" class="tw-alerts-button tw-alerts-button-wide" type="button">Teste Captcha</button>
+                    <button id="tw-alerts-reset" class="tw-alerts-button tw-alerts-button-wide tw-alerts-button-secondary" type="button">Reset Configurações</button>
+                    <div id="tw-alerts-status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+`;
+
+        (uiDoc.body || uiDoc.documentElement).appendChild(root);
+
+        const panel = root.querySelector('#tw-discord-alerts-panel');
+        const backdrop = root.querySelector('#tw-discord-alerts-backdrop');
+
+        function setPanelOpen(open) {
+            panel.classList.toggle('tw-open', open);
+            backdrop.classList.toggle('tw-open', open);
+        }
+
+        function getNativeDialog() {
+            const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+            return pageWindow.Dialog || window.Dialog || null;
+        }
+
+        function closeNativeDialog() {
+            const dialog = getNativeDialog();
+            if (dialog && typeof dialog.close === 'function') {
+                dialog.close('twDiscordAlertsSettings');
+            }
+        }
+
+        function openSettingsPanel() {
+            const dialog = getNativeDialog();
+            const frame = panel.querySelector('.tw-alerts-frame');
+
+            if (dialog && typeof dialog.show === 'function' && frame) {
+                const html = frame.outerHTML.replace(
+                    'data-tw-alerts-settings="template"',
+                    'data-tw-alerts-settings="dialog"'
+                );
+
+                dialog.show('twDiscordAlertsSettings', html);
+
+                const frames = uiDoc.querySelectorAll('[data-tw-alerts-settings="dialog"]');
+                const dialogFrame = frames[frames.length - 1];
+
+                if (dialogFrame) {
+                    bindSettingsForm(dialogFrame);
+                }
+
+                return;
+            }
+
+            setPanelOpen(true);
+        }
+
+        root.querySelector('#tw-discord-alerts-toggle').addEventListener('click', () => {
+            openSettingsPanel();
+        });
+
+        root.querySelector('#tw-alerts-close').addEventListener('click', () => {
+            setPanelOpen(false);
+        });
+
+        backdrop.addEventListener('click', () => {
+            setPanelOpen(false);
+        });
+
+        uiDoc.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && panel.classList.contains('tw-open')) {
+                setPanelOpen(false);
+            }
+        });
+
+        function readVerificationSlots(container, type) {
+            return Array.from(container.querySelectorAll(`[data-tw-verification-slot="${type}"]`))
+                .map(row => ({
+                    enabled: Boolean(row.querySelector('input[type="checkbox"]')?.checked),
+                    value: (row.querySelector('input[type="text"]')?.value || '').trim()
+                }));
+        }
+
+        function applyVerificationSlots(container, type, slots) {
+            Array.from(container.querySelectorAll(`[data-tw-verification-slot="${type}"]`))
+                .forEach((row, index) => {
+                    const slot = slots[index] || { enabled: false, value: '' };
+                    const checkbox = row.querySelector('input[type="checkbox"]');
+                    const input = row.querySelector('input[type="text"]');
+
+                    if (checkbox) checkbox.checked = Boolean(slot.enabled);
+                    if (input) input.value = slot.value || '';
+                });
+        }
+
+        function getSlotText(slots) {
+            return slots
+                .map(slot => cleanText(slot.value))
+                .filter(Boolean)
+                .join(', ');
+        }
+
+        function hasEnabledSlot(slots) {
+            return slots.some(slot => slot.enabled && cleanText(slot.value));
+        }
+
+        function readFormSettings(container) {
+            const verificationUserSlots = readVerificationSlots(container, 'user');
+            const verificationCouncilSlots = readVerificationSlots(container, 'council');
+
+            return {
+                webhook: container.querySelector('#tw-alerts-webhook').value.trim(),
+                summaryWebhook: container.querySelector('#tw-alerts-summary-webhook').value.trim(),
+                noblesWebhook: container.querySelector('#tw-alerts-nobles-webhook').value.trim(),
+                troopsWebhook: container.querySelector('#tw-alerts-troops-webhook').value.trim(),
+                verificationWebhook: container.querySelector('#tw-alerts-verification-webhook').value.trim(),
+                verificationMention: getSlotText(verificationUserSlots),
+                verificationMentionEnabled: hasEnabledSlot(verificationUserSlots),
+                verificationUserSlots,
+                verificationCouncilTag: getSlotText(verificationCouncilSlots),
+                verificationCouncilTagEnabled: hasEnabledSlot(verificationCouncilSlots),
+                verificationCouncilSlots,
+                notifyNormalAttacks: container.querySelector('#tw-alerts-normal').checked,
+                notifyNobleAttacks: container.querySelector('#tw-alerts-nobles').checked,
+                notifyAttackSummary: container.querySelector('#tw-alerts-summary').checked,
+                notifyDefenseTroops: container.querySelector('#tw-alerts-defense-troops').checked,
+                notifyVerificationAlerts: container.querySelector('#tw-alerts-verification').checked,
+                summaryIntervalHours: Number(container.querySelector('#tw-alerts-summary-interval').value || 8),
+                troopsIntervalHours: Number(container.querySelector('#tw-alerts-troops-interval').value || 8),
+                checkInterval: container.querySelector('#tw-alerts-interval').value || CHECK_INTERVAL,
+                troopsSummaryMode: container.querySelector('#tw-alerts-troops-mode').value || TROOPS_SUMMARY_MODE_COMPLETE,
+                summaryScheduleMode: container.querySelector('#tw-alerts-summary-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
+                summaryDailyTime: container.querySelector('#tw-alerts-summary-daily-time').value || DEFAULT_SUMMARY_DAILY_TIME,
+                troopsScheduleMode: container.querySelector('#tw-alerts-troops-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
+                troopsDailyTime: container.querySelector('#tw-alerts-troops-daily-time').value || DEFAULT_TROOPS_DAILY_TIME,
+                nobleTrainDelay: NOBLE_TRAIN_DELAY
+            };
+        }
+
+        function applyFormSettings(nextSettings, container) {
+            container.querySelector('#tw-alerts-webhook').value = nextSettings.webhook || '';
+            container.querySelector('#tw-alerts-nobles-webhook').value = nextSettings.noblesWebhook || '';
+            container.querySelector('#tw-alerts-summary-webhook').value = nextSettings.summaryWebhook || '';
+            container.querySelector('#tw-alerts-troops-webhook').value = nextSettings.troopsWebhook || '';
+            container.querySelector('#tw-alerts-verification-webhook').value = nextSettings.verificationWebhook || '';
+            applyVerificationSlots(
+                container,
+                'user',
+                normalizeVerificationSlots(nextSettings, 'verificationUserSlots', 'verificationMention', 'verificationMentionEnabled')
+            );
+            applyVerificationSlots(
+                container,
+                'council',
+                normalizeVerificationSlots(nextSettings, 'verificationCouncilSlots', 'verificationCouncilTag', 'verificationCouncilTagEnabled')
+            );
+            container.querySelector('#tw-alerts-normal').checked = Boolean(nextSettings.notifyNormalAttacks);
+            container.querySelector('#tw-alerts-nobles').checked = Boolean(nextSettings.notifyNobleAttacks);
+            container.querySelector('#tw-alerts-summary').checked = Boolean(nextSettings.notifyAttackSummary);
+            container.querySelector('#tw-alerts-defense-troops').checked = Boolean(nextSettings.notifyDefenseTroops);
+            container.querySelector('#tw-alerts-verification').checked = Boolean(nextSettings.notifyVerificationAlerts);
+            container.querySelector('#tw-alerts-interval').value = nextSettings.checkInterval || CHECK_INTERVAL;
+            container.querySelector('#tw-alerts-summary-interval').value = String(normalizeIntervalHours(nextSettings.summaryIntervalHours, DEFAULT_SUMMARY_INTERVAL_HOURS));
+            container.querySelector('#tw-alerts-troops-interval').value = String(normalizeIntervalHours(nextSettings.troopsIntervalHours, DEFAULT_TROOPS_INTERVAL_HOURS));
+            container.querySelector('#tw-alerts-troops-mode').value = normalizeTroopsSummaryMode(nextSettings.troopsSummaryMode);
+            container.querySelector('#tw-alerts-summary-schedule-mode').value = normalizeScheduleMode(nextSettings.summaryScheduleMode);
+            container.querySelector('#tw-alerts-summary-daily-time').value = normalizeDailyTime(nextSettings.summaryDailyTime, DEFAULT_SUMMARY_DAILY_TIME);
+            container.querySelector('#tw-alerts-troops-schedule-mode').value = normalizeScheduleMode(nextSettings.troopsScheduleMode);
+            container.querySelector('#tw-alerts-troops-daily-time').value = normalizeDailyTime(nextSettings.troopsDailyTime, DEFAULT_TROOPS_DAILY_TIME);
+        }
+
+        function bindSettingsForm(container) {
+            const status = container.querySelector('#tw-alerts-status');
+
+            container.querySelector('#tw-alerts-save').addEventListener('click', () => {
+                saveSettings(readFormSettings(container));
+                status.textContent = 'Configuração guardada.';
+            });
+
+            container.querySelector('#tw-alerts-reset').addEventListener('click', () => {
+                localStorage.removeItem(SETTINGS_KEY);
+                applyFormSettings(DEFAULT_SETTINGS, container);
+                status.textContent = 'Configurações repostas.';
+                console.log('[TW] Configuracoes da UI repostas.');
+            });
+
+            container.querySelector('#tw-alerts-test').addEventListener('click', async () => {
+                saveSettings(readFormSettings(container));
+                status.textContent = 'A enviar teste...';
+
+                await postDiscord({
+                    username: 'TribalWars Alerts',
+                    allowed_mentions: { parse: [] },
+                    embeds: [{
+                        title: '✅ Teste TW Discord Alerts',
+                        description: [
+                            'Webhook configurado corretamente.',
+                            '',
+                            `Jogador: **${getDefenderValue()}**`
+                        ].join('\n'),
+                        color: 5763719,
+                        footer: { text: 'Tribal Wars PT' },
+                        timestamp: new Date().toISOString()
+                    }]
+                });
+
+                status.textContent = 'Teste enviado.';
+            });
+
+            container.querySelector('#tw-alerts-test-verification').addEventListener('click', () => {
+                saveSettings(readFormSettings(container));
+                localStorage.removeItem(VERIFICATION_ALERT_KEY);
+                status.textContent = 'A enviar teste captcha...';
+                notifyVerificationPageDetected('Teste Manual');
+                status.textContent = 'Teste captcha enviado.';
+            });
+
+            container.querySelector('#tw-alerts-troops').addEventListener('click', async () => {
+                saveSettings(readFormSettings(container));
+                status.textContent = 'A enviar tropas...';
+
+                try {
+                    const sent = await sendTroopSummary();
+                    status.textContent = sent ? 'Tropas enviadas.' : 'Sem tropas para enviar.';
+                } catch (error) {
+                    console.warn('[TW] Erro ao enviar tropas:', error);
+                    status.textContent = 'Erro ao enviar tropas.';
+                }
+            });
+
+            container.querySelector('#tw-alerts-test-summary').addEventListener('click', async () => {
+                saveSettings(readFormSettings(container));
+                status.textContent = 'A enviar resumo...';
+
+                try {
+                    const sent = await sendAttackSummaryTest();
+                    status.textContent = sent ? 'Resumo enviado.' : 'Sem ataques para resumir.';
+                } catch (error) {
+                    console.warn('[TW] Erro ao testar resumo:', error);
+                    status.textContent = 'Erro ao enviar resumo.';
+                }
+            });
+        }
+
+        bindSettingsForm(root);
+    }
+
+    function checkCurrentPageVerification() {
+        if (isTwVerificationPage(document)) {
+            pauseForVerification('pagina atual');
+            return true;
+        }
+
+        return false;
+    }
+
+    async function scheduleCheckLoop() {
+        restorePendingNobleTrains();
+        await runCheckLoop();
+        setTimeout(scheduleCheckLoop, getCurrentCheckInterval());
+    }
+
+    setInterval(() => {
+        if (isMasterTab()) {
+            writeJson(MASTER_KEY, { id: TAB_ID, time: Date.now() });
+        }
+    }, 4000);
+
+    window.addEventListener('beforeunload', () => {
+        savePendingNobleTrains();
+
+        const master = readJson(MASTER_KEY, null);
+        if (master && master.id === TAB_ID) {
+            localStorage.removeItem(MASTER_KEY);
+        }
+    });
+
+    createSettingsUi();
+    restorePendingNobleTrains();
+    checkCurrentPageVerification();
+    setInterval(checkCurrentPageVerification, 5000);
+    setTimeout(scheduleCheckLoop, Math.floor(Math.random() * 1000));
 })();
