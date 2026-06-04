@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.2.4
+// @version      2.2.5
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -816,15 +816,45 @@
             }
 
             .ra-tp-botao {
-                min-width: 14px;
+                min-width: 15px;
                 height: 15px;
                 padding: 0 2px !important;
-                border: 1px solid rgba(0, 0, 0, 0.35) !important;
+                border: 1px solid rgba(0, 0, 0, 0.45) !important;
+                border-radius: 4px;
                 line-height: 1 !important;
                 font-weight: 700;
                 text-align: center;
                 cursor: pointer;
                 box-sizing: border-box;
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+                    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+                    0 1px 1px rgba(0, 0, 0, 0.22);
+                text-shadow: 0 1px 1px rgba(0, 0, 0, 0.65);
+                transition: filter 100ms ease, transform 100ms ease, box-shadow 100ms ease;
+                vertical-align: middle;
+            }
+
+            .ra-tp-botao:hover {
+                filter: brightness(1.12) saturate(1.08);
+                transform: translateY(-1px);
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+                    inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+                    0 2px 2px rgba(0, 0, 0, 0.24);
+            }
+
+            .ra-tp-botao:active {
+                filter: brightness(0.96);
+                transform: translateY(0);
+                box-shadow:
+                    inset 0 1px 2px rgba(0, 0, 0, 0.38),
+                    0 1px 1px rgba(0, 0, 0, 0.18);
+            }
+
+            .ra-tp-botao:focus {
+                outline: 1px solid rgba(255, 255, 255, 0.75);
+                outline-offset: 1px;
             }
 
             .ra-tp-reset {
