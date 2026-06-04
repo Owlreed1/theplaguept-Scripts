@@ -25,6 +25,7 @@
         timeoutEdicaoMs: 1200,
         intervaloEsperaInputMs: 40,
         manterInfoAtacante: true,
+        realcarTexto: true,
     };
 
     const CORES = {
@@ -139,6 +140,7 @@
             }
 
             aplicarCorAtaque(linha);
+            realcarTextoLinha(linha);
         });
     }
 
@@ -366,6 +368,135 @@
 
     function obterTextoLink(link) {
         return normalizarEspacos(link?.textContent || "");
+    }
+
+    function realcarTextoLinha(linha) {
+        if (!CONFIG.realcarTexto) return;
+
+        const label = linha.querySelector(SELETORES.etiquetaNome);
+        if (!label) return;
+
+        const texto = normalizarEspacos(label.textContent);
+        if (!texto || label.dataset.raTpRealceTexto === texto) return;
+
+        label.textContent = "";
+        label.appendChild(criarFragmentoRealceTexto(texto));
+        label.dataset.raTpRealceTexto = texto;
+    }
+
+    function criarFragmentoRealceTexto(texto) {
+        const fragmento = document.createDocumentFragment();
+        const regexInfo = /\/\s*(Atacante|Origem):\s*/gi;
+        const marcadores = [...texto.matchAll(regexInfo)];
+
+        if (!marcadores.length) {
+            acrescentarTextoComTags(fragmento, texto);
+            return fragmento;
+        }
+
+        let posicao = 0;
+        marcadores.forEach((marcador, index) => {
+            acrescentarTextoComTags(fragmento, texto.slice(posicao, marcador.index));
+
+            const tipo = marcador[1].toLowerCase();
+            const inicioValor = marcador.index + marcador[0].length;
+            const fimValor = marcadores[index + 1]?.index ?? texto.length;
+
+            acrescentarSpan(fragmento, marcador[0], tipo === "atacante" ? "infoLabelAtacante" : "infoLabelOrigem");
+            acrescentarSpan(fragmento, texto.slice(inicioValor, fimValor), tipo === "atacante" ? "infoValorAtacante" : "infoValorOrigem");
+
+            posicao = fimValor;
+        });
+
+        acrescentarTextoComTags(fragmento, texto.slice(posicao));
+        return fragmento;
+    }
+
+    function acrescentarTextoComTags(fragmento, texto) {
+        const valor = String(texto || "");
+        if (!valor) return;
+
+        const tags = obterTagsParaRealce();
+        const regexTags = new RegExp(tags.map((item) => escapeRegExp(item.tag)).join("|"), "g");
+        let posicao = 0;
+        let match;
+
+        while ((match = regexTags.exec(valor)) !== null) {
+            acrescentarSpan(fragmento, valor.slice(posicao, match.index), "base");
+            acrescentarSpan(fragmento, match[0], "tag", tags.find((item) => item.tag === match[0])?.comando);
+            posicao = match.index + match[0].length;
+        }
+
+        acrescentarSpan(fragmento, valor.slice(posicao), "base");
+    }
+
+    function acrescentarSpan(fragmento, texto, tipo, comando) {
+        if (!texto) return;
+
+        const span = document.createElement("span");
+        const estilo = obterEstiloRealce(tipo, comando);
+
+        span.textContent = texto;
+        span.dataset.raTpHighlight = tipo;
+        span.style.setProperty("color", estilo.cor, "important");
+        span.style.setProperty("font-weight", estilo.peso);
+        span.style.setProperty("text-shadow", estilo.sombra, "important");
+
+        fragmento.appendChild(span);
+    }
+
+    function obterTagsParaRealce() {
+        return COMANDOS
+            .flatMap((comando) => obterTagsComAliases(comando).map((tag) => ({ tag, comando })))
+            .filter((item) => item.tag)
+            .sort((a, b) => b.tag.length - a.tag.length);
+    }
+
+    function obterEstiloRealce(tipo, comando) {
+        const sombraForte = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000";
+        const sombraLeve = "0 1px 0 #000, 0 0 2px #000";
+
+        if (tipo === "tag" && comando) {
+            return {
+                cor: obterCorTextoRealce(comando.corBotao),
+                peso: "800",
+                sombra: sombraForte,
+            };
+        }
+
+        const estilos = {
+            infoLabelAtacante: { cor: "#ffe66d", peso: "800", sombra: sombraForte },
+            infoValorAtacante: { cor: "#ffffff", peso: "800", sombra: sombraLeve },
+            infoLabelOrigem: { cor: "#9effa1", peso: "800", sombra: sombraForte },
+            infoValorOrigem: { cor: "#d9f7ff", peso: "800", sombra: sombraLeve },
+            base: { cor: "#ffffff", peso: "700", sombra: sombraLeve },
+        };
+
+        return estilos[tipo] || estilos.base;
+    }
+
+    function obterCorTextoRealce(nomeCor) {
+        const coresTexto = {
+            red: "#ff4a4a",
+            green: "#65ff65",
+            blue: "#4db8ff",
+            yellow: "#ffe66d",
+            orange: "#ffb347",
+            lblue: "#5ffff7",
+            lime: "#eaff4d",
+            white: "#ffffff",
+            black: "#111111",
+            gray: "#dce4f2",
+            dorange: "#d47cff",
+            dark: "#ffffff",
+            pink: "#ff8ed8",
+            brown: "#d98585",
+            dblue: "#8fa8ff",
+            dgreen: "#62e66b",
+            lgreen: "#b9ff9f",
+        };
+
+        return coresTexto[String(nomeCor || "").toLowerCase()] || "#ffffff";
     }
 
     function aplicarCorAtaque(linha) {
