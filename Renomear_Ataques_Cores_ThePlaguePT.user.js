@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.1.0
+// @version      2.2.0
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -26,6 +26,7 @@
         intervaloEsperaInputMs: 40,
         manterInfoAtacante: true,
         realcarTexto: true,
+        realcarInformacoesTabela: true,
     };
 
     const CORES = {
@@ -101,6 +102,7 @@
     };
 
     let execucaoAgendada = false;
+    const mapasCabecalhoTabela = new WeakMap();
 
     function iniciar() {
         if (!document.body) {
@@ -141,6 +143,7 @@
 
             aplicarCorAtaque(linha);
             realcarTextoLinha(linha);
+            realcarInformacoesLinha(linha);
         });
     }
 
@@ -403,7 +406,11 @@
             const fimValor = marcadores[index + 1]?.index ?? texto.length;
 
             acrescentarSpan(fragmento, marcador[0], tipo === "atacante" ? "infoLabelAtacante" : "infoLabelOrigem");
-            acrescentarSpan(fragmento, texto.slice(inicioValor, fimValor), tipo === "atacante" ? "infoValorAtacante" : "infoValorOrigem");
+            if (tipo === "origem") {
+                acrescentarValorOrigem(fragmento, texto.slice(inicioValor, fimValor));
+            } else {
+                acrescentarSpan(fragmento, texto.slice(inicioValor, fimValor), "infoValorAtacante");
+            }
 
             posicao = fimValor;
         });
@@ -428,6 +435,27 @@
         }
 
         acrescentarSpan(fragmento, valor.slice(posicao), "base");
+    }
+
+    function acrescentarValorOrigem(fragmento, texto) {
+        const valor = String(texto || "");
+        if (!valor) return;
+
+        const regexPartes = /(\b\d{3}\|\d{3}\b|\bK\d{1,3}\b)/g;
+        let posicao = 0;
+        let match;
+
+        while ((match = regexPartes.exec(valor)) !== null) {
+            acrescentarSpan(fragmento, valor.slice(posicao, match.index), "infoValorOrigem");
+            acrescentarSpan(
+                fragmento,
+                match[0],
+                match[0].startsWith("K") ? "infoContinente" : "infoCoordenadas",
+            );
+            posicao = match.index + match[0].length;
+        }
+
+        acrescentarSpan(fragmento, valor.slice(posicao), "infoValorOrigem");
     }
 
     function acrescentarSpan(fragmento, texto, tipo, comando) {
@@ -466,9 +494,11 @@
 
         const estilos = {
             infoLabelAtacante: { cor: "#ffe66d", peso: "800", sombra: sombraForte },
-            infoValorAtacante: { cor: "#ffffff", peso: "800", sombra: sombraLeve },
+            infoValorAtacante: { cor: "#7ee7ff", peso: "800", sombra: sombraLeve },
             infoLabelOrigem: { cor: "#9effa1", peso: "800", sombra: sombraForte },
-            infoValorOrigem: { cor: "#d9f7ff", peso: "800", sombra: sombraLeve },
+            infoValorOrigem: { cor: "#ffffff", peso: "800", sombra: sombraLeve },
+            infoCoordenadas: { cor: "#75d5ff", peso: "800", sombra: sombraLeve },
+            infoContinente: { cor: "#fff06a", peso: "900", sombra: sombraForte },
             base: { cor: "#ffffff", peso: "700", sombra: sombraLeve },
         };
 
@@ -497,6 +527,120 @@
         };
 
         return coresTexto[String(nomeCor || "").toLowerCase()] || "#ffffff";
+    }
+
+    function realcarInformacoesLinha(linha) {
+        if (!CONFIG.realcarInformacoesTabela) return;
+        if (!linha.closest("#incomings_table")) return;
+
+        const mapa = obterMapaCabecalhos(linha);
+        const fallback = {
+            destino: 1,
+            origem: 2,
+            jogador: 3,
+            distancia: 4,
+            chegada: 5,
+            chegaEm: 6,
+        };
+
+        aplicarRealceCelulaInfo(linha.children[obterIndiceColuna(mapa, fallback, "destino")], "destino");
+        aplicarRealceCelulaInfo(linha.children[obterIndiceColuna(mapa, fallback, "origem")], "origem");
+        aplicarRealceCelulaInfo(linha.children[obterIndiceColuna(mapa, fallback, "jogador")], "jogador");
+        aplicarRealceCelulaInfo(linha.children[obterIndiceColuna(mapa, fallback, "distancia")], "distancia");
+        aplicarRealceCelulaInfo(linha.children[obterIndiceColuna(mapa, fallback, "chegada")], "chegada");
+
+        const celulaTempo = linha.children[obterIndiceColuna(mapa, fallback, "chegaEm")];
+        aplicarRealceCelulaInfo(celulaTempo, obterTipoTempoRestante(celulaTempo));
+    }
+
+    function obterMapaCabecalhos(linha) {
+        const tabela = linha.closest("table");
+        if (!tabela) return {};
+        if (mapasCabecalhoTabela.has(tabela)) return mapasCabecalhoTabela.get(tabela);
+
+        const mapa = {};
+        const linhaCabecalho = [...tabela.querySelectorAll("tr")].find((tr) => {
+            const texto = normalizarSemAcentos(tr.textContent);
+            return texto.includes("destino")
+                && texto.includes("origem")
+                && texto.includes("jogador")
+                && texto.includes("chegada");
+        });
+
+        if (linhaCabecalho) {
+            [...linhaCabecalho.children].forEach((celula, index) => {
+                const texto = normalizarSemAcentos(celula.textContent);
+
+                if (texto.includes("destino")) mapa.destino = index;
+                else if (texto.includes("origem")) mapa.origem = index;
+                else if (texto.includes("jogador")) mapa.jogador = index;
+                else if (texto.includes("distancia")) mapa.distancia = index;
+                else if (texto.includes("chega em")) mapa.chegaEm = index;
+                else if (texto.includes("chegada")) mapa.chegada = index;
+            });
+        }
+
+        mapasCabecalhoTabela.set(tabela, mapa);
+        return mapa;
+    }
+
+    function obterIndiceColuna(mapa, fallback, tipo) {
+        return Number.isInteger(mapa[tipo]) ? mapa[tipo] : fallback[tipo];
+    }
+
+    function aplicarRealceCelulaInfo(celula, tipo) {
+        if (!celula) return;
+
+        const estilo = obterEstiloInfoTabela(tipo);
+        celula.dataset.raTpInfoRealce = tipo;
+        celula.style.setProperty("color", estilo.cor, "important");
+        celula.style.setProperty("font-weight", estilo.peso);
+        celula.style.setProperty("text-shadow", estilo.sombra, "important");
+
+        celula.querySelectorAll("a, span").forEach((elemento) => {
+            if (deveIgnorarRealceInfo(elemento)) return;
+
+            elemento.style.setProperty("color", estilo.cor, "important");
+            elemento.style.setProperty("font-weight", estilo.peso);
+            elemento.style.setProperty("text-shadow", estilo.sombra, "important");
+        });
+    }
+
+    function deveIgnorarRealceInfo(elemento) {
+        return Boolean(elemento.closest(".ra-tp-botoes, button, input, select, textarea"));
+    }
+
+    function obterTipoTempoRestante(celula) {
+        const segundos = obterSegundosDeTempo(celula?.textContent || "");
+        if (segundos === null) return "chegaEm";
+        if (segundos <= 5 * 60) return "tempoCritico";
+        if (segundos <= 15 * 60) return "tempoAviso";
+
+        return "tempoOk";
+    }
+
+    function obterSegundosDeTempo(texto) {
+        const match = String(texto || "").match(/\b(\d{1,2}):(\d{2}):(\d{2})\b/);
+        if (!match) return null;
+
+        return (Number(match[1]) * 3600) + (Number(match[2]) * 60) + Number(match[3]);
+    }
+
+    function obterEstiloInfoTabela(tipo) {
+        const sombra = "0 1px 0 rgba(255, 255, 255, 0.75), 0 0 1px rgba(0, 0, 0, 0.35)";
+        const estilos = {
+            destino: { cor: "#8b2d00", peso: "800", sombra },
+            origem: { cor: "#006b28", peso: "800", sombra },
+            jogador: { cor: "#7a4300", peso: "800", sombra },
+            distancia: { cor: "#23509a", peso: "800", sombra },
+            chegada: { cor: "#4b2f91", peso: "800", sombra },
+            chegaEm: { cor: "#006b28", peso: "900", sombra },
+            tempoOk: { cor: "#006b28", peso: "900", sombra },
+            tempoAviso: { cor: "#a45200", peso: "900", sombra },
+            tempoCritico: { cor: "#b00020", peso: "900", sombra },
+        };
+
+        return estilos[tipo] || estilos.chegaEm;
     }
 
     function aplicarCorAtaque(linha) {
@@ -615,6 +759,13 @@
 
     function normalizarEspacos(valor) {
         return String(valor || "").replace(/\s+/g, " ").trim();
+    }
+
+    function normalizarSemAcentos(valor) {
+        return normalizarEspacos(valor)
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
     }
 
     function escapeRegExp(valor) {
