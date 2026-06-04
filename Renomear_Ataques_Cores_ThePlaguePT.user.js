@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.2.6
+// @version      2.2.7
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -18,7 +18,7 @@
     const STYLE_ID = `${SCRIPT_ID}-style`;
 
     const CONFIG = {
-        tamanhoLetraPx: 5,
+        tamanhoLetraPx: 4,
         paginaDeAtaques: "coluna", // Modos: coluna, linha, nada
         mostrarBotoesNoMapa: false,
         intervaloFallbackMs: 2500,
@@ -210,7 +210,7 @@
         botao.className = "btn ra-tp-botao";
         botao.title = titulo;
         botao.textContent = label;
-        botao.style.fontSize = `${CONFIG.tamanhoLetraPx || 12}px`;
+        botao.style.setProperty("font-size", `${CONFIG.tamanhoLetraPx || 12}px`, "important");
         botao.style.color = texto.top;
         botao.style.background = `linear-gradient(to bottom, ${background.top} 35%, ${background.bottom} 100%)`;
 
@@ -816,12 +816,12 @@
             }
 
             .ra-tp-botao {
-                min-width: 15px;
-                height: 15px;
-                padding: 0 2px !important;
+                min-width: 12px;
+                height: 12px;
+                padding: 0 1px !important;
                 border: 1px solid rgba(0, 0, 0, 0.45) !important;
-                border-radius: 4px;
-                line-height: 0.95 !important;
+                border-radius: 3px;
+                line-height: 0.8 !important;
                 font-weight: 600;
                 text-align: center;
                 cursor: pointer;
@@ -830,7 +830,7 @@
                     inset 0 1px 0 rgba(255, 255, 255, 0.42),
                     inset 0 -1px 0 rgba(0, 0, 0, 0.18),
                     0 1px 1px rgba(0, 0, 0, 0.22);
-                text-shadow: 0 1px 1px rgba(0, 0, 0, 0.65);
+                text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
                 transition: filter 100ms ease, transform 100ms ease, box-shadow 100ms ease;
                 vertical-align: middle;
             }
