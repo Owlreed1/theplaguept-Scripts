@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.2.5
+// @version      2.2.6
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -18,7 +18,7 @@
     const STYLE_ID = `${SCRIPT_ID}-style`;
 
     const CONFIG = {
-        tamanhoLetraPx: 6,
+        tamanhoLetraPx: 5,
         paginaDeAtaques: "coluna", // Modos: coluna, linha, nada
         mostrarBotoesNoMapa: false,
         intervaloFallbackMs: 2500,
@@ -821,8 +821,8 @@
                 padding: 0 2px !important;
                 border: 1px solid rgba(0, 0, 0, 0.45) !important;
                 border-radius: 4px;
-                line-height: 1 !important;
-                font-weight: 700;
+                line-height: 0.95 !important;
+                font-weight: 600;
                 text-align: center;
                 cursor: pointer;
                 box-sizing: border-box;
