@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.2.0
+// @version      2.2.1
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -492,13 +492,15 @@
             };
         }
 
+        const infoLabel = { cor: "#ffe66d", peso: "800", sombra: sombraForte };
+        const infoValor = { cor: "#ffffff", peso: "800", sombra: sombraLeve };
         const estilos = {
-            infoLabelAtacante: { cor: "#ffe66d", peso: "800", sombra: sombraForte },
-            infoValorAtacante: { cor: "#7ee7ff", peso: "800", sombra: sombraLeve },
-            infoLabelOrigem: { cor: "#9effa1", peso: "800", sombra: sombraForte },
-            infoValorOrigem: { cor: "#ffffff", peso: "800", sombra: sombraLeve },
-            infoCoordenadas: { cor: "#75d5ff", peso: "800", sombra: sombraLeve },
-            infoContinente: { cor: "#fff06a", peso: "900", sombra: sombraForte },
+            infoLabelAtacante: infoLabel,
+            infoValorAtacante: infoValor,
+            infoLabelOrigem: infoLabel,
+            infoValorOrigem: infoValor,
+            infoCoordenadas: infoValor,
+            infoContinente: infoValor,
             base: { cor: "#ffffff", peso: "700", sombra: sombraLeve },
         };
 
@@ -628,14 +630,15 @@
 
     function obterEstiloInfoTabela(tipo) {
         const sombra = "0 1px 0 rgba(255, 255, 255, 0.75), 0 0 1px rgba(0, 0, 0, 0.35)";
+        const infoPadrao = { cor: "#6b3500", peso: "800", sombra };
         const estilos = {
-            destino: { cor: "#8b2d00", peso: "800", sombra },
-            origem: { cor: "#006b28", peso: "800", sombra },
-            jogador: { cor: "#7a4300", peso: "800", sombra },
-            distancia: { cor: "#23509a", peso: "800", sombra },
-            chegada: { cor: "#4b2f91", peso: "800", sombra },
-            chegaEm: { cor: "#006b28", peso: "900", sombra },
-            tempoOk: { cor: "#006b28", peso: "900", sombra },
+            destino: infoPadrao,
+            origem: infoPadrao,
+            jogador: infoPadrao,
+            distancia: infoPadrao,
+            chegada: infoPadrao,
+            chegaEm: infoPadrao,
+            tempoOk: infoPadrao,
             tempoAviso: { cor: "#a45200", peso: "900", sombra },
             tempoCritico: { cor: "#b00020", peso: "900", sombra },
         };
