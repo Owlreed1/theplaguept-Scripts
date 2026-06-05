@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.2.16
+// @version      2.2.17
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -90,7 +90,7 @@
 
     const SELETORES = {
         linhasAtaques: "#incomings_table tr",
-        linhasComandos: "#commands_incomings .command-row",
+        linhasComandos: "#commands_incomings .command-row, #commands_incomings tr, #commands_outgoings .command-row, #commands_outgoings tr, .command-row",
         quickedit: ".quickedit-content",
         etiquetaNome: ".quickedit-label",
         iconeRenomear: ".rename-icon",
@@ -164,13 +164,13 @@
 
         return [...new Set(linhas)].filter((linha) => (
             linha.querySelector(SELETORES.etiquetaNome)
-            && linha.querySelector(SELETORES.quickedit)
+            && linha.querySelector(SELETORES.iconeRenomear)
         ));
     }
 
     function inserirBotoes(linha) {
-        const quickedit = linha.querySelector(SELETORES.quickedit);
-        if (!quickedit || quickedit.querySelector(".ra-tp-botoes")) return;
+        const containerDestino = obterContainerBotoes(linha);
+        if (!containerDestino || linha.querySelector(".ra-tp-botoes")) return;
 
         const container = document.createElement("span");
         container.className = "ra-tp-botoes";
@@ -198,7 +198,15 @@
         });
         container.appendChild(reset);
 
-        quickedit.appendChild(container);
+        containerDestino.appendChild(container);
+    }
+
+    function obterContainerBotoes(linha) {
+        const quickedit = linha.querySelector(SELETORES.quickedit);
+        if (quickedit) return quickedit;
+
+        const label = linha.querySelector(SELETORES.etiquetaNome);
+        return label?.closest("td") || label?.parentElement || null;
     }
 
     function criarBotao(label, titulo, corBotao, corTexto) {
@@ -292,11 +300,12 @@
     }
 
     function construirNome(valorAtual, comando, linha) {
-        const atual = prepararNomeParaInfoAtacante(valorAtual, linha);
+        const sufixoInfo = obterSufixoInfoParaNome(valorAtual, linha);
+        const atual = prepararNomeParaInfoAtacante(valorAtual, sufixoInfo);
 
         if (comando.modo === "acrescentar") {
-            if (comandoExisteNoNome(atual, comando)) return aplicarInfoAtacante(atual, linha);
-            return aplicarInfoAtacante(`${atual}${comando.tag}`, linha);
+            if (comandoExisteNoNome(atual, comando)) return aplicarInfoAtacanteComSufixo(atual, sufixoInfo);
+            return aplicarInfoAtacanteComSufixo(`${atual}${comando.tag}`, sufixoInfo);
         }
 
         const sufixosAtivos = COMANDOS
@@ -305,29 +314,37 @@
             .join("");
         const base = removerTags(atual, () => true);
 
-        return aplicarInfoAtacante(`${base} ${comando.tag}${sufixosAtivos}`, linha);
+        return aplicarInfoAtacanteComSufixo(`${base} ${comando.tag}${sufixosAtivos}`, sufixoInfo);
     }
 
     function limparEtiquetas(valorAtual, linha) {
-        const atual = prepararNomeParaInfoAtacante(valorAtual, linha);
+        const sufixoInfo = obterSufixoInfoParaNome(valorAtual, linha);
+        const atual = prepararNomeParaInfoAtacante(valorAtual, sufixoInfo);
         const limpo = removerTags(atual, () => true);
 
-        return aplicarInfoAtacante(normalizarEspacos(limpo) || "Ataque", linha);
+        return aplicarInfoAtacanteComSufixo(normalizarEspacos(limpo) || "Ataque", sufixoInfo);
     }
 
-    function prepararNomeParaInfoAtacante(nome, linha) {
+    function prepararNomeParaInfoAtacante(nome, sufixoInfo) {
         const normalizado = normalizarEspacos(nome);
-        if (!construirSufixoInfoAtacante(linha)) return normalizado;
+        if (!sufixoInfo) return normalizado;
 
         return removerInfoAtacanteAuto(normalizado);
     }
 
     function aplicarInfoAtacante(nome, linha) {
-        const base = normalizarEspacos(nome);
-        const sufixo = construirSufixoInfoAtacante(linha);
-        if (!sufixo) return base;
+        return aplicarInfoAtacanteComSufixo(nome, construirSufixoInfoAtacante(linha));
+    }
 
-        return normalizarEspacos(`${removerInfoAtacanteAuto(base)}${sufixo}`);
+    function aplicarInfoAtacanteComSufixo(nome, sufixoInfo) {
+        const base = normalizarEspacos(nome);
+        if (!sufixoInfo) return base;
+
+        return normalizarEspacos(`${removerInfoAtacanteAuto(base)}${sufixoInfo}`);
+    }
+
+    function obterSufixoInfoParaNome(nome, linha) {
+        return construirSufixoInfoAtacante(linha) || extrairSufixoInfoAtacanteDoNome(nome);
     }
 
     function construirSufixoInfoAtacante(linha) {
@@ -340,6 +357,13 @@
         if (info.aldeia) partes.push(`Origem: ${info.aldeia}`);
 
         return partes.length ? ` / ${partes.join(" / ")}` : "";
+    }
+
+    function extrairSufixoInfoAtacanteDoNome(nome) {
+        const match = String(nome || "").match(/\s*(?:\||\/)\s*(?:Atacante|Origem):\s*.*$/i);
+        if (!match) return "";
+
+        return normalizarEspacos(match[0]).replace(/^\|\s*/, "/ ");
     }
 
     function removerInfoAtacanteAuto(nome) {
