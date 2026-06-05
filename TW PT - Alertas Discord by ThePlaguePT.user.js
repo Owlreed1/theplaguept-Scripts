@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord by ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @match        https://*.tribalwars.com.pt/*
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
@@ -16,7 +16,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.1.2 carregada');
+    console.log('[TW Discord Alerts] Versao 1.1.3 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2225,12 +2225,15 @@
 #tw-discord-alerts-toggle {
     position: relative !important;
     z-index: 4 !important;
-    min-width: 210px !important;
+    box-sizing: border-box !important;
+    width: 36px !important;
+    min-width: 36px !important;
     height: 32px !important;
     display: flex !important;
     align-items: center !important;
-    justify-content: center !important;
-    gap: 8px !important;
+    justify-content: flex-start !important;
+    gap: 0 !important;
+    overflow: hidden !important;
     cursor: pointer !important;
     border: 1px solid #4f120f !important;
     border-radius: 2px !important;
@@ -2240,10 +2243,17 @@
     font-size: 12px !important;
     font-weight: bold !important;
     text-shadow: 1px 1px 1px #000 !important;
-    padding: 0 10px !important;
+    white-space: nowrap !important;
+    padding: 0 8px !important;
+    transition: width .18s ease, min-width .18s ease, padding .18s ease, gap .18s ease, background .18s ease !important;
 }
 
-#tw-discord-alerts-toggle:hover {
+#tw-discord-alerts-toggle:hover,
+#tw-discord-alerts-toggle:focus-visible {
+    width: 244px !important;
+    min-width: 244px !important;
+    gap: 8px !important;
+    padding: 0 10px !important;
     background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
 }
 
@@ -2262,9 +2272,27 @@
 .tw-alerts-eye {
     width: 16px !important;
     height: 16px !important;
+    flex: 0 0 16px !important;
     border-radius: 50% !important;
     background: radial-gradient(circle at center, #f6f2e8 0 24%, #111 26% 52%, #d6a35a 55% 100%) !important;
     box-shadow: inset 0 1px 1px rgba(255,255,255,.35), 0 1px 1px #000 !important;
+}
+
+.tw-alerts-toggle-label {
+    display: inline-block !important;
+    max-width: 0 !important;
+    opacity: 0 !important;
+    overflow: hidden !important;
+    transform: translateX(-4px) !important;
+    white-space: nowrap !important;
+    transition: max-width .18s ease, opacity .14s ease, transform .18s ease !important;
+}
+
+#tw-discord-alerts-toggle:hover .tw-alerts-toggle-label,
+#tw-discord-alerts-toggle:focus-visible .tw-alerts-toggle-label {
+    max-width: 198px !important;
+    opacity: 1 !important;
+    transform: translateX(0) !important;
 }
 
 #tw-discord-alerts-panel {
@@ -3358,9 +3386,9 @@
         const root = uiDoc.createElement('div');
         root.id = 'tw-discord-alerts-ui';
         root.innerHTML = `
-<button id="tw-discord-alerts-toggle" type="button">
+<button id="tw-discord-alerts-toggle" type="button" title="Alertas Discord - ThePlaguePT" aria-label="Alertas Discord - ThePlaguePT">
     <span class="tw-alerts-eye"></span>
-    <span>Alertas Discord - ThePlaguePT</span>
+    <span class="tw-alerts-toggle-label">Alertas Discord - ThePlaguePT</span>
 </button>
 
 <div id="tw-discord-alerts-backdrop"></div>
