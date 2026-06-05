@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.2.7
+// @version      2.2.16
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -18,7 +18,7 @@
     const STYLE_ID = `${SCRIPT_ID}-style`;
 
     const CONFIG = {
-        tamanhoLetraPx: 4,
+        tamanhoLetraPx: 8,
         paginaDeAtaques: "coluna", // Modos: coluna, linha, nada
         mostrarBotoesNoMapa: false,
         intervaloFallbackMs: 2500,
@@ -208,6 +208,11 @@
 
         botao.type = "button";
         botao.className = "btn ra-tp-botao";
+        if (isCorEscura(corBotao)) {
+            botao.classList.add("ra-tp-botao-escuro");
+            botao.style.setProperty("border-color", "rgba(255, 255, 255, 0.98)", "important");
+            botao.style.setProperty("outline", "1px solid rgba(255, 255, 255, 0.85)");
+        }
         botao.title = titulo;
         botao.textContent = label;
         botao.style.setProperty("font-size", `${CONFIG.tamanhoLetraPx || 12}px`, "important");
@@ -215,6 +220,10 @@
         botao.style.background = `linear-gradient(to bottom, ${background.top} 35%, ${background.bottom} 100%)`;
 
         return botao;
+    }
+
+    function isCorEscura(nomeCor) {
+        return ["black", "dark"].includes(String(nomeCor || "").toLowerCase());
     }
 
     async function editarNomeLinha(linha, transformarNome) {
@@ -272,9 +281,12 @@
     function refrescarLinhaDepois(linha) {
         [250, 900].forEach((atraso) => {
             setTimeout(() => {
+                limparRealceTextoLinha(linha);
                 removerBotoes(linha);
                 inserirBotoes(linha);
                 aplicarCorAtaque(linha);
+                realcarTextoLinha(linha);
+                realcarInformacoesLinha(linha);
             }, atraso);
         });
     }
@@ -380,46 +392,69 @@
         if (!label) return;
 
         const texto = normalizarEspacos(label.textContent);
-        if (!texto || label.dataset.raTpRealceTexto === texto) return;
+        const linhaEscura = linha.dataset.raTpLinhaEscura === "1";
+        if (
+            !texto
+            || (
+                label.dataset.raTpRealceTexto === texto
+                && label.dataset.raTpRealceEscuro === String(linhaEscura)
+            )
+        ) return;
 
         label.textContent = "";
-        label.appendChild(criarFragmentoRealceTexto(texto));
+        label.appendChild(criarFragmentoRealceTexto(texto, linhaEscura));
         label.dataset.raTpRealceTexto = texto;
+        label.dataset.raTpRealceEscuro = String(linhaEscura);
     }
 
-    function criarFragmentoRealceTexto(texto) {
+    function limparRealceTextoLinha(linha) {
+        const label = linha.querySelector(SELETORES.etiquetaNome);
+        if (label) {
+            delete label.dataset.raTpRealceTexto;
+            delete label.dataset.raTpRealceEscuro;
+        }
+    }
+
+    function criarFragmentoRealceTexto(texto, linhaEscura) {
         const fragmento = document.createDocumentFragment();
         const regexInfo = /\/\s*(Atacante|Origem):\s*/gi;
         const marcadores = [...texto.matchAll(regexInfo)];
+        const comandoPrincipal = obterComandoPrincipalRealce(texto);
 
         if (!marcadores.length) {
-            acrescentarTextoComTags(fragmento, texto);
+            acrescentarTextoComTags(fragmento, texto, linhaEscura, comandoPrincipal, true);
             return fragmento;
         }
 
         let posicao = 0;
         marcadores.forEach((marcador, index) => {
-            acrescentarTextoComTags(fragmento, texto.slice(posicao, marcador.index));
+            acrescentarTextoComTags(
+                fragmento,
+                texto.slice(posicao, marcador.index),
+                linhaEscura,
+                comandoPrincipal,
+                index === 0,
+            );
 
             const tipo = marcador[1].toLowerCase();
             const inicioValor = marcador.index + marcador[0].length;
             const fimValor = marcadores[index + 1]?.index ?? texto.length;
 
-            acrescentarSpan(fragmento, marcador[0], tipo === "atacante" ? "infoLabelAtacante" : "infoLabelOrigem");
+            acrescentarSpan(fragmento, marcador[0], tipo === "atacante" ? "infoLabelAtacante" : "infoLabelOrigem", null, linhaEscura);
             if (tipo === "origem") {
-                acrescentarValorOrigem(fragmento, texto.slice(inicioValor, fimValor));
+                acrescentarValorOrigem(fragmento, texto.slice(inicioValor, fimValor), linhaEscura);
             } else {
-                acrescentarSpan(fragmento, texto.slice(inicioValor, fimValor), "infoValorAtacante");
+                acrescentarSpan(fragmento, texto.slice(inicioValor, fimValor), "infoValorAtacante", null, linhaEscura);
             }
 
             posicao = fimValor;
         });
 
-        acrescentarTextoComTags(fragmento, texto.slice(posicao));
+        acrescentarTextoComTags(fragmento, texto.slice(posicao), linhaEscura, comandoPrincipal, false);
         return fragmento;
     }
 
-    function acrescentarTextoComTags(fragmento, texto) {
+    function acrescentarTextoComTags(fragmento, texto, linhaEscura, comandoPrincipal, realcarUnidade) {
         const valor = String(texto || "");
         if (!valor) return;
 
@@ -429,15 +464,27 @@
         let match;
 
         while ((match = regexTags.exec(valor)) !== null) {
-            acrescentarSpan(fragmento, valor.slice(posicao, match.index), "base");
-            acrescentarSpan(fragmento, match[0], "tag", tags.find((item) => item.tag === match[0])?.comando);
+            acrescentarSpan(
+                fragmento,
+                valor.slice(posicao, match.index),
+                realcarUnidade && posicao === 0 && comandoPrincipal ? "unidade" : "base",
+                comandoPrincipal,
+                linhaEscura,
+            );
+            acrescentarSpan(fragmento, match[0], "tag", tags.find((item) => item.tag === match[0])?.comando, linhaEscura);
             posicao = match.index + match[0].length;
         }
 
-        acrescentarSpan(fragmento, valor.slice(posicao), "base");
+        acrescentarSpan(
+            fragmento,
+            valor.slice(posicao),
+            realcarUnidade && posicao === 0 && comandoPrincipal ? "unidade" : "base",
+            comandoPrincipal,
+            linhaEscura,
+        );
     }
 
-    function acrescentarValorOrigem(fragmento, texto) {
+    function acrescentarValorOrigem(fragmento, texto, linhaEscura) {
         const valor = String(texto || "");
         if (!valor) return;
 
@@ -446,23 +493,25 @@
         let match;
 
         while ((match = regexPartes.exec(valor)) !== null) {
-            acrescentarSpan(fragmento, valor.slice(posicao, match.index), "infoValorOrigem");
+            acrescentarSpan(fragmento, valor.slice(posicao, match.index), "infoValorOrigem", null, linhaEscura);
             acrescentarSpan(
                 fragmento,
                 match[0],
                 match[0].startsWith("K") ? "infoContinente" : "infoCoordenadas",
+                null,
+                linhaEscura,
             );
             posicao = match.index + match[0].length;
         }
 
-        acrescentarSpan(fragmento, valor.slice(posicao), "infoValorOrigem");
+        acrescentarSpan(fragmento, valor.slice(posicao), "infoValorOrigem", null, linhaEscura);
     }
 
-    function acrescentarSpan(fragmento, texto, tipo, comando) {
+    function acrescentarSpan(fragmento, texto, tipo, comando, linhaEscura) {
         if (!texto) return;
 
         const span = document.createElement("span");
-        const estilo = obterEstiloRealce(tipo, comando);
+        const estilo = obterEstiloRealce(tipo, comando, linhaEscura);
 
         span.textContent = texto;
         span.dataset.raTpHighlight = tipo;
@@ -480,11 +529,25 @@
             .sort((a, b) => b.tag.length - a.tag.length);
     }
 
-    function obterEstiloRealce(tipo, comando) {
+    function obterComandoPrincipalRealce(texto) {
+        return COMANDOS.find((comando) => comando.modo === "substituir" && comandoExisteNoNome(texto, comando))
+            || COMANDOS.find((comando) => comandoExisteNoNome(texto, comando))
+            || null;
+    }
+
+    function obterEstiloRealce(tipo, comando, linhaEscura) {
         const sombraForte = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000";
         const sombraLeve = "0 1px 0 #000, 0 0 2px #000";
 
-        if (tipo === "tag" && comando) {
+        if ((tipo === "tag" || tipo === "unidade") && comando) {
+            if (isCorEscura(comando.corBotao)) {
+                return {
+                    cor: "#111111",
+                    peso: "900",
+                    sombra: "-1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, 0 0 2px #fff",
+                };
+            }
+
             return {
                 cor: obterCorTextoRealce(comando.corBotao),
                 peso: "800",
@@ -500,7 +563,7 @@
             infoValorOrigem: infoLabel,
             infoCoordenadas: infoLabel,
             infoContinente: infoLabel,
-            base: { cor: "#ffffff", peso: "700", sombra: sombraLeve },
+            base: infoLabel,
         };
 
         return estilos[tipo] || estilos.base;
@@ -680,6 +743,8 @@
         const colunaNome = linha.querySelector(SELETORES.etiquetaNome)?.closest("td");
         if (!colunaNome) return;
 
+        linha.dataset.raTpLinhaEscura = isFundoEscuro(background) ? "1" : "0";
+
         if (CONFIG.paginaDeAtaques === "linha") {
             linha.querySelectorAll("td").forEach((td) => aplicarFundo(td, background));
             linha.querySelectorAll("a, .quickedit-label").forEach(aplicarTextoAtaque);
@@ -708,6 +773,8 @@
     }
 
     function limparPintura(linha) {
+        delete linha.dataset.raTpLinhaEscura;
+
         linha.querySelectorAll("[data-ra-tp-fundo='1']").forEach((elemento) => {
             elemento.style.removeProperty("background");
             delete elemento.dataset.raTpFundo;
@@ -718,6 +785,18 @@
             elemento.style.removeProperty("text-shadow");
             delete elemento.dataset.raTpTexto;
         });
+    }
+
+    function isFundoEscuro(background) {
+        const hex = String(background || "").match(/#[0-9a-f]{6}/i)?.[0];
+        if (!hex) return false;
+
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        const luminancia = (0.299 * r) + (0.587 * g) + (0.114 * b);
+
+        return luminancia < 80;
     }
 
     function removerBotoes(linha) {
@@ -816,12 +895,12 @@
             }
 
             .ra-tp-botao {
-                min-width: 12px;
-                height: 12px;
-                padding: 0 1px !important;
+                min-width: 18px;
+                height: 18px;
+                padding: 0 3px !important;
                 border: 1px solid rgba(0, 0, 0, 0.45) !important;
                 border-radius: 3px;
-                line-height: 0.8 !important;
+                line-height: 1 !important;
                 font-weight: 600;
                 text-align: center;
                 cursor: pointer;
@@ -855,6 +934,15 @@
             .ra-tp-botao:focus {
                 outline: 1px solid rgba(255, 255, 255, 0.75);
                 outline-offset: 1px;
+            }
+
+            .ra-tp-botao-escuro {
+                border-color: rgba(255, 255, 255, 0.95) !important;
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
+                    0 0 0 1px rgba(0, 0, 0, 0.5),
+                    0 1px 1px rgba(0, 0, 0, 0.22);
             }
 
             .ra-tp-reset {
