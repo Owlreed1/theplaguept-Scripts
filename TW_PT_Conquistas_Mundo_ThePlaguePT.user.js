@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.30
+// @version      1.0.33
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.30",
+        version: "1.0.33",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -114,7 +114,7 @@
                 margin: 0 !important;
                 width: min(1320px, calc(100vw - 24px)) !important;
                 max-width: calc(100vw - 24px) !important;
-                max-height: calc(100vh - 22px) !important;
+                max-height: calc(100vh - 8px) !important;
                 box-sizing: border-box !important;
                 z-index: 20002 !important;
                 overflow: visible !important;
@@ -130,7 +130,7 @@
                 margin: 0 !important;
                 width: min(1320px, calc(100vw - 24px)) !important;
                 max-width: calc(100vw - 24px) !important;
-                max-height: calc(100vh - 22px) !important;
+                max-height: calc(100vh - 8px) !important;
                 box-sizing: border-box !important;
                 overflow: visible !important;
             }
@@ -140,6 +140,7 @@
                 max-width: 100% !important;
                 min-width: 0 !important;
                 overflow-x: hidden !important;
+                overflow-y: hidden !important;
             }
             #popup_box_${APP.dialogId} .${APP.id}-frame {
                 width: 100% !important;
@@ -157,7 +158,7 @@
                 transform: translate(-50%, -50%);
                 width: min(1320px, calc(100vw - 24px));
                 max-width: calc(100vw - 24px);
-                max-height: calc(100vh - 48px);
+                max-height: calc(100vh - 18px);
                 box-sizing: border-box;
                 overflow: visible;
                 margin: 0;
@@ -186,15 +187,15 @@
                 width: 100%;
                 max-width: 100%;
                 min-width: 0;
-                max-height: calc(100vh - 96px);
+                max-height: calc(100vh - 42px);
                 border: 2px solid #7e211c;
                 border-radius: 4px;
                 background: #f4e4b8;
                 color: #3b2508;
-                overflow: visible;
+                overflow: hidden;
             }
             .${APP.id}-head {
-                padding: 12px 14px 10px;
+                padding: 9px 14px 8px;
                 background: linear-gradient(to bottom, #f7e8c1 0%, #edd49a 100%);
                 border-bottom: 1px solid #c98c48;
             }
@@ -244,15 +245,15 @@
                 flex-direction: column;
                 min-height: 0;
                 min-width: 0;
-                padding: 8px 14px 10px;
+                padding: 6px 14px 8px;
                 overflow: hidden;
             }
             .${APP.id}-section {
                 display: grid;
                 grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
-                gap: 10px 22px;
+                gap: 8px 18px;
                 min-width: 0;
-                padding: 11px 0 12px 12px;
+                padding: 8px 0 9px 12px;
                 background: transparent;
                 border-top: 1px solid #d5b579;
                 border-bottom: 0;
@@ -280,7 +281,7 @@
                 border-bottom: 0;
             }
             .${APP.id}-section-title {
-                margin: 0 0 4px;
+                margin: 0 0 3px;
                 color: #8f2b25;
                 font-size: 13px;
                 line-height: 16px;
@@ -288,7 +289,7 @@
                 text-transform: uppercase;
             }
             .${APP.id}-section-desc {
-                margin: 3px 0 0;
+                margin: 2px 0 0;
                 color: #5e3b16;
                 font-size: 11px;
                 line-height: 14px;
@@ -298,8 +299,8 @@
             }
             .${APP.id}-toolbar {
                 display: grid;
-                grid-template-columns: repeat(3, minmax(130px, 1fr));
-                gap: 7px;
+                grid-template-columns: repeat(4, minmax(115px, 1fr));
+                gap: 6px 7px;
             }
             .${APP.id}-field {
                 display: flex;
@@ -316,7 +317,7 @@
             .${APP.id}-field select {
                 width: 100%;
                 box-sizing: border-box;
-                height: 29px;
+                height: 28px;
                 border: 1px solid #b57d2e;
                 border-radius: 2px;
                 background: #fff6d7;
@@ -383,6 +384,8 @@
             }
             .${APP.id}-config-list {
                 display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                column-gap: 18px;
                 gap: 0;
             }
             .${APP.id}-config-row {
@@ -390,10 +393,17 @@
                 grid-template-columns: 18px minmax(0, 1fr);
                 gap: 8px;
                 align-items: start;
-                padding: 8px 0;
+                padding: 6px 0;
                 border-top: 1px solid #d5b579;
             }
+            .${APP.id}-range-row {
+                grid-column: 1 / -1;
+            }
             .${APP.id}-config-row:first-child {
+                border-top: 0;
+                padding-top: 0;
+            }
+            .${APP.id}-config-row:nth-child(2) {
                 border-top: 0;
                 padding-top: 0;
             }
@@ -435,8 +445,8 @@
             }
             .${APP.id}-config-row input[type="range"] {
                 width: 100%;
-                height: 18px;
-                margin: 4px 0 0;
+                height: 16px;
+                margin: 3px 0 0;
                 accent-color: #a22c27;
             }
             .${APP.id}-summary {
@@ -448,7 +458,7 @@
                 border: 1px solid #b57d2e;
                 border-radius: 2px;
                 background: #fff6d7;
-                padding: 7px 8px;
+                padding: 6px 8px;
                 min-width: 0;
                 box-shadow: inset 0 1px 2px rgba(0,0,0,.08);
             }
@@ -470,8 +480,8 @@
                 max-width: 100%;
                 overflow-x: hidden;
                 overflow-y: auto;
-                height: clamp(220px, 40vh, 350px);
-                max-height: clamp(220px, 40vh, 350px);
+                height: clamp(170px, 28vh, 270px);
+                max-height: clamp(170px, 28vh, 270px);
                 min-height: 0;
                 border: 1px solid #c99545;
                 background: #fff2c8;
@@ -587,8 +597,16 @@
                 top: 8px;
                 right: 8px;
                 z-index: 95;
-                height: 28px;
-                min-width: 142px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: flex-start;
+                gap: 8px;
+                width: 34px;
+                height: 30px;
+                min-width: 34px;
+                max-width: 200px;
+                overflow: hidden;
+                white-space: nowrap;
                 border: 1px solid #4f120f;
                 border-radius: 2px;
                 background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
@@ -596,15 +614,72 @@
                 color: #fff;
                 font: bold 12px Verdana, Arial, sans-serif;
                 text-shadow: 1px 1px 1px #000;
-                padding: 0 10px;
+                padding: 0 7px;
                 cursor: pointer;
+                transition: width .18s ease, background .12s ease;
             }
-            #${APP.id}-map-load:hover {
+            #${APP.id}-map-load:hover,
+            #${APP.id}-map-load:focus {
+                width: 188px;
                 background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
+            }
+            #${APP.id}-map-load .${APP.id}-map-load-icon {
+                flex: 0 0 18px;
+                position: relative;
+                display: inline-block;
+                width: 18px;
+                height: 16px;
+                border: 1px solid #fff1b8;
+                border-radius: 2px;
+                background:
+                    linear-gradient(90deg, rgba(255,241,184,.35) 0 2px, transparent 2px 6px, rgba(255,241,184,.28) 6px 8px, transparent 8px 12px, rgba(255,241,184,.35) 12px 14px, transparent 14px),
+                    linear-gradient(to bottom, #f2d08a, #d49a40);
+                box-shadow: 0 0 0 1px #7b241f, 0 0 6px rgba(255,214,122,.75);
+                transform: skewX(-8deg);
+            }
+            #${APP.id}-map-load .${APP.id}-map-load-icon::before {
+                content: "";
+                position: absolute;
+                left: 7px;
+                top: 1px;
+                width: 1px;
+                height: 12px;
+                background: rgba(96,57,19,.75);
+                box-shadow: 6px 0 0 rgba(96,57,19,.65);
+            }
+            #${APP.id}-map-load .${APP.id}-map-load-icon::after {
+                content: "";
+                position: absolute;
+                left: 3px;
+                top: 5px;
+                width: 5px;
+                height: 5px;
+                border-radius: 50%;
+                background: #d9152f;
+                box-shadow: 0 0 0 1px #fff1b8;
+            }
+            #${APP.id}-map-load .${APP.id}-map-load-label {
+                flex: 0 0 auto;
+                opacity: 0;
+                transform: translateX(-4px);
+                transition: opacity .12s ease, transform .12s ease;
+            }
+            #${APP.id}-map-load:hover .${APP.id}-map-load-label,
+            #${APP.id}-map-load:focus .${APP.id}-map-load-label {
+                opacity: 1;
+                transform: translateX(0);
             }
             #${APP.id}-map-load:disabled {
                 opacity: .72;
                 cursor: wait;
+            }
+            #${APP.id}-map-load:disabled,
+            #${APP.id}-map-load.${APP.id}-map-load-busy {
+                width: 138px;
+            }
+            #${APP.id}-map-load.${APP.id}-map-load-busy .${APP.id}-map-load-label {
+                opacity: 1;
+                transform: translateX(0);
             }
             #${APP.id}-map-load.${APP.id}-map-load-fixed {
                 position: fixed;
@@ -650,6 +725,8 @@
                     gap: 8px;
                 }
                 .${APP.id}-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                .${APP.id}-config-list { grid-template-columns: 1fr; }
+                .${APP.id}-range-row { grid-column: auto; }
                 .${APP.id}-summary { grid-template-columns: repeat(2, 1fr); }
                 .${APP.id}-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
                 .${APP.id}-action-stack { grid-column: span 2; }
@@ -684,8 +761,12 @@
             button = document.createElement("button");
             button.id = `${APP.id}-map-load`;
             button.type = "button";
-            button.textContent = "Carregar conquistas";
-            button.title = "Carregar conquistas recentes e marcar aldeias no mapa";
+            button.setAttribute("aria-label", "Marcar Conquistas");
+            button.title = "Marcar conquistas recentes no mapa";
+            button.innerHTML = `
+                <span class="${APP.id}-map-load-icon" aria-hidden="true"></span>
+                <span class="${APP.id}-map-load-label">Marcar Conquistas</span>
+            `;
             button.addEventListener("click", loadConquestsFromMapButton);
         }
 
@@ -695,6 +776,16 @@
         if (button.parentElement !== parent) parent.appendChild(button);
         button.classList.toggle(`${APP.id}-map-load-fixed`, parent === document.body);
         state.mapLoadButton = button;
+    }
+
+    function setMapLoadButtonBusy(isBusy) {
+        if (!state.mapLoadButton) return;
+        const label = state.mapLoadButton.querySelector(`.${APP.id}-map-load-label`);
+        state.mapLoadButton.disabled = isBusy;
+        state.mapLoadButton.classList.toggle(`${APP.id}-map-load-busy`, isBusy);
+        state.mapLoadButton.setAttribute("aria-label", isBusy ? "A carregar conquistas" : "Marcar Conquistas");
+        state.mapLoadButton.title = isBusy ? "A carregar conquistas..." : "Marcar conquistas recentes no mapa";
+        if (label) label.textContent = isBusy ? "A carregar..." : "Marcar Conquistas";
     }
 
     function isMapScreen() {
@@ -824,7 +915,7 @@
                                             <span>Marca no mapa as aldeias conquistadas no periodo e filtros atuais.</span>
                                         </span>
                                     </label>
-                                    <div class="${APP.id}-config-row">
+                                    <div class="${APP.id}-config-row ${APP.id}-range-row">
                                         <span></span>
                                         <span>
                                             <b class="${APP.id}-range-head">
@@ -1155,7 +1246,7 @@
             setStyleImportant(box, "margin-left", "0");
             setStyleImportant(box, "width", `${width}px`);
             setStyleImportant(box, "max-width", "calc(100vw - 24px)");
-            setStyleImportant(box, "max-height", "calc(100vh - 24px)");
+            setStyleImportant(box, "max-height", "calc(100vh - 8px)");
             setStyleImportant(box, "box-sizing", "border-box");
             setStyleImportant(box, "overflow", "visible");
             setStyleImportant(box, "z-index", "20002");
@@ -1166,6 +1257,7 @@
             setStyleImportant(node, "min-width", "0");
             setStyleImportant(node, "box-sizing", "border-box");
             setStyleImportant(node, "overflow-x", "hidden");
+            setStyleImportant(node, "overflow-y", "hidden");
         });
 
         if (shell) {
@@ -1175,6 +1267,8 @@
             setStyleImportant(shell, "overflow", "visible");
         }
         setStyleImportant(frame, "width", "100%");
+        setStyleImportant(frame, "max-height", "calc(100vh - 42px)");
+        setStyleImportant(frame, "overflow", "hidden");
     }
 
     function setStyleImportant(node, name, value) {
@@ -2158,10 +2252,7 @@
     }
 
     function setBusy(isBusy) {
-        if (state.mapLoadButton) {
-            state.mapLoadButton.disabled = isBusy;
-            state.mapLoadButton.textContent = isBusy ? "A carregar..." : "Carregar conquistas";
-        }
+        setMapLoadButtonBusy(isBusy);
         if (!state.panel || !state.controls.reload) return;
         state.panel.classList.toggle(`${APP.id}-loading`, isBusy);
         ["reload", "save", "resetSettings", "clear"].forEach((name) => {
