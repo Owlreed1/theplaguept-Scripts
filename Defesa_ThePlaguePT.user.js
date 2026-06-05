@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.75
+// @version      0.1.76
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Defesa_ThePlaguePT.user.js
@@ -19,7 +19,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.75',
+        version: '0.1.76',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -231,8 +231,8 @@
 
                 #tpDefLauncher:hover,
                 #tpDefLauncher:focus {
-                    width: 98px;
-                    padding: 0 9px 0 5px;
+                    width: 112px;
+                    padding: 0 10px 0 5px;
                     background: linear-gradient(to bottom, #b13b32 0%, #7c251f 100%);
                 }
 
@@ -258,6 +258,28 @@
                     display: block;
                 }
 
+                .tpdef-launcher-shield {
+                    position: relative;
+                    display: block;
+                    width: 13px;
+                    height: 15px;
+                    background: linear-gradient(to bottom, #f6e3a4 0%, #9e7840 48%, #4d3320 100%);
+                    border: 1px solid #f8e8b8;
+                    box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 1px 1px rgba(0,0,0,.45);
+                    clip-path: polygon(50% 0, 91% 14%, 82% 63%, 50% 100%, 18% 63%, 9% 14%);
+                    box-sizing: border-box;
+                }
+
+                .tpdef-launcher-shield::after {
+                    content: "";
+                    position: absolute;
+                    left: 50%;
+                    top: 1px;
+                    bottom: 2px;
+                    width: 1px;
+                    background: rgba(255,255,255,.5);
+                }
+
                 .tpdef-launcher-text {
                     display: inline-block;
                     max-width: 0;
@@ -268,7 +290,7 @@
 
                 #tpDefLauncher:hover .tpdef-launcher-text,
                 #tpDefLauncher:focus .tpdef-launcher-text {
-                    max-width: 70px;
+                    max-width: 82px;
                     opacity: 1;
                 }
 
@@ -1499,7 +1521,7 @@
 
         $('body').append(`
             <button type="button" id="tpDefLauncher" title="Defesa TP" aria-label="Defesa TP">
-                <span class="tpdef-launcher-icon"><img src="/graphic/command/support.png" alt=""></span>
+                <span class="tpdef-launcher-icon"><span class="tpdef-launcher-shield"></span></span>
                 <span class="tpdef-launcher-text">Defesa TP</span>
             </button>
         `);
