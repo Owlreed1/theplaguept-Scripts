@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.76
+// @version      0.1.77
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Defesa_ThePlaguePT.user.js
@@ -19,7 +19,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.76',
+        version: '0.1.77',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -231,7 +231,7 @@
 
                 #tpDefLauncher:hover,
                 #tpDefLauncher:focus {
-                    width: 112px;
+                    width: 174px;
                     padding: 0 10px 0 5px;
                     background: linear-gradient(to bottom, #b13b32 0%, #7c251f 100%);
                 }
@@ -290,7 +290,7 @@
 
                 #tpDefLauncher:hover .tpdef-launcher-text,
                 #tpDefLauncher:focus .tpdef-launcher-text {
-                    max-width: 82px;
+                    max-width: 144px;
                     opacity: 1;
                 }
 
@@ -1520,9 +1520,9 @@
         if ($('#tpDefLauncher').length) return;
 
         $('body').append(`
-            <button type="button" id="tpDefLauncher" title="Defesa TP" aria-label="Defesa TP">
+            <button type="button" id="tpDefLauncher" title="Defesa - ThePlaguePT" aria-label="Defesa - ThePlaguePT">
                 <span class="tpdef-launcher-icon"><span class="tpdef-launcher-shield"></span></span>
-                <span class="tpdef-launcher-text">Defesa TP</span>
+                <span class="tpdef-launcher-text">Defesa - ThePlaguePT</span>
             </button>
         `);
         $('#tpDefLauncher').off('click.tpdef').on('click.tpdef', openSettings);
