@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.72
+// @version      0.1.74
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @include      *://*.tribalwars.com.pt/game.php*
@@ -17,7 +17,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.72',
+        version: '0.1.74',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -206,19 +206,68 @@
                     right: 12px;
                     top: 72px;
                     z-index: 9999;
-                    padding: 5px 11px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: flex-start;
+                    gap: 6px;
+                    width: 28px;
+                    height: 28px;
+                    padding: 0 5px;
                     border: 1px solid #3b160f;
                     border-radius: 3px;
                     background: linear-gradient(to bottom, #9e312a 0%, #6f211c 100%);
                     color: #fff4d3;
                     font-weight: bold;
                     cursor: pointer;
+                    overflow: hidden;
+                    white-space: nowrap;
                     text-shadow: 1px 1px 1px #230b08;
                     box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 2px 6px rgba(0,0,0,.3);
+                    box-sizing: border-box;
+                    transition: width .18s ease, padding .18s ease, background .18s ease;
                 }
 
-                #tpDefLauncher:hover {
+                #tpDefLauncher:hover,
+                #tpDefLauncher:focus {
+                    width: 98px;
+                    padding: 0 9px 0 5px;
                     background: linear-gradient(to bottom, #b13b32 0%, #7c251f 100%);
+                }
+
+                .tpdef-launcher-icon {
+                    display: inline-flex;
+                    flex: 0 0 17px;
+                    align-items: center;
+                    justify-content: center;
+                    width: 17px;
+                    height: 17px;
+                    border: 1px solid #f1d28d;
+                    border-radius: 50%;
+                    background: #160b06;
+                    color: #fff4d3;
+                    font-size: 13px;
+                    line-height: 17px;
+                    box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+                }
+
+                .tpdef-launcher-icon img {
+                    width: 15px;
+                    height: 15px;
+                    display: block;
+                }
+
+                .tpdef-launcher-text {
+                    display: inline-block;
+                    max-width: 0;
+                    opacity: 0;
+                    overflow: hidden;
+                    transition: max-width .18s ease, opacity .12s ease;
+                }
+
+                #tpDefLauncher:hover .tpdef-launcher-text,
+                #tpDefLauncher:focus .tpdef-launcher-text {
+                    max-width: 70px;
+                    opacity: 1;
                 }
 
                 .tpdef-config-wrap {
@@ -1446,7 +1495,12 @@
     function addLauncher() {
         if ($('#tpDefLauncher').length) return;
 
-        $('body').append('<button type="button" id="tpDefLauncher">Defesa TP</button>');
+        $('body').append(`
+            <button type="button" id="tpDefLauncher" title="Defesa TP" aria-label="Defesa TP">
+                <span class="tpdef-launcher-icon"><img src="/graphic/command/support.png" alt=""></span>
+                <span class="tpdef-launcher-text">Defesa TP</span>
+            </button>
+        `);
         $('#tpDefLauncher').off('click.tpdef').on('click.tpdef', openSettings);
     }
 
