@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord by ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.1.3
+// @version      1.1.4
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @match        https://*.tribalwars.com.pt/*
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
@@ -16,7 +16,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.1.3 carregada');
+    console.log('[TW Discord Alerts] Versao 1.1.4 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2215,9 +2215,13 @@
         style.textContent = `
 #tw-discord-alerts-ui {
     position: fixed !important;
-    top: 14px !important;
-    right: 14px !important;
+    top: 48px !important;
+    right: 8px !important;
     z-index: 2147483647 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 5px !important;
     font-family: Verdana, Arial, sans-serif !important;
     color: #3b1607 !important;
 }
@@ -2226,9 +2230,9 @@
     position: relative !important;
     z-index: 4 !important;
     box-sizing: border-box !important;
-    width: 36px !important;
-    min-width: 36px !important;
-    height: 32px !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    height: 30px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: flex-start !important;
@@ -2244,7 +2248,7 @@
     font-weight: bold !important;
     text-shadow: 1px 1px 1px #000 !important;
     white-space: nowrap !important;
-    padding: 0 8px !important;
+    padding: 0 6px !important;
     transition: width .18s ease, min-width .18s ease, padding .18s ease, gap .18s ease, background .18s ease !important;
 }
 
@@ -2253,7 +2257,7 @@
     width: 244px !important;
     min-width: 244px !important;
     gap: 8px !important;
-    padding: 0 10px !important;
+    padding: 0 9px !important;
     background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
 }
 
