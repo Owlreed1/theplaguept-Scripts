@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.4.2
+// @version      2.4.5
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -256,9 +256,12 @@
         botao.id = CONFIG_BUTTON_ID;
         botao.type = "button";
         botao.className = "ra-tp-config-button";
-        botao.title = "Configurar Renomear Ataques";
-        botao.setAttribute("aria-label", "Configurar Renomear Ataques");
-        botao.textContent = "B";
+        botao.title = "Renomeador - ThePlaguePT";
+        botao.setAttribute("aria-label", "Abrir Renomeador - ThePlaguePT");
+        botao.innerHTML = `
+            <span class="ra-tp-config-button-icon" aria-hidden="true">B</span>
+            <span class="ra-tp-config-button-label">Renomeador - ThePlaguePT</span>
+        `;
         botao.addEventListener("click", abrirPainelConfiguracao);
 
         document.body.appendChild(botao);
@@ -1711,11 +1714,13 @@
                 z-index: 2147483647;
                 width: 30px;
                 min-width: 30px;
+                max-width: min(194px, calc(100vw - 8px));
                 height: 28px;
                 display: flex;
                 align-items: center;
-                justify-content: center;
+                justify-content: flex-start;
                 padding: 0;
+                overflow: hidden;
                 border: 1px solid #4f120f;
                 border-radius: 2px;
                 background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
@@ -1724,18 +1729,54 @@
                 font-weight: bold;
                 line-height: 1;
                 text-align: center;
+                white-space: nowrap;
                 cursor: pointer;
                 box-sizing: border-box;
                 text-shadow: 1px 1px 1px #000;
+                transition:
+                    width 180ms ease,
+                    filter 120ms ease,
+                    background 120ms ease;
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.35),
                     inset 0 -1px 0 rgba(0, 0, 0, 0.35),
                     0 2px 5px rgba(0, 0, 0, 0.45);
             }
 
-            .ra-tp-config-button:hover {
+            .ra-tp-config-button:hover,
+            .ra-tp-config-button:focus-visible {
+                width: 194px;
                 background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
                 filter: brightness(1.08);
+            }
+
+            .ra-tp-config-button-icon {
+                display: inline-flex;
+                flex: 0 0 28px;
+                width: 28px;
+                height: 26px;
+                align-items: center;
+                justify-content: center;
+                box-sizing: border-box;
+            }
+
+            .ra-tp-config-button-label {
+                display: block;
+                flex: 0 0 auto;
+                padding: 0 9px 0 4px;
+                opacity: 0;
+                font-size: 11px;
+                line-height: 26px;
+                transform: translateX(-5px);
+                transition:
+                    opacity 120ms ease 45ms,
+                    transform 180ms ease;
+            }
+
+            .ra-tp-config-button:hover .ra-tp-config-button-label,
+            .ra-tp-config-button:focus-visible .ra-tp-config-button-label {
+                opacity: 1;
+                transform: translateX(0);
             }
 
             .ra-tp-config-overlay[hidden] {
@@ -1758,48 +1799,39 @@
             .ra-tp-config-dialog {
                 position: relative !important;
                 width: min(850px, calc(100vw - 48px)) !important;
-                max-height: calc(100vh - 76px) !important;
-                overflow: auto !important;
-                padding: 14px !important;
-                border: 1px solid #2c2419 !important;
-                border-radius: 5px !important;
-                background: linear-gradient(to bottom, #d8cbb0 0%, #b5a07a 100%) !important;
+                max-width: calc(100vw - 42px) !important;
+                max-height: calc(100vh - 72px) !important;
+                overflow: visible !important;
+                padding: 8px !important;
+                border: 1px solid #2a2118 !important;
+                border-radius: 4px !important;
+                background: #9f9174 !important;
                 color: #3b2508 !important;
                 box-sizing: border-box !important;
                 box-shadow:
-                    0 0 0 1px #efe3c3,
-                    0 0 0 2px #7f6d52,
-                    0 0 0 3px #d0c3a8,
-                    0 0 0 5px #5f513f,
-                    0 0 0 6px #b7ac98,
-                    0 0 0 8px #30291f,
-                    0 6px 18px rgba(0, 0, 0, 0.68) !important;
+                    0 0 0 1px #efe3c5,
+                    0 0 0 3px #5c5141,
+                    0 0 0 4px #b9ad94,
+                    0 3px 12px rgba(0, 0, 0, 0.55) !important;
             }
 
             .ra-tp-config-dialog::before {
-                content: "";
-                position: absolute;
-                inset: 5px;
-                pointer-events: none;
-                border: 1px solid #f2e5c7;
-                border-radius: 4px;
-                box-shadow:
-                    inset 0 0 0 1px #5f4d35,
-                    inset 0 0 0 2px #c9b895,
-                    inset 0 0 0 3px #8a7555;
+                content: none !important;
             }
 
             .ra-tp-config-frame {
                 position: relative;
                 z-index: 1;
                 width: 100%;
-                overflow: hidden;
-                border: 1px solid #7e211c;
+                max-width: 100%;
+                max-height: calc(100vh - 88px);
+                overflow-x: hidden;
+                overflow-y: auto;
+                border: 2px solid #7e211c;
                 border-radius: 4px;
                 background: #f4e4b8;
-                box-shadow:
-                    0 0 0 1px #f8edc9,
-                    inset 0 0 0 1px rgba(255, 250, 224, 0.8);
+                box-sizing: border-box;
+                box-shadow: none;
             }
 
             .ra-tp-config-header {
@@ -1831,18 +1863,18 @@
                 width: 19px !important;
                 height: 19px !important;
                 padding: 0 !important;
-                border: 2px solid #3b160f !important;
+                border: 2px solid #2a2118 !important;
                 border-radius: 3px !important;
-                background: #f4e4b8 !important;
-                color: #170704 !important;
-                font-size: 19px !important;
+                background: #f3dfaa !important;
+                color: #110705 !important;
+                font-size: 18px !important;
                 font-weight: bold !important;
                 line-height: 15px !important;
                 text-align: center !important;
                 cursor: pointer !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(255, 255, 255, 0.55),
-                    0 1px 2px rgba(0, 0, 0, 0.6) !important;
+                    inset 0 0 0 1px #fff0c8,
+                    0 1px 2px rgba(0, 0, 0, 0.55) !important;
             }
 
             .ra-tp-config-body {
@@ -1988,23 +2020,31 @@
             }
 
             .ra-tp-config-footer {
-                display: grid;
-                grid-template-columns: repeat(3, minmax(0, 1fr));
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: flex-start;
                 gap: 8px;
             }
 
             .ra-tp-config-primary,
             .ra-tp-config-secondary {
-                min-height: 29px !important;
-                padding: 4px 10px !important;
+                flex: 0 0 118px !important;
+                width: 118px !important;
+                min-width: 118px !important;
+                height: 24px !important;
+                min-height: 24px !important;
+                padding: 1px 8px !important;
                 border: 1px solid #681511 !important;
                 border-radius: 3px !important;
                 background: linear-gradient(to bottom, #b13a34, #922722 55%, #731914) !important;
                 color: #fff !important;
                 font-size: 11px !important;
                 font-weight: bold !important;
+                line-height: 16px !important;
                 text-shadow: 1px 1px 1px #000 !important;
                 cursor: pointer !important;
+                box-sizing: border-box !important;
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.25),
                     inset 0 -1px 0 rgba(0, 0, 0, 0.3) !important;
@@ -2039,8 +2079,7 @@
             @media (max-width: 480px) {
                 .ra-tp-config-fields-grid,
                 .ra-tp-config-toggle-grid,
-                .ra-tp-config-command-list,
-                .ra-tp-config-footer {
+                .ra-tp-config-command-list {
                     grid-template-columns: 1fr;
                 }
             }
