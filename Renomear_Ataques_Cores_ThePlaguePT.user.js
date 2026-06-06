@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.4.5
+// @version      2.4.7
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -259,7 +259,7 @@
         botao.title = "Renomeador - ThePlaguePT";
         botao.setAttribute("aria-label", "Abrir Renomeador - ThePlaguePT");
         botao.innerHTML = `
-            <span class="ra-tp-config-button-icon" aria-hidden="true">B</span>
+            <span class="ra-tp-config-button-icon" aria-hidden="true">R</span>
             <span class="ra-tp-config-button-label">Renomeador - ThePlaguePT</span>
         `;
         botao.addEventListener("click", abrirPainelConfiguracao);
@@ -1712,71 +1712,90 @@
                 top: 104px;
                 bottom: auto;
                 z-index: 2147483647;
-                width: 30px;
-                min-width: 30px;
-                max-width: min(194px, calc(100vw - 8px));
-                height: 28px;
-                display: flex;
-                align-items: center;
-                justify-content: flex-start;
-                padding: 0;
-                overflow: hidden;
-                border: 1px solid #4f120f;
-                border-radius: 2px;
-                background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
-                color: #f7dfa2;
-                font-size: 13px;
-                font-weight: bold;
-                line-height: 1;
-                text-align: center;
-                white-space: nowrap;
-                cursor: pointer;
-                box-sizing: border-box;
-                text-shadow: 1px 1px 1px #000;
+                box-sizing: border-box !important;
+                width: 30px !important;
+                min-width: 30px !important;
+                max-width: min(244px, calc(100vw - 8px)) !important;
+                height: 28px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                gap: 0 !important;
+                overflow: hidden !important;
+                cursor: pointer !important;
+                border: 1px solid #4f120f !important;
+                border-radius: 2px !important;
+                background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611) !important;
+                color: #fff !important;
+                font-size: 12px !important;
+                font-weight: bold !important;
+                line-height: 1 !important;
+                text-align: center !important;
+                text-shadow: 1px 1px 1px #000 !important;
+                white-space: nowrap !important;
+                padding: 0 6px !important;
                 transition:
                     width 180ms ease,
-                    filter 120ms ease,
-                    background 120ms ease;
+                    min-width 180ms ease,
+                    padding 180ms ease,
+                    gap 180ms ease,
+                    background 180ms ease !important;
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.35),
                     inset 0 -1px 0 rgba(0, 0, 0, 0.35),
-                    0 2px 5px rgba(0, 0, 0, 0.45);
+                    0 2px 5px rgba(0, 0, 0, 0.45) !important;
             }
 
             .ra-tp-config-button:hover,
             .ra-tp-config-button:focus-visible {
-                width: 194px;
-                background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
-                filter: brightness(1.08);
+                width: 244px !important;
+                min-width: 244px !important;
+                gap: 8px !important;
+                padding: 0 9px !important;
+                background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
             }
 
             .ra-tp-config-button-icon {
-                display: inline-flex;
-                flex: 0 0 28px;
-                width: 28px;
-                height: 26px;
-                align-items: center;
-                justify-content: center;
-                box-sizing: border-box;
+                display: inline-flex !important;
+                flex: 0 0 16px !important;
+                width: 16px !important;
+                height: 16px !important;
+                align-items: center !important;
+                justify-content: center !important;
+                box-sizing: border-box !important;
+                border: 1px solid #29110a !important;
+                border-radius: 50% !important;
+                background: radial-gradient(circle at 35% 30%, #fff2ba 0 28%, #d7a44e 31% 68%, #77300f 72% 100%) !important;
+                color: #3d1208 !important;
+                font-size: 9px !important;
+                font-weight: 900 !important;
+                line-height: 14px !important;
+                text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+                box-shadow:
+                    inset 0 1px 1px rgba(255, 255, 255, 0.35),
+                    0 1px 1px #000 !important;
             }
 
             .ra-tp-config-button-label {
-                display: block;
-                flex: 0 0 auto;
-                padding: 0 9px 0 4px;
-                opacity: 0;
-                font-size: 11px;
-                line-height: 26px;
-                transform: translateX(-5px);
+                display: inline-block !important;
+                max-width: 0 !important;
+                opacity: 0 !important;
+                overflow: hidden !important;
+                font-size: 12px !important;
+                line-height: 26px !important;
+                transform: translateX(-4px) !important;
+                white-space: nowrap !important;
                 transition:
-                    opacity 120ms ease 45ms,
-                    transform 180ms ease;
+                    max-width 180ms ease,
+                    opacity 140ms ease,
+                    transform 180ms ease !important;
             }
 
             .ra-tp-config-button:hover .ra-tp-config-button-label,
             .ra-tp-config-button:focus-visible .ra-tp-config-button-label {
-                opacity: 1;
-                transform: translateX(0);
+                max-width: 198px !important;
+                opacity: 1 !important;
+                transform: translateX(0) !important;
             }
 
             .ra-tp-config-overlay[hidden] {
