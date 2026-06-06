@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.33
+// @version      1.0.34
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.33",
+        version: "1.0.34",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -57,19 +57,24 @@
         mapLoadButton: null,
         mapButtonForceMarkers: false,
         panelSettingsDraft: null,
+        launcherPositionFrame: 0,
         memoryCache: new Map(),
     };
 
     function init() {
         injectStyle();
         createLauncher();
+        scheduleLauncherPosition();
         ensureMapLoadButton();
+        window.addEventListener("resize", scheduleLauncherPosition);
+        window.addEventListener("orientationchange", scheduleLauncherPosition);
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape" && state.panel && !state.panel.classList.contains(`${APP.id}-hidden`)) {
                 closePanel();
             }
         });
         window.setInterval(() => {
+            scheduleLauncherPosition();
             ensureMapLoadButton();
             if (state.rows.length && markMapEnabled()) scheduleMapMarkers(0);
         }, 3000);
@@ -81,12 +86,21 @@
         style.id = `${APP.id}-style`;
         style.textContent = `
             #${APP.id}-launcher {
-                position: fixed;
-                right: 14px;
-                bottom: 18px;
-                z-index: 20000;
+                position: fixed !important;
+                left: 12px;
+                right: auto !important;
+                top: 279px;
+                bottom: auto !important;
+                z-index: 2147483647;
+                box-sizing: border-box;
+                display: flex;
+                align-items: center;
+                justify-content: flex-start;
+                gap: 0;
+                width: 30px;
+                min-width: 30px;
                 height: 28px;
-                min-width: 94px;
+                overflow: hidden;
                 border: 1px solid #4f120f;
                 border-radius: 2px;
                 background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
@@ -94,11 +108,69 @@
                 color: #fff;
                 font: bold 12px Verdana, Arial, sans-serif;
                 text-shadow: 1px 1px 1px #000;
-                padding: 0 10px;
+                white-space: nowrap;
+                padding: 0 6px;
                 cursor: pointer;
+                transition: width .18s ease, min-width .18s ease, padding .18s ease, gap .18s ease, background .18s ease;
             }
-            #${APP.id}-launcher:hover {
+            #${APP.id}-launcher:hover,
+            #${APP.id}-launcher:focus-visible {
+                width: 152px;
+                min-width: 152px;
+                gap: 8px;
+                padding: 0 9px;
                 background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
+            }
+            #${APP.id}-launcher .${APP.id}-launcher-icon {
+                position: relative;
+                display: block;
+                width: 16px;
+                height: 15px;
+                flex: 0 0 16px;
+                box-sizing: border-box;
+                border: 1px solid #f1d28d;
+                border-radius: 2px;
+                background:
+                    linear-gradient(90deg, rgba(255,241,184,.35) 0 2px, transparent 2px 6px, rgba(255,241,184,.28) 6px 8px, transparent 8px 12px, rgba(255,241,184,.35) 12px),
+                    linear-gradient(to bottom, #f2d08a, #d49a40);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 1px 1px #000;
+                transform: skewX(-8deg);
+            }
+            #${APP.id}-launcher .${APP.id}-launcher-icon::before {
+                content: "";
+                position: absolute;
+                left: 6px;
+                top: 1px;
+                width: 1px;
+                height: 11px;
+                background: rgba(96,57,19,.75);
+                box-shadow: 5px 0 0 rgba(96,57,19,.65);
+            }
+            #${APP.id}-launcher .${APP.id}-launcher-icon::after {
+                content: "";
+                position: absolute;
+                left: 2px;
+                top: 5px;
+                width: 4px;
+                height: 4px;
+                border-radius: 50%;
+                background: #d9152f;
+                box-shadow: 0 0 0 1px #fff1b8;
+            }
+            #${APP.id}-launcher .${APP.id}-launcher-text {
+                display: inline-block;
+                max-width: 0;
+                opacity: 0;
+                overflow: hidden;
+                white-space: nowrap;
+                transform: translateX(-4px);
+                transition: max-width .18s ease, opacity .14s ease, transform .18s ease;
+            }
+            #${APP.id}-launcher:hover .${APP.id}-launcher-text,
+            #${APP.id}-launcher:focus-visible .${APP.id}-launcher-text {
+                max-width: 112px;
+                opacity: 1;
+                transform: translateX(0);
             }
             #${APP.id}-panel,
             #${APP.id}-panel * {
@@ -740,10 +812,79 @@
         const button = document.createElement("button");
         button.id = `${APP.id}-launcher`;
         button.type = "button";
-        button.textContent = "Conquistas";
+        button.title = "Conquistas do Mundo";
+        button.setAttribute("aria-label", "Conquistas do Mundo");
+        button.innerHTML = `
+            <span class="${APP.id}-launcher-icon" aria-hidden="true"></span>
+            <span class="${APP.id}-launcher-text">Conquistas</span>
+        `;
         button.addEventListener("click", openPanel);
         document.body.appendChild(button);
         state.launcher = button;
+        scheduleLauncherPosition();
+        window.setTimeout(scheduleLauncherPosition, 250);
+        window.setTimeout(scheduleLauncherPosition, 1000);
+    }
+
+    function scheduleLauncherPosition() {
+        if (state.launcherPositionFrame) window.cancelAnimationFrame(state.launcherPositionFrame);
+        state.launcherPositionFrame = window.requestAnimationFrame(() => {
+            state.launcherPositionFrame = 0;
+            positionLauncher();
+        });
+    }
+
+    function positionLauncher() {
+        const button = document.getElementById(`${APP.id}-launcher`);
+        if (!button) return;
+
+        const gameLayout =
+            document.querySelector("#main_layout td.maincell")
+            || document.querySelector("td.maincell")
+            || document.querySelector("#contentContainer")
+            || document.querySelector("#content_value");
+        const villageBar =
+            document.querySelector("#header_info")
+            || document.querySelector("#menu_row2");
+
+        let left = 12;
+        let top = 104;
+
+        if (gameLayout) {
+            const layoutRect = gameLayout.getBoundingClientRect();
+            if (layoutRect.width > 0) left = Math.max(4, Math.round(layoutRect.left - 55));
+        }
+
+        if (villageBar) {
+            const barRect = villageBar.getBoundingClientRect();
+            if (barRect.height > 0) {
+                const barButtonTop = barRect.top + ((barRect.height - 28) / 2);
+                top = Math.max(4, Math.round(barButtonTop + 33));
+            }
+        }
+
+        const discordLauncher =
+            document.querySelector("#tw-discord-alerts-ui")
+            || document.querySelector("#tw-discord-alerts-toggle");
+        const anchors = [
+            document.querySelector("#tpDefLauncher"),
+            discordLauncher,
+            document.querySelector("#tpTwHub-launcher"),
+        ].filter((node) => node && node !== button);
+        const visibleRects = anchors
+            .map((node) => node.getBoundingClientRect())
+            .filter((rect) => rect.width > 0 && rect.height > 0);
+
+        if (visibleRects.length) {
+            const lowest = visibleRects.reduce((current, rect) => rect.bottom > current.bottom ? rect : current);
+            left = Math.max(4, Math.round(lowest.left));
+            top = Math.max(4, Math.round(lowest.bottom + 5));
+        }
+
+        button.style.setProperty("left", `${left}px`, "important");
+        button.style.setProperty("right", "auto", "important");
+        button.style.setProperty("top", `${top}px`, "important");
+        button.style.setProperty("bottom", "auto", "important");
     }
 
     function ensureMapLoadButton() {
