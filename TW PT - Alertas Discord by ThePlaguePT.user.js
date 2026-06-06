@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord by ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.1.12
+// @version      1.1.13
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @match        https://*.tribalwars.com.pt/*
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
@@ -16,7 +16,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.1.12 carregada');
+    console.log('[TW Discord Alerts] Versao 1.1.13 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -3628,53 +3628,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
 
         const uiWindow = uiDoc.defaultView || window;
         const launcherWidth = 30;
-        const launcherGap = 10;
-
-        function getSideIconColumnLeft(layoutRect) {
-            const columns = new Map();
-
-            Array.from(uiDoc.querySelectorAll('a, button, [role="button"], div')).forEach(element => {
-                if (root.contains(element)) return;
-
-                const rect = element.getBoundingClientRect();
-
-                if (
-                    rect.width < 20 ||
-                    rect.width > 38 ||
-                    rect.height < 20 ||
-                    rect.height > 38 ||
-                    rect.top < 35 ||
-                    rect.top > 210 ||
-                    rect.right > layoutRect.left + 2 ||
-                    rect.left < layoutRect.left - 90
-                ) {
-                    return;
-                }
-
-                const style = uiWindow.getComputedStyle(element);
-                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
-                    return;
-                }
-
-                const center = Math.round((rect.left + (rect.width / 2)) / 2) * 2;
-                const top = Math.round(rect.top);
-
-                if (!columns.has(center)) {
-                    columns.set(center, new Map());
-                }
-
-                columns.get(center).set(top, rect);
-            });
-
-            const bestColumn = Array.from(columns.entries())
-                .map(([center, rows]) => ({ center, rows: Array.from(rows.values()) }))
-                .filter(column => column.rows.length >= 2)
-                .sort((a, b) => b.rows.length - a.rows.length)[0];
-
-            if (!bestColumn) return null;
-
-            return Math.round(bestColumn.center - (launcherWidth / 2));
-        }
+        const launcherGap = 12;
 
         function positionLauncher() {
             const gameLayout =
@@ -3691,12 +3645,9 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 const layoutRect = gameLayout.getBoundingClientRect();
 
                 if (layoutRect.width > 0) {
-                    const sideIconLeft = getSideIconColumnLeft(layoutRect);
                     const left = Math.max(
                         4,
-                        sideIconLeft === null
-                            ? Math.round(layoutRect.left - launcherWidth - launcherGap)
-                            : sideIconLeft
+                        Math.round(layoutRect.left - launcherWidth - launcherGap)
                     );
 
                     root.style.setProperty('left', `${left}px`, 'important');
