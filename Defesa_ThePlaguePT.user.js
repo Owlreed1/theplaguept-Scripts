@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.83
+// @version      0.1.84
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.83',
+        version: '0.1.84',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -204,49 +204,60 @@
 
         $('head').append(`
             <style id="${APP.styleId}">
-                #tpDefLauncher {
+                #tpDefLauncherRoot {
                     position: fixed;
                     left: 12px;
                     right: auto;
                     top: 104px;
-                    z-index: 9999;
-                    display: inline-flex;
+                    z-index: 2147483647;
+                    display: flex;
                     align-items: center;
-                    justify-content: flex-start;
-                    gap: 6px;
-                    width: var(--tpdef-launcher-width, 28px);
-                    height: var(--tpdef-launcher-height, 28px);
-                    padding: 0 5px;
-                    border: 1px solid #3b160f;
-                    border-radius: 3px;
-                    background: linear-gradient(to bottom, #9e312a 0%, #6f211c 100%);
+                    font-family: Verdana, Arial, sans-serif;
+                }
+
+                #tpDefLauncher {
+                    position: relative !important;
+                    z-index: 4 !important;
+                    box-sizing: border-box !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: flex-start !important;
+                    gap: 0 !important;
+                    width: 30px !important;
+                    min-width: 30px !important;
+                    height: 28px !important;
+                    padding: 0 6px !important;
+                    border: 1px solid #4f120f !important;
+                    border-radius: 2px !important;
+                    background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611) !important;
                     color: #fff !important;
                     font-family: Verdana, Arial, sans-serif !important;
                     font-size: 12px !important;
                     font-weight: bold !important;
-                    cursor: pointer;
-                    overflow: hidden;
-                    white-space: nowrap;
+                    cursor: pointer !important;
+                    overflow: hidden !important;
+                    white-space: nowrap !important;
                     text-shadow: 1px 1px 1px #000 !important;
-                    box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 2px 6px rgba(0,0,0,.3);
-                    box-sizing: border-box;
-                    transition: width .18s ease, padding .18s ease, background .18s ease;
+                    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.45) !important;
+                    transition: width .18s ease, min-width .18s ease, padding .18s ease, gap .18s ease, background .18s ease !important;
                 }
 
                 #tpDefLauncher:hover,
-                #tpDefLauncher:focus {
-                    width: 174px;
-                    padding: 0 10px 0 5px;
-                    background: linear-gradient(to bottom, #b13b32 0%, #7c251f 100%);
+                #tpDefLauncher:focus-visible {
+                    width: 190px !important;
+                    min-width: 190px !important;
+                    gap: 8px !important;
+                    padding: 0 9px !important;
+                    background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
                 }
 
                 .tpdef-launcher-icon {
                     display: inline-flex;
-                    flex: 0 0 17px;
+                    flex: 0 0 16px;
                     align-items: center;
                     justify-content: center;
-                    width: 17px;
-                    height: 17px;
+                    width: 16px;
+                    height: 16px;
                     border: 1px solid #f1d28d;
                     border-radius: 50%;
                     background: #160b06;
@@ -289,19 +300,22 @@
                     max-width: 0;
                     opacity: 0;
                     overflow: hidden;
+                    transform: translateX(-4px);
+                    white-space: nowrap;
                     color: #fff !important;
                     font-family: Verdana, Arial, sans-serif !important;
                     font-size: 12px !important;
                     font-weight: bold !important;
                     line-height: 16px !important;
                     text-shadow: 1px 1px 1px #000 !important;
-                    transition: max-width .18s ease, opacity .12s ease;
+                    transition: max-width .18s ease, opacity .14s ease, transform .18s ease;
                 }
 
                 #tpDefLauncher:hover .tpdef-launcher-text,
-                #tpDefLauncher:focus .tpdef-launcher-text {
-                    max-width: 144px;
+                #tpDefLauncher:focus-visible .tpdef-launcher-text {
+                    max-width: 150px;
                     opacity: 1;
+                    transform: translateX(0);
                 }
 
                 .tpdef-config-wrap {
@@ -1527,19 +1541,23 @@
     }
 
     function addLauncher() {
-        if ($('#tpDefLauncher').length) return;
+        if ($('#tpDefLauncherRoot').length) return;
 
         $('body').append(`
-            <button type="button" id="tpDefLauncher" title="Defesa - ThePlaguePT" aria-label="Defesa - ThePlaguePT">
-                <span class="tpdef-launcher-icon"><span class="tpdef-launcher-shield"></span></span>
-                <span class="tpdef-launcher-text">Defesa - ThePlaguePT</span>
-            </button>
+            <div id="tpDefLauncherRoot">
+                <button type="button" id="tpDefLauncher" title="Defesa - ThePlaguePT" aria-label="Defesa - ThePlaguePT">
+                    <span class="tpdef-launcher-icon"><span class="tpdef-launcher-shield"></span></span>
+                    <span class="tpdef-launcher-text">Defesa - ThePlaguePT</span>
+                </button>
+            </div>
         `);
         $('#tpDefLauncher').off('click.tpdef').on('click.tpdef', openSettings);
 
         positionLauncherBelowSidebar();
         setTimeout(positionLauncherBelowSidebar, 300);
         setTimeout(positionLauncherBelowSidebar, 1000);
+        setTimeout(positionLauncherBelowSidebar, 2500);
+        setTimeout(positionLauncherBelowSidebar, 5000);
 
         $(window)
             .off('resize.tpdefLauncher scroll.tpdefLauncher')
@@ -1547,28 +1565,36 @@
     }
 
     function positionLauncherBelowSidebar() {
-        const launcher = document.getElementById('tpDefLauncher');
-        if (!launcher) return;
+        const root = document.getElementById('tpDefLauncherRoot');
+        if (!root) return;
+
+        const discordLauncher = document.getElementById('tw-discord-alerts-toggle');
+        if (discordLauncher) {
+            const discordRect = discordLauncher.getBoundingClientRect();
+
+            if (discordRect.width > 0 && discordRect.height > 0) {
+                root.style.left = `${Math.max(4, Math.round(discordRect.left))}px`;
+                root.style.right = 'auto';
+                root.style.top = `${Math.max(4, Math.round(discordRect.bottom + 5))}px`;
+                return;
+            }
+        }
 
         const anchor = findSidebarLauncherAnchor();
         if (!anchor) {
-            launcher.style.left = '12px';
-            launcher.style.right = 'auto';
-            launcher.style.top = '104px';
+            root.style.left = '12px';
+            root.style.right = 'auto';
+            root.style.top = '104px';
             return;
         }
 
         const rect = anchor.getBoundingClientRect();
-        const width = clamp(Math.round(rect.width), 26, 34);
-        const height = clamp(Math.round(rect.height), 26, 34);
         const left = Math.max(0, Math.round(rect.left));
         const top = Math.max(8, Math.round(rect.bottom + 5));
 
-        launcher.style.setProperty('--tpdef-launcher-width', `${width}px`);
-        launcher.style.setProperty('--tpdef-launcher-height', `${height}px`);
-        launcher.style.left = `${left}px`;
-        launcher.style.right = 'auto';
-        launcher.style.top = `${top}px`;
+        root.style.left = `${left}px`;
+        root.style.right = 'auto';
+        root.style.top = `${top}px`;
     }
 
     function findSidebarLauncherAnchor() {
