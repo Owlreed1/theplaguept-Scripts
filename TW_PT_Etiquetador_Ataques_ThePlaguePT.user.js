@@ -279,7 +279,7 @@
     }
 
     function log(...args) {
-        console.info("[Tag Incomings PT]", ...args);
+        console.info("[Etiquetador de Ataques]", ...args);
     }
 
     function estaEmFrame() {
@@ -1081,7 +1081,7 @@
         const prefixo = config.modoTeste ? "[TESTE] " : "";
         const detalheGrupos = grupos ? `, ${grupos} grupo(s)` : "";
         const detalheFulls = fullsNobre ? `, ${fullsNobre} full(s) por comboio de nobres` : "";
-        const mensagem = `${prefixo}Tag Incomings: ${renomeados} renomeado(s), ${selecionados} selecionado(s), ${total} entrada(s)${detalheGrupos}${detalheFulls}.`;
+        const mensagem = `${prefixo}Etiquetador: ${renomeados} renomeado(s), ${selecionados} selecionado(s), ${total} entrada(s)${detalheGrupos}${detalheFulls}.`;
         mostrarMensagem(mensagem);
     }
 
@@ -1315,7 +1315,7 @@
         const iframe = document.createElement("iframe");
         iframe.id = FRAME_FUNDO_ID;
         iframe.src = obterUrlIncomings();
-        iframe.title = "Tag Incomings PT";
+        iframe.title = "Etiquetador de ataques";
         iframe.style.cssText = [
             "position:absolute",
             "left:-9999px",
@@ -1504,8 +1504,13 @@
                 }
                 #tag-incomings-pt-panel strong {
                     display: block;
-                    margin-bottom: 8px;
+                    margin-bottom: 4px;
                     font-size: 13px;
+                }
+                #tag-incomings-pt-panel .ti-status {
+                    margin-bottom: 8px;
+                    color: #5b421f;
+                    font-size: 11px;
                 }
                 #tag-incomings-pt-panel label {
                     display: flex;
@@ -1538,7 +1543,8 @@
                 }
             </style>
             <div class="ti-config">
-                <strong>Tag Incomings PT</strong>
+                <strong>Etiquetador de ataques</strong>
+                <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} · v1.0.0</div>
                 ${criarCheckbox("Ativo", "ativo", config.ativo)}
                 ${criarCheckbox("Modo teste", "modoTeste", config.modoTeste)}
                 ${criarCheckbox("Destacar linhas", "destacarLinhas", config.destacarLinhas)}
@@ -1561,7 +1567,7 @@
                     <button type="button" data-ti-action="executar">Executar</button>
                 </div>
             </div>
-            <button class="ti-toggle" type="button" data-ti-action="toggle" title="${config.painelAberto ? "Fechar configuracoes" : "Abrir configuracoes"}" aria-expanded="${config.painelAberto ? "true" : "false"}">TI</button>
+            <button class="ti-toggle" type="button" data-ti-action="toggle" title="${config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador"}" aria-label="Configurar etiquetador de ataques" aria-expanded="${config.painelAberto ? "true" : "false"}">EA</button>
         `;
 
         painel.addEventListener("click", (evento) => {
@@ -1570,7 +1576,7 @@
                 config.painelAberto = !config.painelAberto;
                 painel.classList.toggle("ti-open", config.painelAberto);
                 evento.target.setAttribute("aria-expanded", config.painelAberto ? "true" : "false");
-                evento.target.setAttribute("title", config.painelAberto ? "Fechar configuracoes" : "Abrir configuracoes");
+                evento.target.setAttribute("title", config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador");
                 guardarConfig();
                 return;
             }
