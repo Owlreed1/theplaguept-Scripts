@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.35
+// @version      1.0.36
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.35",
+        version: "1.0.36",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -115,8 +115,8 @@
             }
             #${APP.id}-launcher:hover,
             #${APP.id}-launcher:focus-visible {
-                width: 152px;
-                min-width: 152px;
+                width: 244px;
+                min-width: 244px;
                 gap: 8px;
                 padding: 0 9px;
                 background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
@@ -168,7 +168,7 @@
             }
             #${APP.id}-launcher:hover .${APP.id}-launcher-text,
             #${APP.id}-launcher:focus-visible .${APP.id}-launcher-text {
-                max-width: 112px;
+                max-width: 198px;
                 opacity: 1;
                 transform: translateX(0);
             }
@@ -812,11 +812,11 @@
         const button = document.createElement("button");
         button.id = `${APP.id}-launcher`;
         button.type = "button";
-        button.title = "Conquistas do Mundo";
-        button.setAttribute("aria-label", "Conquistas do Mundo");
+        button.title = "Conquistas - ThePlaguePT";
+        button.setAttribute("aria-label", "Conquistas - ThePlaguePT");
         button.innerHTML = `
             <span class="${APP.id}-launcher-icon" aria-hidden="true"></span>
-            <span class="${APP.id}-launcher-text">Conquistas</span>
+            <span class="${APP.id}-launcher-text">Conquistas - ThePlaguePT</span>
         `;
         button.addEventListener("click", openPanel);
         document.body.appendChild(button);
