@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord by ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.1.7
+// @version      1.1.8
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @match        https://*.tribalwars.com.pt/*
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
@@ -16,7 +16,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.1.7 carregada');
+    console.log('[TW Discord Alerts] Versao 1.1.8 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2215,9 +2215,9 @@
         style.textContent = `
 #tw-discord-alerts-ui {
     position: fixed !important;
-    top: 7px !important;
+    top: 198px !important;
     right: auto !important;
-    left: 176px !important;
+    left: calc(50vw - 15px) !important;
     z-index: 2147483647 !important;
     display: flex !important;
     flex-direction: row !important;
