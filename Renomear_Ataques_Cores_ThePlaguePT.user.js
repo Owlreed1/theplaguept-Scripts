@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.2.17
+// @version      2.3.0
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -27,6 +27,9 @@
         manterInfoAtacante: true,
         realcarTexto: true,
         realcarInformacoesTabela: true,
+        ocultarBotoesApoios: true,
+        ocultarBotoesAmigos: true,
+        tribosAliadasIds: [],
     };
 
     const CORES = {
@@ -103,6 +106,9 @@
 
     let execucaoAgendada = false;
     const mapasCabecalhoTabela = new WeakMap();
+    const relacoesJogadores = new Map();
+    let tribosAliadasCache = null;
+    let tribosAliadasPromise = null;
 
     function iniciar() {
         if (!document.body) {
@@ -135,8 +141,15 @@
         const linhas = obterLinhasValidas();
 
         linhas.forEach((linha) => {
-            if (contexto.isMapa && !CONFIG.mostrarBotoesNoMapa) {
+            const relacaoAmigavel = obterRelacaoAmigavelSincrona(linha);
+            const ocultarNoMapa = contexto.isMapa && !CONFIG.mostrarBotoesNoMapa;
+            const ocultarApoio = CONFIG.ocultarBotoesApoios && isApoio(linha);
+
+            if (ocultarNoMapa || ocultarApoio || relacaoAmigavel === true) {
                 removerBotoes(linha);
+            } else if (relacaoAmigavel === null) {
+                removerBotoes(linha);
+                void verificarRelacaoAmigavel(linha);
             } else {
                 inserirBotoes(linha);
             }
@@ -166,6 +179,252 @@
             linha.querySelector(SELETORES.etiquetaNome)
             && linha.querySelector(SELETORES.iconeRenomear)
         ));
+    }
+
+    function obterRelacaoAmigavelSincrona(linha) {
+        if (!CONFIG.ocultarBotoesAmigos) return false;
+
+        const linkJogador = obterLinkJogadorAtacante(linha);
+        const jogadorId = obterIdDeLink(linkJogador);
+        const jogadorAtualId = obterJogadorAtualId();
+
+        if (jogadorId && jogadorAtualId && jogadorId === jogadorAtualId) return false;
+        if (temMarcadorRelacaoAmigavel(linha, linkJogador)) return true;
+
+        const triboId = obterTriboIdDaLinha(linha, linkJogador);
+        const triboAtualId = obterTriboAtualId();
+
+        if (triboId && triboAtualId && triboId === triboAtualId) return true;
+        if (triboId && tribosAliadasCache?.has(triboId)) return true;
+
+        if (jogadorId) {
+            const estado = relacoesJogadores.get(jogadorId);
+            if (estado === true || estado === false) return estado;
+            return null;
+        }
+
+        if (triboId && tribosAliadasCache === null) return null;
+        return false;
+    }
+
+    async function verificarRelacaoAmigavel(linha) {
+        if (!CONFIG.ocultarBotoesAmigos || !linha.isConnected) return;
+
+        const linkJogador = obterLinkJogadorAtacante(linha);
+        const jogadorId = obterIdDeLink(linkJogador);
+        const jogadorAtualId = obterJogadorAtualId();
+        const triboIdDireta = obterTriboIdDaLinha(linha, linkJogador);
+
+        if (jogadorId && jogadorAtualId && jogadorId === jogadorAtualId) {
+            relacoesJogadores.set(jogadorId, false);
+            return;
+        }
+
+        if (jogadorId && relacoesJogadores.get(jogadorId) === "pending") return;
+        if (jogadorId) relacoesJogadores.set(jogadorId, "pending");
+
+        try {
+            let triboId = triboIdDireta;
+
+            if (!triboId && linkJogador?.href) {
+                triboId = await obterTriboIdDoPerfil(linkJogador.href);
+            }
+
+            const amigavel = triboId ? await isTriboAmiga(triboId) : false;
+            if (jogadorId) relacoesJogadores.set(jogadorId, amigavel);
+        } catch (erro) {
+            if (jogadorId) relacoesJogadores.set(jogadorId, false);
+            console.warn("[Renomear Ataques TP] Falha ao verificar relacao:", erro);
+        } finally {
+            agendarExecucao();
+        }
+    }
+
+    function temMarcadorRelacaoAmigavel(linha, linkJogador) {
+        const elementos = [linha, linkJogador, linkJogador?.closest("td")].filter(Boolean);
+        const textoTecnico = elementos.map((elemento) => [
+            elemento.className || "",
+            elemento.getAttribute?.("title") || "",
+            elemento.getAttribute?.("data-relation") || "",
+            elemento.getAttribute?.("data-diplomacy") || "",
+            elemento.getAttribute?.("data-status") || "",
+        ].join(" ")).join(" ");
+        const normalizado = normalizarSemAcentos(textoTecnico);
+
+        return /(^|[\s_-])(ally|allied|friend|friendly|same[_-]?tribe|tribe[_-]?member|aliad[oa]s?|amig[oa]s?)(?=$|[\s_-])/.test(normalizado);
+    }
+
+    function obterTriboIdDaLinha(linha, linkJogador) {
+        const celulaJogador = linkJogador?.closest("td");
+        const linkTribo = celulaJogador?.querySelector('a[href*="screen=info_ally"][href*="id="]');
+        const idDoLink = obterIdDeLink(linkTribo);
+        if (idDoLink) return idDoLink;
+
+        const elementos = [linkJogador, celulaJogador, linha].filter(Boolean);
+        for (const elemento of elementos) {
+            const candidatos = [
+                elemento.getAttribute?.("data-ally-id"),
+                elemento.getAttribute?.("data-tribe-id"),
+                elemento.getAttribute?.("data-ally"),
+            ];
+
+            const id = candidatos.map(Number).find((valor) => Number.isInteger(valor) && valor > 0);
+            if (id) return id;
+        }
+
+        return 0;
+    }
+
+    async function obterTriboIdDoPerfil(urlPerfil) {
+        const resposta = await fetch(urlPerfil, { credentials: "same-origin" });
+        if (!resposta.ok) throw new Error(`Perfil HTTP ${resposta.status}`);
+
+        const html = await resposta.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const linkTribo = doc.querySelector('a[href*="screen=info_ally"][href*="id="]');
+
+        return obterIdDeLink(linkTribo);
+    }
+
+    async function isTriboAmiga(triboId) {
+        const triboAtualId = obterTriboAtualId();
+        if (triboAtualId && triboId === triboAtualId) return true;
+
+        const tribosAliadas = await obterTribosAliadas();
+        return tribosAliadas.has(triboId);
+    }
+
+    function obterTribosAliadas() {
+        if (tribosAliadasCache) return Promise.resolve(tribosAliadasCache);
+        if (tribosAliadasPromise) return tribosAliadasPromise;
+
+        tribosAliadasPromise = carregarTribosAliadas()
+            .then((ids) => {
+                tribosAliadasCache = ids;
+                return ids;
+            })
+            .catch((erro) => {
+                console.warn("[Renomear Ataques TP] Falha ao carregar aliados:", erro);
+                tribosAliadasCache = criarSetTribosConfiguradas();
+                return tribosAliadasCache;
+            })
+            .finally(() => {
+                tribosAliadasPromise = null;
+            });
+
+        return tribosAliadasPromise;
+    }
+
+    async function carregarTribosAliadas() {
+        const ids = criarSetTribosConfiguradas();
+        if (!obterTriboAtualId()) return ids;
+
+        const resposta = await fetch(criarUrlRelacoesTribo(), { credentials: "same-origin" });
+        if (!resposta.ok) throw new Error(`Relacoes HTTP ${resposta.status}`);
+
+        const html = await resposta.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+
+        doc.querySelectorAll([
+            '[data-relation="ally"] a[href*="screen=info_ally"]',
+            '[data-relation="allied"] a[href*="screen=info_ally"]',
+            ".relation-ally a[href*='screen=info_ally']",
+            ".relation_allied a[href*='screen=info_ally']",
+            "tr.ally a[href*='screen=info_ally']",
+            "tr.allied a[href*='screen=info_ally']",
+        ].join(",")).forEach((link) => adicionarIdTribo(ids, link));
+
+        doc.querySelectorAll('a[href*="screen=info_ally"][href*="id="]').forEach((link) => {
+            const contexto = obterContextoDiplomacia(link);
+            const isAliado = /\b(aliad[oa]s?|ally|allies|allied)\b/.test(contexto);
+            const isOutraRelacao = /\b(inimig[oa]s?|enemy|enemies|nap|pna|neutral)\b/.test(contexto);
+
+            if (isAliado && !isOutraRelacao) adicionarIdTribo(ids, link);
+        });
+
+        return ids;
+    }
+
+    function criarSetTribosConfiguradas() {
+        return new Set(
+            CONFIG.tribosAliadasIds
+                .map(Number)
+                .filter((id) => Number.isInteger(id) && id > 0),
+        );
+    }
+
+    function obterContextoDiplomacia(link) {
+        const partes = [];
+        const linha = link.closest("tr, li");
+        const container = linha?.closest("table, ul, ol, section, div");
+
+        [link, linha, container].filter(Boolean).forEach((elemento) => {
+            partes.push(elemento.className || "");
+            partes.push(elemento.getAttribute?.("data-relation") || "");
+            partes.push(elemento.getAttribute?.("title") || "");
+        });
+
+        if (linha) {
+            partes.push(linha.textContent || "");
+            let anterior = linha.previousElementSibling;
+
+            for (let i = 0; anterior && i < 5; i += 1) {
+                const texto = anterior.textContent || "";
+                partes.push(texto);
+                if (/\b(aliad|all(?:y|ies|ied)|inimig|enem|nap|pna)\b/i.test(normalizarSemAcentos(texto))) break;
+                anterior = anterior.previousElementSibling;
+            }
+        }
+
+        if (container) {
+            partes.push(container.querySelector("caption, thead, h2, h3, h4")?.textContent || "");
+            partes.push(container.previousElementSibling?.textContent || "");
+        }
+
+        return normalizarSemAcentos(partes.join(" "));
+    }
+
+    function adicionarIdTribo(set, link) {
+        const id = obterIdDeLink(link);
+        if (id) set.add(id);
+    }
+
+    function obterIdDeLink(link) {
+        if (!link?.href) return 0;
+
+        try {
+            return Number(new URL(link.href, location.href).searchParams.get("id")) || 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    function obterGameDataSeguro() {
+        try {
+            return window.TribalWars?.getGameData?.() || window.game_data || {};
+        } catch {
+            return window.game_data || {};
+        }
+    }
+
+    function obterJogadorAtualId() {
+        return Number(obterGameDataSeguro().player?.id) || 0;
+    }
+
+    function obterTriboAtualId() {
+        return Number(obterGameDataSeguro().player?.ally) || 0;
+    }
+
+    function criarUrlRelacoesTribo() {
+        const gameData = obterGameDataSeguro();
+        const url = new URL(location.href);
+
+        url.search = "";
+        if (gameData.village?.id) url.searchParams.set("village", gameData.village.id);
+        url.searchParams.set("screen", "ally");
+        url.searchParams.set("mode", "relations");
+
+        return url.href;
     }
 
     function inserirBotoes(linha) {
@@ -852,10 +1111,14 @@
     }
 
     function isApoio(linha) {
-        return [...linha.querySelectorAll("img")].some((img) => {
+        const temIconeApoio = [...linha.querySelectorAll("img")].some((img) => {
             const texto = `${img.src || ""} ${img.alt || ""} ${img.title || ""}`.toLowerCase();
-            return texto.includes("support");
+            return texto.includes("support") || texto.includes("apoio") || texto.includes("suporte");
         });
+        if (temIconeApoio) return true;
+
+        const textoLinha = normalizarSemAcentos(linha.textContent);
+        return /\b(apoio|suporte|support)\b/.test(textoLinha);
     }
 
     function obterCor(nome, fallback) {
