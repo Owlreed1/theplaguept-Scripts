@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.78
+// @version      0.1.79
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Defesa_ThePlaguePT.user.js
@@ -19,7 +19,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.78',
+        version: '0.1.79',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -1526,6 +1526,92 @@
             </button>
         `);
         $('#tpDefLauncher').off('click.tpdef').on('click.tpdef', openSettings);
+
+        positionLauncherBelowHelp();
+        setTimeout(positionLauncherBelowHelp, 300);
+        setTimeout(positionLauncherBelowHelp, 1000);
+
+        $(window)
+            .off('resize.tpdefLauncher scroll.tpdefLauncher')
+            .on('resize.tpdefLauncher scroll.tpdefLauncher', positionLauncherBelowHelp);
+    }
+
+    function positionLauncherBelowHelp() {
+        const launcher = document.getElementById('tpDefLauncher');
+        if (!launcher) return;
+
+        const helpButton = findGameHelpButton();
+        if (!helpButton) {
+            launcher.style.right = '12px';
+            launcher.style.top = '104px';
+            return;
+        }
+
+        const rect = helpButton.getBoundingClientRect();
+        const right = Math.max(8, Math.round(window.innerWidth - rect.right));
+        const top = Math.max(8, Math.round(rect.bottom + 7));
+
+        launcher.style.right = `${right}px`;
+        launcher.style.top = `${top}px`;
+    }
+
+    function findGameHelpButton() {
+        const explicitSelectors = [
+            '#help_link',
+            '#help-button',
+            '#help_button',
+            '.help-link',
+            '.help-button',
+            'a[title*="Ajuda"]',
+            'a[title*="ajuda"]',
+            'a[title*="Help"]'
+        ];
+
+        for (let i = 0; i < explicitSelectors.length; i += 1) {
+            const element = document.querySelector(explicitSelectors[i]);
+            if (isVisibleHelpCandidate(element)) return element;
+        }
+
+        const container = document.querySelector('#contentContainer') || document.querySelector('#content_value');
+        const containerRect = container ? container.getBoundingClientRect() : {right: window.innerWidth};
+        const candidates = Array.from(document.querySelectorAll('a, button, span'))
+            .filter(function (element) {
+                if (!isVisibleHelpCandidate(element)) return false;
+
+                const text = $.trim(element.textContent || '');
+                const title = String(element.getAttribute('title') || '').toLowerCase();
+                return text === '?' || title.includes('ajuda') || title.includes('help');
+            })
+            .map(function (element) {
+                const rect = element.getBoundingClientRect();
+                return {
+                    element,
+                    score: Math.abs(containerRect.right - rect.right) + Math.max(0, rect.top)
+                };
+            })
+            .sort(function (a, b) {
+                return a.score - b.score;
+            });
+
+        return candidates.length ? candidates[0].element : null;
+    }
+
+    function isVisibleHelpCandidate(element) {
+        if (!element || element.id === 'tpDefLauncher') return false;
+
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+
+        return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.width <= 42 &&
+            rect.height <= 42 &&
+            rect.top >= 0 &&
+            rect.top <= 180
+        );
     }
 
     function openSettings() {
