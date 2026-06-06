@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord by ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.1.6
+// @version      1.1.7
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @match        https://*.tribalwars.com.pt/*
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
@@ -16,7 +16,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.1.6 carregada');
+    console.log('[TW Discord Alerts] Versao 1.1.7 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2215,12 +2215,13 @@
         style.textContent = `
 #tw-discord-alerts-ui {
     position: fixed !important;
-    top: 64px !important;
-    right: 18px !important;
+    top: 7px !important;
+    right: auto !important;
+    left: 176px !important;
     z-index: 2147483647 !important;
     display: flex !important;
-    flex-direction: column !important;
-    align-items: flex-end !important;
+    flex-direction: row !important;
+    align-items: center !important;
     gap: 5px !important;
     font-family: Verdana, Arial, sans-serif !important;
     color: #3b1607 !important;
@@ -2232,7 +2233,7 @@
     box-sizing: border-box !important;
     width: 30px !important;
     min-width: 30px !important;
-    height: 30px !important;
+    height: 28px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: flex-start !important;
