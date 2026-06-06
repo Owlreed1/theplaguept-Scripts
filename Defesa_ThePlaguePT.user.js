@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.85
+// @version      0.1.87
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.85',
+        version: '0.1.87',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -88,7 +88,10 @@
         nightBonusCache: {
             loadedAt: 0,
             value: false
-        }
+        },
+        launcherPositionFrame: 0,
+        launcherResizeObserver: null,
+        launcherLayoutObserver: null
     };
 
     let settings = {};
@@ -310,7 +313,6 @@
                     font-family: Verdana, Arial, sans-serif !important;
                     font-size: 12px !important;
                     font-weight: bold !important;
-                    line-height: 16px !important;
                     text-shadow: 1px 1px 1px #000 !important;
                     transition: max-width .18s ease, opacity .14s ease, transform .18s ease !important;
                 }
@@ -1557,44 +1559,89 @@
         `);
         $('#tpDefLauncher').off('click.tpdef').on('click.tpdef', openSettings);
 
-        positionLauncherBelowSidebar();
-        setTimeout(positionLauncherBelowSidebar, 300);
-        setTimeout(positionLauncherBelowSidebar, 1000);
-        setTimeout(positionLauncherBelowSidebar, 2500);
-        setTimeout(positionLauncherBelowSidebar, 5000);
+        scheduleLauncherPosition();
+        setTimeout(scheduleLauncherPosition, 300);
+        setTimeout(scheduleLauncherPosition, 1000);
+        setTimeout(scheduleLauncherPosition, 2500);
+        setTimeout(scheduleLauncherPosition, 5000);
 
         $(window)
-            .off('resize.tpdefLauncher scroll.tpdefLauncher')
-            .on('resize.tpdefLauncher scroll.tpdefLauncher', positionLauncherBelowSidebar);
+            .off('resize.tpdefLauncher scroll.tpdefLauncher orientationchange.tpdefLauncher')
+            .on('resize.tpdefLauncher scroll.tpdefLauncher orientationchange.tpdefLauncher', scheduleLauncherPosition);
+
+        installLauncherPositionObservers();
+    }
+
+    function scheduleLauncherPosition() {
+        if (state.launcherPositionFrame) cancelAnimationFrame(state.launcherPositionFrame);
+
+        state.launcherPositionFrame = requestAnimationFrame(function () {
+            state.launcherPositionFrame = requestAnimationFrame(function () {
+                state.launcherPositionFrame = 0;
+                positionLauncherBelowSidebar();
+            });
+        });
+    }
+
+    function installLauncherPositionObservers() {
+        if (!state.launcherLayoutObserver && window.MutationObserver) {
+            state.launcherLayoutObserver = new MutationObserver(scheduleLauncherPosition);
+            state.launcherLayoutObserver.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+        }
+
+        if (state.launcherResizeObserver) state.launcherResizeObserver.disconnect();
+
+        if (window.ResizeObserver) {
+            state.launcherResizeObserver = new ResizeObserver(scheduleLauncherPosition);
+
+            const gameLayout =
+                document.querySelector('#main_layout td.maincell') ||
+                document.querySelector('td.maincell') ||
+                document.querySelector('#contentContainer') ||
+                document.querySelector('#content_value');
+            const villageBar =
+                document.querySelector('#header_info') ||
+                document.querySelector('#menu_row2');
+
+            if (gameLayout) state.launcherResizeObserver.observe(gameLayout);
+            if (villageBar) state.launcherResizeObserver.observe(villageBar);
+        }
     }
 
     function positionLauncherBelowSidebar() {
         const root = document.getElementById('tpDefLauncherRoot');
         if (!root) return;
 
-        const discordLauncher = document.getElementById('tw-discord-alerts-toggle');
-        if (discordLauncher) {
-            const discordRect = discordLauncher.getBoundingClientRect();
+        const gameLayout =
+            document.querySelector('#main_layout td.maincell') ||
+            document.querySelector('td.maincell') ||
+            document.querySelector('#contentContainer') ||
+            document.querySelector('#content_value');
+        const villageBar =
+            document.querySelector('#header_info') ||
+            document.querySelector('#menu_row2');
 
-            if (discordRect.width > 0 && discordRect.height > 0) {
-                root.style.setProperty('left', `${Math.max(4, Math.round(discordRect.left))}px`, 'important');
-                root.style.setProperty('right', 'auto', 'important');
-                root.style.setProperty('top', `${Math.max(4, Math.round(discordRect.bottom + 5))}px`, 'important');
-                return;
+        let left = 12;
+        let top = 104;
+
+        if (gameLayout) {
+            const layoutRect = gameLayout.getBoundingClientRect();
+            if (layoutRect.width > 0) left = Math.max(4, Math.round(layoutRect.left - 30 - 25));
+        }
+
+        if (villageBar) {
+            const barRect = villageBar.getBoundingClientRect();
+            if (barRect.height > 0) {
+                const firstButtonTop = barRect.top + ((barRect.height - 28) / 2);
+                top = Math.max(4, Math.round(firstButtonTop + 33));
             }
+        } else {
+            const anchor = findSidebarLauncherAnchor();
+            if (anchor) top = Math.max(8, Math.round(anchor.getBoundingClientRect().bottom + 5));
         }
-
-        const anchor = findSidebarLauncherAnchor();
-        if (!anchor) {
-            root.style.setProperty('left', '12px', 'important');
-            root.style.setProperty('right', 'auto', 'important');
-            root.style.setProperty('top', '104px', 'important');
-            return;
-        }
-
-        const rect = anchor.getBoundingClientRect();
-        const left = Math.max(0, Math.round(rect.left));
-        const top = Math.max(8, Math.round(rect.bottom + 5));
 
         root.style.setProperty('left', `${left}px`, 'important');
         root.style.setProperty('right', 'auto', 'important');
