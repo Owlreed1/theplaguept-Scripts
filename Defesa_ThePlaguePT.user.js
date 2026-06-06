@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.92
+// @version      0.1.93
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.92',
+        version: '0.1.93',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -89,9 +89,7 @@
             loadedAt: 0,
             value: false
         },
-        launcherPositionFrame: 0,
-        launcherResizeObserver: null,
-        launcherLayoutObserver: null
+        launcherPositionFrame: 0
     };
 
     let settings = {};
@@ -207,45 +205,57 @@
 
         $('head').append(`
             <style id="${APP.styleId}">
-                #tpDefLauncherRoot {
+                #tpDefLauncher {
                     position: fixed !important;
                     left: 12px !important;
                     right: auto !important;
                     top: 104px !important;
                     z-index: 2147483647 !important;
-                    display: flex !important;
-                    flex-direction: row !important;
-                    align-items: center !important;
-                    gap: 5px !important;
-                    font-family: Verdana, Arial, sans-serif !important;
-                    color: #3b1607 !important;
-                }
-
-                #tpDefLauncher {
-                    position: relative !important;
-                    z-index: 4 !important;
                     box-sizing: border-box !important;
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: flex-start !important;
-                    gap: 0 !important;
+
                     width: 30px !important;
                     min-width: 30px !important;
                     height: 28px !important;
+
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: flex-start !important;
+
+                    gap: 0 !important;
+                    overflow: hidden !important;
                     padding: 0 6px !important;
+
+                    cursor: pointer !important;
+                    white-space: nowrap !important;
+
                     border: 1px solid #4f120f !important;
                     border-radius: 2px !important;
-                    background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611) !important;
+
+                    background:
+                        linear-gradient(
+                            to bottom,
+                            #b33a34,
+                            #8f2420 55%,
+                            #681611
+                        ) !important;
+
+                    box-shadow:
+                        inset 0 1px 0 rgba(255,255,255,.35),
+                        inset 0 -1px 0 rgba(0,0,0,.35),
+                        0 2px 5px rgba(0,0,0,.45) !important;
+
                     color: #fff !important;
                     font-family: Verdana, Arial, sans-serif !important;
                     font-size: 12px !important;
                     font-weight: bold !important;
-                    cursor: pointer !important;
-                    overflow: hidden !important;
-                    white-space: nowrap !important;
                     text-shadow: 1px 1px 1px #000 !important;
-                    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.45) !important;
-                    transition: width .18s ease, min-width .18s ease, padding .18s ease, gap .18s ease, background .18s ease !important;
+
+                    transition:
+                        width .18s ease,
+                        min-width .18s ease,
+                        padding .18s ease,
+                        gap .18s ease,
+                        background .18s ease !important;
                 }
 
                 #tpDefLauncher:hover,
@@ -254,24 +264,34 @@
                     min-width: 244px !important;
                     gap: 8px !important;
                     padding: 0 9px !important;
-                    background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
+
+                    background:
+                        linear-gradient(
+                            to bottom,
+                            #c4473e,
+                            #a02c27 55%,
+                            #7e1c17
+                        ) !important;
                 }
 
                 .tpdef-launcher-icon {
-                    display: inline-flex;
-                    flex: 0 0 16px;
+                    width: 16px !important;
+                    height: 16px !important;
+                    flex: 0 0 16px !important;
+
+                    display: inline-flex !important;
                     align-items: center;
                     justify-content: center;
-                    width: 16px;
-                    height: 16px;
                     box-sizing: border-box;
                     border: 1px solid #f1d28d;
-                    border-radius: 50%;
+                    border-radius: 50% !important;
                     background: #160b06;
                     color: #fff4d3;
                     font-size: 13px;
                     line-height: 17px;
-                    box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+                    box-shadow:
+                        inset 0 1px 1px rgba(255,255,255,.35),
+                        0 1px 1px #000 !important;
                 }
 
                 .tpdef-launcher-icon img {
@@ -307,13 +327,19 @@
                     max-width: 0 !important;
                     opacity: 0 !important;
                     overflow: hidden !important;
+                    white-space: nowrap !important;
                     transform: translateX(-4px) !important;
+
                     color: #fff !important;
+                    font-family: Verdana, Arial, sans-serif !important;
                     font-size: 12px !important;
                     font-weight: bold !important;
                     text-shadow: 1px 1px 1px #000 !important;
-                    white-space: nowrap !important;
-                    transition: max-width .18s ease, opacity .14s ease, transform .18s ease !important;
+
+                    transition:
+                        max-width .18s ease,
+                        opacity .14s ease,
+                        transform .18s ease !important;
                 }
 
                 #tpDefLauncher:hover .tpdef-launcher-text,
@@ -1546,73 +1572,37 @@
     }
 
     function addLauncher() {
-        if ($('#tpDefLauncherRoot').length) return;
+        if ($('#tpDefLauncher').length) return;
 
         $('body').append(`
-            <div id="tpDefLauncherRoot">
-                <button type="button" id="tpDefLauncher" title="Defesa - ThePlaguePT" aria-label="Defesa - ThePlaguePT">
-                    <span class="tpdef-launcher-icon"><span class="tpdef-launcher-shield"></span></span>
-                    <span class="tpdef-launcher-text">Defesa - ThePlaguePT</span>
-                </button>
-            </div>
+            <button type="button" id="tpDefLauncher" title="Defesa - ThePlaguePT" aria-label="Defesa - ThePlaguePT">
+                <span class="tpdef-launcher-icon"><span class="tpdef-launcher-shield"></span></span>
+                <span class="tpdef-launcher-text">Defesa - ThePlaguePT</span>
+            </button>
         `);
         $('#tpDefLauncher').off('click.tpdef').on('click.tpdef', openSettings);
 
         scheduleLauncherPosition();
-        setTimeout(scheduleLauncherPosition, 300);
+        setTimeout(scheduleLauncherPosition, 250);
         setTimeout(scheduleLauncherPosition, 1000);
-        setTimeout(scheduleLauncherPosition, 2500);
-        setTimeout(scheduleLauncherPosition, 5000);
 
         $(window)
-            .off('resize.tpdefLauncher scroll.tpdefLauncher orientationchange.tpdefLauncher')
-            .on('resize.tpdefLauncher scroll.tpdefLauncher orientationchange.tpdefLauncher', scheduleLauncherPosition);
-
-        installLauncherPositionObservers();
+            .off('resize.tpdefLauncher orientationchange.tpdefLauncher')
+            .on('resize.tpdefLauncher orientationchange.tpdefLauncher', scheduleLauncherPosition);
     }
 
     function scheduleLauncherPosition() {
         if (state.launcherPositionFrame) cancelAnimationFrame(state.launcherPositionFrame);
 
         state.launcherPositionFrame = requestAnimationFrame(function () {
-            state.launcherPositionFrame = requestAnimationFrame(function () {
-                state.launcherPositionFrame = 0;
-                positionLauncherBelowSidebar();
-            });
+            state.launcherPositionFrame = 0;
+            positionLauncher();
         });
     }
 
-    function installLauncherPositionObservers() {
-        if (!state.launcherLayoutObserver && window.MutationObserver) {
-            state.launcherLayoutObserver = new MutationObserver(scheduleLauncherPosition);
-            state.launcherLayoutObserver.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
-        }
-
-        if (state.launcherResizeObserver) state.launcherResizeObserver.disconnect();
-
-        if (window.ResizeObserver) {
-            state.launcherResizeObserver = new ResizeObserver(scheduleLauncherPosition);
-
-            const gameLayout =
-                document.querySelector('#main_layout td.maincell') ||
-                document.querySelector('td.maincell') ||
-                document.querySelector('#contentContainer') ||
-                document.querySelector('#content_value');
-            const villageBar =
-                document.querySelector('#header_info') ||
-                document.querySelector('#menu_row2');
-
-            if (gameLayout) state.launcherResizeObserver.observe(gameLayout);
-            if (villageBar) state.launcherResizeObserver.observe(villageBar);
-        }
-    }
-
-    function positionLauncherBelowSidebar() {
-        const root = document.getElementById('tpDefLauncherRoot');
-        if (!root) return;
+    function positionLauncher() {
+        const button = document.getElementById('tpDefLauncher');
+        if (!button) return;
 
         const gameLayout =
             document.querySelector('#main_layout td.maincell') ||
@@ -1634,72 +1624,13 @@
         if (villageBar) {
             const barRect = villageBar.getBoundingClientRect();
             if (barRect.height > 0) {
-                const firstButtonTop = barRect.top + ((barRect.height - 28) / 2);
-                top = Math.max(4, Math.round(firstButtonTop + 33));
+                top = Math.max(4, Math.round(barRect.top + ((barRect.height - 28) / 2)));
             }
-        } else {
-            const anchor = findSidebarLauncherAnchor();
-            if (anchor) top = Math.max(8, Math.round(anchor.getBoundingClientRect().bottom + 5));
         }
 
-        root.style.setProperty('left', `${left}px`, 'important');
-        root.style.setProperty('right', 'auto', 'important');
-        root.style.setProperty('top', `${top}px`, 'important');
-    }
-
-    function findSidebarLauncherAnchor() {
-        const container = document.querySelector('#contentContainer') || document.querySelector('#content_value');
-        if (!container) return null;
-
-        const containerRect = container.getBoundingClientRect();
-        const candidates = Array.from(document.querySelectorAll('a, button, [role="button"], [onclick]'))
-            .filter(function (element) {
-                return isVisibleSidebarCandidate(element, containerRect);
-            })
-            .map(function (element) {
-                const rect = element.getBoundingClientRect();
-                return {
-                    element,
-                    bottom: rect.bottom,
-                    horizontalDistance: Math.abs(containerRect.left - rect.right)
-                };
-            });
-
-        if (!candidates.length) return null;
-
-        const nearestDistance = Math.min.apply(null, candidates.map(function (candidate) {
-            return candidate.horizontalDistance;
-        }));
-        const nearestColumn = candidates
-            .filter(function (candidate) {
-                return candidate.horizontalDistance <= nearestDistance + 6;
-            })
-            .sort(function (a, b) {
-                return b.bottom - a.bottom;
-            });
-
-        return nearestColumn.length ? nearestColumn[0].element : null;
-    }
-
-    function isVisibleSidebarCandidate(element, containerRect) {
-        if (!element || element.id === 'tpDefLauncher') return false;
-
-        const rect = element.getBoundingClientRect();
-        const style = window.getComputedStyle(element);
-
-        return (
-            style.display !== 'none' &&
-            style.visibility !== 'hidden' &&
-            rect.width >= 18 &&
-            rect.height >= 18 &&
-            rect.width <= 42 &&
-            rect.height <= 42 &&
-            rect.top >= 0 &&
-            rect.bottom <= Math.min(window.innerHeight, 320) &&
-            rect.right <= containerRect.left + 4 &&
-            rect.right >= containerRect.left - 80 &&
-            rect.left >= 0
-        );
+        button.style.setProperty('left', `${left}px`, 'important');
+        button.style.setProperty('right', 'auto', 'important');
+        button.style.setProperty('top', `${top}px`, 'important');
     }
 
     function openSettings() {
