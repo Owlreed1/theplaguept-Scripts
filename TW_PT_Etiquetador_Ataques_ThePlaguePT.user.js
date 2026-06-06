@@ -1466,41 +1466,109 @@
         painel.innerHTML = `
             <style>
                 #tag-incomings-pt-panel {
-                    position: fixed;
-                    right: 10px;
-                    bottom: 10px;
-                    z-index: 99999;
-                    font: 12px Arial, sans-serif;
+                    position: fixed !important;
+                    left: 12px !important;
+                    right: auto !important;
+                    top: 139px !important;
+                    bottom: auto !important;
+                    z-index: 2147483647 !important;
+                    font: 12px Verdana, Arial, sans-serif !important;
                 }
                 #tag-incomings-pt-panel .ti-toggle {
-                    display: block;
-                    margin-left: auto;
-                    width: 42px;
-                    height: 34px;
-                    cursor: pointer;
-                    background: #f4e4bc;
-                    color: #2b1d0e;
-                    border: 1px solid #7d510f;
-                    border-radius: 4px;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-                    font-weight: bold;
-                    font-size: 12px;
+                    position: relative !important;
+                    z-index: 2 !important;
+                    box-sizing: border-box !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: flex-start !important;
+                    gap: 0 !important;
+                    width: 30px !important;
+                    min-width: 30px !important;
+                    height: 28px !important;
+                    overflow: hidden !important;
+                    padding: 0 6px !important;
+                    cursor: pointer !important;
+                    border: 1px solid #4f120f !important;
+                    border-radius: 2px !important;
+                    background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611) !important;
+                    box-shadow:
+                        inset 0 1px 0 rgba(255, 255, 255, 0.35),
+                        inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+                        0 2px 5px rgba(0, 0, 0, 0.45) !important;
+                    color: #fff !important;
+                    font: bold 12px Verdana, Arial, sans-serif !important;
+                    line-height: 1 !important;
+                    text-align: left !important;
+                    text-shadow: 1px 1px 1px #000 !important;
+                    white-space: nowrap !important;
+                    transition:
+                        width 180ms ease,
+                        min-width 180ms ease,
+                        padding 180ms ease,
+                        gap 180ms ease,
+                        background 180ms ease !important;
+                }
+                #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,
+                #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible {
+                    width: 205px !important;
+                    min-width: 205px !important;
+                    gap: 8px !important;
+                    padding: 0 9px !important;
+                    background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
+                }
+                #tag-incomings-pt-panel .ti-toggle-icon {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    width: 16px !important;
+                    height: 16px !important;
+                    flex: 0 0 16px !important;
+                }
+                #tag-incomings-pt-panel .ti-toggle-icon img {
+                    display: block !important;
+                    width: 16px !important;
+                    height: 16px !important;
+                    filter: drop-shadow(0 1px 1px #000);
+                }
+                #tag-incomings-pt-panel .ti-toggle-label {
+                    display: inline-block !important;
+                    max-width: 0 !important;
+                    opacity: 0 !important;
+                    overflow: hidden !important;
+                    color: #fff !important;
+                    white-space: nowrap !important;
+                    transform: translateX(-4px);
+                    transition:
+                        max-width 180ms ease,
+                        opacity 140ms ease,
+                        transform 180ms ease !important;
+                }
+                #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover .ti-toggle-label,
+                #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible .ti-toggle-label {
+                    max-width: 165px !important;
+                    opacity: 1 !important;
+                    transform: translateX(0);
                 }
                 #tag-incomings-pt-panel .ti-config {
+                    position: absolute !important;
+                    left: 36px !important;
+                    right: auto !important;
+                    top: 0 !important;
                     display: none;
-                    width: 260px;
-                    max-height: calc(100vh - 20px);
+                    box-sizing: border-box !important;
+                    width: 270px;
+                    max-width: calc(100vw - 60px);
+                    max-height: calc(100vh - 150px);
                     overflow: auto;
-                    margin-bottom: 6px;
                     padding: 10px;
                     background: #f4e4bc;
                     color: #2b1d0e;
                     border: 1px solid #7d510f;
-                    border-radius: 4px;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+                    border-radius: 3px;
+                    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
                 }
                 #tag-incomings-pt-panel.ti-open .ti-config {
-                    display: block;
+                    display: block !important;
                 }
                 #tag-incomings-pt-panel strong {
                     display: block;
@@ -1539,12 +1607,30 @@
                 #tag-incomings-pt-panel .ti-actions button {
                     flex: 1;
                     cursor: pointer;
+                    border: 1px solid #4f120f;
+                    border-radius: 2px;
+                    background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
+                    color: #fff;
+                    font-weight: bold;
+                    text-shadow: 1px 1px 1px #000;
                     font-size: 12px;
+                }
+                #tag-incomings-pt-panel .ti-actions button:hover {
+                    background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
+                }
+                @media (max-width: 520px) {
+                    #tag-incomings-pt-panel {
+                        left: 5px !important;
+                    }
+                    #tag-incomings-pt-panel .ti-config {
+                        left: 34px !important;
+                        width: min(270px, calc(100vw - 44px));
+                    }
                 }
             </style>
             <div class="ti-config">
                 <strong>Etiquetador de ataques</strong>
-                <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} · v1.0.0</div>
+                <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.0</div>
                 ${criarCheckbox("Ativo", "ativo", config.ativo)}
                 ${criarCheckbox("Modo teste", "modoTeste", config.modoTeste)}
                 ${criarCheckbox("Destacar linhas", "destacarLinhas", config.destacarLinhas)}
@@ -1567,16 +1653,20 @@
                     <button type="button" data-ti-action="executar">Executar</button>
                 </div>
             </div>
-            <button class="ti-toggle" type="button" data-ti-action="toggle" title="${config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador"}" aria-label="Configurar etiquetador de ataques" aria-expanded="${config.painelAberto ? "true" : "false"}">EA</button>
+            <button class="ti-toggle" type="button" data-ti-action="toggle" title="${config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador"}" aria-label="Configurar etiquetador de ataques" aria-expanded="${config.painelAberto ? "true" : "false"}">
+                <span class="ti-toggle-icon" aria-hidden="true"><img src="/graphic/command/attack.png" alt=""></span>
+                <span class="ti-toggle-label">Etiquetador de ataques</span>
+            </button>
         `;
 
         painel.addEventListener("click", (evento) => {
-            const acao = evento.target?.dataset?.tiAction;
+            const controlo = evento.target?.closest?.("[data-ti-action]");
+            const acao = controlo?.dataset?.tiAction;
             if (acao === "toggle") {
                 config.painelAberto = !config.painelAberto;
                 painel.classList.toggle("ti-open", config.painelAberto);
-                evento.target.setAttribute("aria-expanded", config.painelAberto ? "true" : "false");
-                evento.target.setAttribute("title", config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador");
+                controlo.setAttribute("aria-expanded", config.painelAberto ? "true" : "false");
+                controlo.setAttribute("title", config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador");
                 guardarConfig();
                 return;
             }
