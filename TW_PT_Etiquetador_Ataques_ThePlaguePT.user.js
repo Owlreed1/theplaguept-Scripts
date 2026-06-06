@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW_PT_Etiquetador_Ataques_ThePlaguePT
-// @version      1.0.1
+// @version      1.0.2
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -1550,62 +1550,137 @@
                     transform: translateX(0);
                 }
                 #tag-incomings-pt-panel .ti-config {
-                    position: absolute !important;
-                    left: 36px !important;
+                    position: fixed !important;
+                    left: 50% !important;
+                    top: 50% !important;
                     right: auto !important;
-                    top: 0 !important;
+                    bottom: auto !important;
+                    z-index: 4 !important;
                     display: none;
                     box-sizing: border-box !important;
-                    width: 270px;
-                    max-width: calc(100vw - 60px);
-                    max-height: calc(100vh - 150px);
+                    width: min(900px, calc(100vw - 54px));
+                    max-height: calc(100vh - 54px);
                     overflow: auto;
-                    padding: 10px;
-                    background: #f4e4bc;
+                    padding: 22px;
+                    border: 3px double #8c6a3b;
+                    border-radius: 4px;
+                    background:
+                        linear-gradient(rgba(247, 229, 181, 0.96), rgba(239, 213, 151, 0.96)),
+                        #f4e4bc;
                     color: #2b1d0e;
-                    border: 1px solid #7d510f;
-                    border-radius: 3px;
-                    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+                    box-shadow:
+                        0 0 0 5px rgba(58, 35, 19, 0.78),
+                        0 8px 30px rgba(0, 0, 0, 0.65);
+                    transform: translate(-50%, -50%);
                 }
                 #tag-incomings-pt-panel.ti-open .ti-config {
                     display: block !important;
                 }
-                #tag-incomings-pt-panel strong {
+                #tag-incomings-pt-panel .ti-backdrop {
+                    position: fixed !important;
+                    inset: 0 !important;
+                    z-index: 3 !important;
+                    display: none;
+                    background: rgba(0, 0, 0, 0.58);
+                }
+                #tag-incomings-pt-panel.ti-open .ti-backdrop {
+                    display: block !important;
+                }
+                #tag-incomings-pt-panel .ti-close {
+                    position: absolute;
+                    top: -12px;
+                    right: -12px;
+                    width: 24px;
+                    height: 24px;
+                    padding: 0;
+                    cursor: pointer;
+                    border: 2px solid #3e2614;
+                    border-radius: 4px;
+                    background: linear-gradient(to bottom, #f8e7b9, #d3ac66);
+                    color: #301b0d;
+                    font: bold 20px/18px Arial, sans-serif;
+                    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+                }
+                #tag-incomings-pt-panel .ti-header {
+                    padding: 0 0 10px;
+                    border-bottom: 1px solid #bd8d42;
+                    color: #a52a22;
+                }
+                #tag-incomings-pt-panel .ti-header strong {
                     display: block;
-                    margin-bottom: 4px;
-                    font-size: 13px;
+                    margin-bottom: 3px;
+                    font-size: 16px;
                 }
                 #tag-incomings-pt-panel .ti-status {
-                    margin-bottom: 8px;
-                    color: #5b421f;
+                    color: #70451f;
                     font-size: 11px;
+                }
+                #tag-incomings-pt-panel .ti-content {
+                    border: 2px solid #9d1f18;
+                    border-radius: 3px;
+                }
+                #tag-incomings-pt-panel .ti-section {
+                    display: grid;
+                    grid-template-columns: 185px minmax(0, 1fr);
+                    gap: 18px;
+                    padding: 14px;
+                    border-bottom: 1px solid #d1ad65;
+                    border-left: 4px solid var(--ti-section-color, #a52a22);
+                }
+                #tag-incomings-pt-panel .ti-section:last-child {
+                    border-bottom: 0;
+                }
+                #tag-incomings-pt-panel .ti-section-heading {
+                    color: #9d251e;
+                    font-size: 13px;
+                    line-height: 1.35;
+                }
+                #tag-incomings-pt-panel .ti-section-heading strong {
+                    display: block;
+                    margin-bottom: 4px;
+                    text-transform: uppercase;
+                }
+                #tag-incomings-pt-panel .ti-section-heading small {
+                    color: #5f3c1d;
+                    font-size: 10px;
+                }
+                #tag-incomings-pt-panel .ti-fields {
+                    display: grid;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    gap: 8px 18px;
                 }
                 #tag-incomings-pt-panel label {
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
                     gap: 8px;
-                    margin: 5px 0;
+                    min-width: 0;
+                    margin: 0;
+                    font-weight: bold;
                 }
                 #tag-incomings-pt-panel input[type="text"],
                 #tag-incomings-pt-panel input[type="number"],
                 #tag-incomings-pt-panel input:not([type]) {
-                    width: 118px;
+                    width: min(170px, 55%);
+                    height: 27px;
                     box-sizing: border-box;
+                    border: 1px solid #c27c24;
+                    background: #fff9e6;
                     font-size: 12px;
                 }
-                #tag-incomings-pt-panel .ti-grid {
-                    border-top: 1px solid rgba(125, 81, 15, 0.45);
-                    margin-top: 8px;
-                    padding-top: 8px;
+                #tag-incomings-pt-panel input[type="checkbox"] {
+                    width: 14px;
+                    height: 14px;
+                    accent-color: #c62037;
                 }
                 #tag-incomings-pt-panel .ti-actions {
                     display: flex;
-                    gap: 6px;
-                    margin-top: 8px;
+                    justify-content: flex-end;
+                    gap: 10px;
                 }
                 #tag-incomings-pt-panel .ti-actions button {
-                    flex: 1;
+                    min-width: 150px;
+                    height: 28px;
                     cursor: pointer;
                     border: 1px solid #4f120f;
                     border-radius: 2px;
@@ -1618,39 +1693,86 @@
                 #tag-incomings-pt-panel .ti-actions button:hover {
                     background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
                 }
-                @media (max-width: 520px) {
+                @media (max-width: 720px) {
                     #tag-incomings-pt-panel {
                         left: 5px !important;
                     }
                     #tag-incomings-pt-panel .ti-config {
-                        left: 34px !important;
-                        width: min(270px, calc(100vw - 44px));
+                        width: calc(100vw - 24px);
+                        max-height: calc(100vh - 24px);
+                        padding: 12px;
+                    }
+                    #tag-incomings-pt-panel .ti-section {
+                        grid-template-columns: 1fr;
+                        gap: 10px;
+                    }
+                    #tag-incomings-pt-panel .ti-fields {
+                        grid-template-columns: 1fr;
+                    }
+                    #tag-incomings-pt-panel .ti-actions {
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                    }
+                    #tag-incomings-pt-panel .ti-actions button {
+                        min-width: 0;
                     }
                 }
             </style>
+            <div class="ti-backdrop" data-ti-action="fechar"></div>
             <div class="ti-config">
-                <strong>Etiquetador de ataques</strong>
-                <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.1</div>
-                ${criarCheckbox("Ativo", "ativo", config.ativo)}
-                ${criarCheckbox("Modo teste", "modoTeste", config.modoTeste)}
-                ${criarCheckbox("Destacar linhas", "destacarLinhas", config.destacarLinhas)}
-                <div class="ti-grid">
-                    ${criarCampoTexto("Ataque", "etiquetaAtaque", config.etiquetas.ataque)}
-                    ${criarCampoTexto("Apoio", "etiquetaApoio", config.etiquetas.apoio)}
-                    ${criarCampoTexto("Nobre", "etiquetaNobre", config.etiquetas.nobre)}
-                    ${criarCampoTexto("Formato", "formatoContagem", config.formatoContagem)}
+                <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
+                <div class="ti-header">
+                    <strong>Etiquetador de ataques - ThePlaguePT</strong>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.2</div>
                 </div>
-                <div class="ti-grid">
-                    ${criarCampoNumero("Pagina min", "atrasoIncomingsMinMs", config.atrasoIncomingsMinMs)}
-                    ${criarCampoNumero("Pagina max", "atrasoIncomingsMaxMs", config.atrasoIncomingsMaxMs)}
-                    ${criarCampoNumero("Global min", "atrasoGlobalMinMs", config.atrasoGlobalMinMs)}
-                    ${criarCampoNumero("Global max", "atrasoGlobalMaxMs", config.atrasoGlobalMaxMs)}
-                    ${criarCampoNumero("Editar min", "intervaloEdicaoMinMs", config.intervaloEdicaoMinMs)}
-                    ${criarCampoNumero("Editar max", "intervaloEdicaoMaxMs", config.intervaloEdicaoMaxMs)}
-                </div>
-                <div class="ti-actions">
-                    <button type="button" data-ti-action="guardar">Guardar</button>
-                    <button type="button" data-ti-action="executar">Executar</button>
+                <div class="ti-content">
+                    <section class="ti-section" style="--ti-section-color:#c92f2f">
+                        <div class="ti-section-heading">
+                            <strong>Estado</strong>
+                            <small>Ativar o monitor e controlar o modo de execução.</small>
+                        </div>
+                        <div class="ti-fields">
+                            ${criarCheckbox("Ativo", "ativo", config.ativo)}
+                            ${criarCheckbox("Modo teste", "modoTeste", config.modoTeste)}
+                            ${criarCheckbox("Destacar linhas", "destacarLinhas", config.destacarLinhas)}
+                        </div>
+                    </section>
+                    <section class="ti-section" style="--ti-section-color:#2588b8">
+                        <div class="ti-section-heading">
+                            <strong>Etiquetas</strong>
+                            <small>Nomes utilizados para identificar cada tipo de comando.</small>
+                        </div>
+                        <div class="ti-fields">
+                            ${criarCampoTexto("Ataque", "etiquetaAtaque", config.etiquetas.ataque)}
+                            ${criarCampoTexto("Apoio", "etiquetaApoio", config.etiquetas.apoio)}
+                            ${criarCampoTexto("Nobre", "etiquetaNobre", config.etiquetas.nobre)}
+                            ${criarCampoTexto("Formato", "formatoContagem", config.formatoContagem)}
+                        </div>
+                    </section>
+                    <section class="ti-section" style="--ti-section-color:#8a63a8">
+                        <div class="ti-section-heading">
+                            <strong>Verificação</strong>
+                            <small>Intervalos aleatórios em segundos para reduzir pedidos ao servidor.</small>
+                        </div>
+                        <div class="ti-fields">
+                            ${criarCampoNumero("Página min", "atrasoIncomingsMinMs", config.atrasoIncomingsMinMs)}
+                            ${criarCampoNumero("Página max", "atrasoIncomingsMaxMs", config.atrasoIncomingsMaxMs)}
+                            ${criarCampoNumero("Global min", "atrasoGlobalMinMs", config.atrasoGlobalMinMs)}
+                            ${criarCampoNumero("Global max", "atrasoGlobalMaxMs", config.atrasoGlobalMaxMs)}
+                            ${criarCampoNumero("Editar min", "intervaloEdicaoMinMs", config.intervaloEdicaoMinMs)}
+                            ${criarCampoNumero("Editar max", "intervaloEdicaoMaxMs", config.intervaloEdicaoMaxMs)}
+                        </div>
+                    </section>
+                    <section class="ti-section" style="--ti-section-color:#59a85b">
+                        <div class="ti-section-heading">
+                            <strong>Ações</strong>
+                            <small>Guardar preferências ou executar imediatamente.</small>
+                        </div>
+                        <div class="ti-actions">
+                            <button type="button" data-ti-action="guardar">Guardar</button>
+                            <button type="button" data-ti-action="executar">Executar</button>
+                        </div>
+                    </section>
                 </div>
             </div>
             <button class="ti-toggle" type="button" data-ti-action="toggle" title="${config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador"}" aria-label="Configurar etiquetador de ataques" aria-expanded="${config.painelAberto ? "true" : "false"}">
@@ -1667,6 +1789,16 @@
                 painel.classList.toggle("ti-open", config.painelAberto);
                 controlo.setAttribute("aria-expanded", config.painelAberto ? "true" : "false");
                 controlo.setAttribute("title", config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador");
+                guardarConfig();
+                return;
+            }
+
+            if (acao === "fechar") {
+                config.painelAberto = false;
+                painel.classList.remove("ti-open");
+                const toggle = painel.querySelector('[data-ti-action="toggle"]');
+                toggle?.setAttribute("aria-expanded", "false");
+                toggle?.setAttribute("title", "Configurar etiquetador");
                 guardarConfig();
                 return;
             }
