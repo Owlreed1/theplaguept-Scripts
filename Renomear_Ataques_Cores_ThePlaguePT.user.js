@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.4.1
+// @version      2.4.2
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -258,7 +258,7 @@
         botao.className = "ra-tp-config-button";
         botao.title = "Configurar Renomear Ataques";
         botao.setAttribute("aria-label", "Configurar Renomear Ataques");
-        botao.textContent = "\u2699";
+        botao.textContent = "B";
         botao.addEventListener("click", abrirPainelConfiguracao);
 
         document.body.appendChild(botao);
@@ -357,60 +357,85 @@
         modal.hidden = true;
         modal.innerHTML = `
             <div class="ra-tp-config-dialog" role="dialog" aria-modal="true" aria-labelledby="${SCRIPT_ID}-config-title">
-                <div class="ra-tp-config-header">
-                    <strong id="${SCRIPT_ID}-config-title">Renomear Ataques</strong>
-                    <button type="button" class="ra-tp-config-close" data-ra-config-action="fechar" aria-label="Fechar">&times;</button>
-                </div>
-                <div class="ra-tp-config-body">
-                    <section class="ra-tp-config-section">
-                        <h3>Aparencia</h3>
-                        <label class="ra-tp-config-field">
-                            <span>Pintura dos ataques</span>
-                            <select id="${SCRIPT_ID}-config-pagina">
-                                <option value="coluna">Coluna do comando</option>
-                                <option value="linha">Linha completa</option>
-                                <option value="nada">Sem fundo</option>
-                            </select>
-                        </label>
-                        <label class="ra-tp-config-field">
-                            <span>Tamanho da letra</span>
-                            <input id="${SCRIPT_ID}-config-letra" type="number" min="4" max="14" step="1">
-                        </label>
-                        <label class="ra-tp-config-field">
-                            <span>Tamanho do botao</span>
-                            <input id="${SCRIPT_ID}-config-botao" type="number" min="12" max="30" step="1">
-                        </label>
-                        <label class="ra-tp-config-field">
-                            <span>Espaco lateral</span>
-                            <input id="${SCRIPT_ID}-config-padding" type="number" min="0" max="8" step="1">
-                        </label>
-                    </section>
-                    <section class="ra-tp-config-section">
-                        <h3>Conteudo</h3>
-                        ${criarToggleConfigHtml("info-atacante", "Manter atacante e origem")}
-                        ${criarToggleConfigHtml("realce-texto", "Realcar texto do comando")}
-                        ${criarToggleConfigHtml("realce-tabela", "Realcar informacoes da tabela")}
-                    </section>
-                    <section class="ra-tp-config-section">
-                        <h3>Botoes</h3>
-                        <div id="${SCRIPT_ID}-config-comandos" class="ra-tp-config-command-list">
-                            ${criarListaBotoesConfigHtml()}
-                        </div>
-                        ${criarToggleConfigHtml("botao-reset", "Mostrar botao RS")}
-                        ${criarToggleConfigHtml("botoes-mapa", "Mostrar botoes no mapa")}
-                        ${criarToggleConfigHtml("ocultar-apoios", "Ocultar botoes em apoios")}
-                        ${criarToggleConfigHtml("ocultar-amigos", "Ocultar botoes em aliados e mesma tribo")}
-                        <label class="ra-tp-config-field ra-tp-config-field-wide">
-                            <span>IDs adicionais de tribos aliadas</span>
-                            <input id="${SCRIPT_ID}-config-aliados" type="text" placeholder="123, 456">
-                        </label>
-                    </section>
-                </div>
-                <div class="ra-tp-config-footer">
-                    <button type="button" class="ra-tp-config-secondary" data-ra-config-action="restaurar">Predefinicoes</button>
-                    <span class="ra-tp-config-spacer"></span>
-                    <button type="button" class="ra-tp-config-secondary" data-ra-config-action="fechar">Cancelar</button>
-                    <button type="button" class="ra-tp-config-primary" data-ra-config-action="guardar">Guardar</button>
+                <button type="button" class="ra-tp-config-close" data-ra-config-action="fechar" aria-label="Fechar">&times;</button>
+                <div class="ra-tp-config-frame">
+                    <div class="ra-tp-config-header">
+                        <h3 id="${SCRIPT_ID}-config-title">Renomear Ataques - ThePlaguePT</h3>
+                        <span>Botoes rapidos, cores e organizacao dos comandos do Tribal Wars.</span>
+                    </div>
+                    <div class="ra-tp-config-body">
+                        <section class="ra-tp-config-section ra-tp-config-appearance">
+                            <div class="ra-tp-config-section-copy">
+                                <div class="ra-tp-config-section-title">Aparencia</div>
+                                <div class="ra-tp-config-section-desc">Controla fundos, dimensoes e espacamento dos botoes.</div>
+                            </div>
+                            <div class="ra-tp-config-section-options ra-tp-config-fields-grid">
+                                <label class="ra-tp-config-field">
+                                    <span>Pintura dos ataques</span>
+                                    <select id="${SCRIPT_ID}-config-pagina">
+                                        <option value="coluna">Coluna do comando</option>
+                                        <option value="linha">Linha completa</option>
+                                        <option value="nada">Sem fundo</option>
+                                    </select>
+                                </label>
+                                <label class="ra-tp-config-field">
+                                    <span>Tamanho da letra</span>
+                                    <input id="${SCRIPT_ID}-config-letra" type="number" min="4" max="14" step="1">
+                                </label>
+                                <label class="ra-tp-config-field">
+                                    <span>Tamanho do botao</span>
+                                    <input id="${SCRIPT_ID}-config-botao" type="number" min="12" max="30" step="1">
+                                </label>
+                                <label class="ra-tp-config-field">
+                                    <span>Espaco lateral</span>
+                                    <input id="${SCRIPT_ID}-config-padding" type="number" min="0" max="8" step="1">
+                                </label>
+                            </div>
+                        </section>
+                        <section class="ra-tp-config-section ra-tp-config-content">
+                            <div class="ra-tp-config-section-copy">
+                                <div class="ra-tp-config-section-title">Conteudo</div>
+                                <div class="ra-tp-config-section-desc">Escolhe a informacao e os realces apresentados.</div>
+                            </div>
+                            <div class="ra-tp-config-section-options">
+                                ${criarToggleConfigHtml("info-atacante", "Manter atacante e origem")}
+                                ${criarToggleConfigHtml("realce-texto", "Realcar texto do comando")}
+                                ${criarToggleConfigHtml("realce-tabela", "Realcar informacoes da tabela")}
+                            </div>
+                        </section>
+                        <section class="ra-tp-config-section ra-tp-config-buttons">
+                            <div class="ra-tp-config-section-copy">
+                                <div class="ra-tp-config-section-title">Botoes</div>
+                                <div class="ra-tp-config-section-desc">Define os atalhos visiveis e onde podem aparecer.</div>
+                            </div>
+                            <div class="ra-tp-config-section-options">
+                                <div id="${SCRIPT_ID}-config-comandos" class="ra-tp-config-command-list">
+                                    ${criarListaBotoesConfigHtml()}
+                                </div>
+                                <div class="ra-tp-config-toggle-grid">
+                                    ${criarToggleConfigHtml("botao-reset", "Mostrar botao RS")}
+                                    ${criarToggleConfigHtml("botoes-mapa", "Mostrar botoes no mapa")}
+                                    ${criarToggleConfigHtml("ocultar-apoios", "Ocultar botoes em apoios")}
+                                    ${criarToggleConfigHtml("ocultar-amigos", "Ocultar em aliados e mesma tribo")}
+                                </div>
+                                <label class="ra-tp-config-field ra-tp-config-field-wide">
+                                    <span>IDs adicionais de tribos aliadas</span>
+                                    <input id="${SCRIPT_ID}-config-aliados" type="text" placeholder="123, 456">
+                                </label>
+                            </div>
+                        </section>
+                        <section class="ra-tp-config-section ra-tp-config-actions">
+                            <div class="ra-tp-config-section-copy">
+                                <div class="ra-tp-config-section-title">Acoes</div>
+                                <div class="ra-tp-config-section-desc">Guarda, cancela ou recupera os valores iniciais.</div>
+                            </div>
+                            <div class="ra-tp-config-section-options ra-tp-config-footer">
+                                <button type="button" class="ra-tp-config-secondary" data-ra-config-action="restaurar">Predefinicoes</button>
+                                <button type="button" class="ra-tp-config-secondary" data-ra-config-action="fechar">Cancelar</button>
+                                <button type="button" class="ra-tp-config-primary" data-ra-config-action="guardar">Guardar</button>
+                            </div>
+                        </section>
+                    </div>
                 </div>
             </div>
         `;
@@ -1687,13 +1712,17 @@
                 width: 30px;
                 min-width: 30px;
                 height: 28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
                 padding: 0;
                 border: 1px solid #4f120f;
                 border-radius: 2px;
                 background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
                 color: #f7dfa2;
-                font-size: 17px;
-                line-height: 26px;
+                font-size: 13px;
+                font-weight: bold;
+                line-height: 1;
                 text-align: center;
                 cursor: pointer;
                 box-sizing: border-box;
@@ -1714,129 +1743,234 @@
             }
 
             .ra-tp-config-overlay {
-                position: fixed;
-                inset: 0;
-                z-index: 10001;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 12px;
-                background: rgba(0, 0, 0, 0.58);
-                box-sizing: border-box;
+                position: fixed !important;
+                inset: 0 !important;
+                z-index: 2147483646 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                padding: 20px !important;
+                background: rgba(0, 0, 0, 0.58) !important;
+                box-sizing: border-box !important;
+                font-family: Arial, Verdana, sans-serif !important;
             }
 
             .ra-tp-config-dialog {
-                width: min(520px, calc(100vw - 24px));
-                max-height: calc(100vh - 24px);
-                overflow: auto;
-                border: 2px solid #7d5526;
-                border-radius: 6px;
-                background: #f3e2b6;
-                color: #2b1a0b;
-                box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
-                box-sizing: border-box;
+                position: relative !important;
+                width: min(850px, calc(100vw - 48px)) !important;
+                max-height: calc(100vh - 76px) !important;
+                overflow: auto !important;
+                padding: 14px !important;
+                border: 1px solid #2c2419 !important;
+                border-radius: 5px !important;
+                background: linear-gradient(to bottom, #d8cbb0 0%, #b5a07a 100%) !important;
+                color: #3b2508 !important;
+                box-sizing: border-box !important;
+                box-shadow:
+                    0 0 0 1px #efe3c3,
+                    0 0 0 2px #7f6d52,
+                    0 0 0 3px #d0c3a8,
+                    0 0 0 5px #5f513f,
+                    0 0 0 6px #b7ac98,
+                    0 0 0 8px #30291f,
+                    0 6px 18px rgba(0, 0, 0, 0.68) !important;
             }
 
-            .ra-tp-config-header,
-            .ra-tp-config-footer {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                padding: 9px 11px;
-                background: #c99a45;
+            .ra-tp-config-dialog::before {
+                content: "";
+                position: absolute;
+                inset: 5px;
+                pointer-events: none;
+                border: 1px solid #f2e5c7;
+                border-radius: 4px;
+                box-shadow:
+                    inset 0 0 0 1px #5f4d35,
+                    inset 0 0 0 2px #c9b895,
+                    inset 0 0 0 3px #8a7555;
+            }
+
+            .ra-tp-config-frame {
+                position: relative;
+                z-index: 1;
+                width: 100%;
+                overflow: hidden;
+                border: 1px solid #7e211c;
+                border-radius: 4px;
+                background: #f4e4b8;
+                box-shadow:
+                    0 0 0 1px #f8edc9,
+                    inset 0 0 0 1px rgba(255, 250, 224, 0.8);
             }
 
             .ra-tp-config-header {
-                border-bottom: 1px solid #8b632f;
+                padding: 12px 14px 9px;
+                border-bottom: 1px solid #c98c48;
+                background: linear-gradient(to bottom, #f7e8c1 0%, #edd49a 100%);
             }
 
-            .ra-tp-config-header strong {
-                flex: 1;
-                font-size: 15px;
+            .ra-tp-config-header h3 {
+                margin: 0;
+                color: #8f2b25;
+                font-size: 16px;
+                line-height: 20px;
+            }
+
+            .ra-tp-config-header span {
+                display: block;
+                margin-top: 2px;
+                color: #5e3b16;
+                font-size: 12px;
+                line-height: 15px;
             }
 
             .ra-tp-config-close {
-                width: 26px;
-                height: 26px;
-                padding: 0;
-                border: 1px solid #69451e;
-                border-radius: 4px;
-                background: #f0d58b;
-                color: #321d0b;
-                font-size: 18px;
-                line-height: 22px;
-                cursor: pointer;
+                position: absolute !important;
+                top: -12px !important;
+                right: -12px !important;
+                z-index: 3 !important;
+                width: 19px !important;
+                height: 19px !important;
+                padding: 0 !important;
+                border: 2px solid #3b160f !important;
+                border-radius: 3px !important;
+                background: #f4e4b8 !important;
+                color: #170704 !important;
+                font-size: 19px !important;
+                font-weight: bold !important;
+                line-height: 15px !important;
+                text-align: center !important;
+                cursor: pointer !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+                    0 1px 2px rgba(0, 0, 0, 0.6) !important;
             }
 
             .ra-tp-config-body {
-                padding: 0 11px;
+                padding: 10px 12px 14px;
             }
 
             .ra-tp-config-section {
-                padding: 10px 0;
-                border-bottom: 1px solid rgba(110, 72, 29, 0.28);
+                display: grid;
+                grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
+                gap: 10px 18px;
+                margin: 0;
+                padding: 11px 0 12px 10px;
+                border-top: 1px solid #d5b579;
+                border-left: 4px solid #9b6a2f;
             }
 
-            .ra-tp-config-section:last-child {
-                border-bottom: 0;
+            .ra-tp-config-section:first-child {
+                border-top: 0;
             }
 
-            .ra-tp-config-section h3 {
-                margin: 0 0 8px;
+            .ra-tp-config-appearance { border-left-color: #c72d2d; }
+            .ra-tp-config-content { border-left-color: #1f9ac5; }
+            .ra-tp-config-buttons { border-left-color: #e0a51d; }
+            .ra-tp-config-actions { border-left-color: #8a6424; }
+
+            .ra-tp-config-section-copy,
+            .ra-tp-config-section-options {
+                min-width: 0;
+            }
+
+            .ra-tp-config-section-title {
+                margin: 0 0 4px;
+                color: #8f2b25;
                 font-size: 13px;
-                color: #5b3512;
+                font-weight: bold;
+                line-height: 16px;
+                text-transform: uppercase;
+            }
+
+            .ra-tp-config-section-desc {
+                color: #5e3b16;
+                font-size: 11px;
+                line-height: 14px;
+            }
+
+            .ra-tp-config-section-options {
+                display: grid;
+                gap: 8px;
+            }
+
+            .ra-tp-config-fields-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
             .ra-tp-config-field {
                 display: grid;
-                grid-template-columns: minmax(0, 1fr) 150px;
-                gap: 10px;
-                align-items: center;
-                min-height: 30px;
+                gap: 3px;
+                min-width: 0;
+                color: #2b1b08;
+                font-size: 11px;
                 font-weight: 700;
             }
 
             .ra-tp-config-field input,
             .ra-tp-config-field select {
-                width: 100%;
-                min-width: 0;
-                height: 25px;
-                border: 1px solid #8b632f;
-                border-radius: 3px;
-                background: #fffaf0;
-                color: #261609;
-                box-sizing: border-box;
+                width: 100% !important;
+                min-width: 0 !important;
+                height: 28px !important;
+                padding: 4px 7px !important;
+                border: 1px solid #b57d2e !important;
+                border-radius: 2px !important;
+                background: #fff6d7 !important;
+                color: #241006 !important;
+                font-size: 11px !important;
+                box-sizing: border-box !important;
+                box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12) !important;
+            }
+
+            .ra-tp-config-field input:focus,
+            .ra-tp-config-field select:focus {
+                outline: 2px solid rgba(167, 34, 30, 0.25) !important;
+                border-color: #a7221e !important;
             }
 
             .ra-tp-config-toggle {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                min-height: 28px;
-                font-weight: 700;
+                display: grid;
+                grid-template-columns: 18px minmax(0, 1fr);
+                gap: 6px;
+                align-items: start;
+                min-height: 22px;
+                color: #2b1b08;
+                font-size: 12px;
+                font-weight: bold;
+                line-height: 15px;
                 cursor: pointer;
             }
 
             .ra-tp-config-toggle input {
-                width: 16px;
-                height: 16px;
+                width: 14px;
+                height: 14px;
                 margin: 0;
+                margin-top: 1px;
+                accent-color: #d9152f;
+            }
+
+            .ra-tp-config-toggle-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 5px 12px;
             }
 
             .ra-tp-config-command-list {
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
-                gap: 4px 8px;
-                margin-bottom: 8px;
+                gap: 5px 10px;
+                padding-bottom: 8px;
+                border-bottom: 1px solid #d5b579;
             }
 
             .ra-tp-config-command {
-                display: flex;
-                align-items: center;
+                display: grid;
+                grid-template-columns: 16px minmax(0, 1fr);
                 gap: 5px;
+                align-items: start;
                 min-width: 0;
                 font-size: 11px;
                 font-weight: 700;
+                line-height: 14px;
                 cursor: pointer;
             }
 
@@ -1844,7 +1978,7 @@
                 width: 14px;
                 height: 14px;
                 margin: 0;
-                flex: 0 0 auto;
+                accent-color: #d9152f;
             }
 
             .ra-tp-config-command span {
@@ -1854,46 +1988,60 @@
             }
 
             .ra-tp-config-footer {
-                border-top: 1px solid #8b632f;
-            }
-
-            .ra-tp-config-spacer {
-                flex: 1;
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 8px;
             }
 
             .ra-tp-config-primary,
             .ra-tp-config-secondary {
-                min-height: 27px;
-                padding: 3px 10px;
-                border: 1px solid #65421d;
-                border-radius: 4px;
-                font-weight: 700;
-                cursor: pointer;
+                min-height: 29px !important;
+                padding: 4px 10px !important;
+                border: 1px solid #681511 !important;
+                border-radius: 3px !important;
+                background: linear-gradient(to bottom, #b13a34, #922722 55%, #731914) !important;
+                color: #fff !important;
+                font-size: 11px !important;
+                font-weight: bold !important;
+                text-shadow: 1px 1px 1px #000 !important;
+                cursor: pointer !important;
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+                    inset 0 -1px 0 rgba(0, 0, 0, 0.3) !important;
             }
 
-            .ra-tp-config-primary {
-                background: #6e8c32;
-                color: #fff;
+            .ra-tp-config-primary:hover,
+            .ra-tp-config-secondary:hover {
+                background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
             }
 
             .ra-tp-config-secondary {
-                background: #ead193;
-                color: #2b1a0b;
+                background: linear-gradient(to bottom, #9b342f, #7e211d 55%, #5d1411) !important;
+                border-color: #53100d !important;
             }
 
-            @media (max-width: 560px) {
-                .ra-tp-config-field {
-                    grid-template-columns: 1fr;
-                    gap: 3px;
-                    padding: 4px 0;
+            @media (max-width: 760px) {
+                .ra-tp-config-dialog {
+                    width: calc(100vw - 28px) !important;
+                    max-height: calc(100vh - 36px) !important;
                 }
 
-                .ra-tp-config-footer {
-                    flex-wrap: wrap;
+                .ra-tp-config-section {
+                    grid-template-columns: 1fr;
+                    gap: 8px;
                 }
 
                 .ra-tp-config-command-list {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+            }
+
+            @media (max-width: 480px) {
+                .ra-tp-config-fields-grid,
+                .ra-tp-config-toggle-grid,
+                .ra-tp-config-command-list,
+                .ra-tp-config-footer {
+                    grid-template-columns: 1fr;
                 }
             }
         `;
