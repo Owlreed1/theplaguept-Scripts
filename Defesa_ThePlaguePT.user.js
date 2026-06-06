@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.93
+// @version      0.1.94
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.93',
+        version: '0.1.94',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -1624,7 +1624,8 @@
         if (villageBar) {
             const barRect = villageBar.getBoundingClientRect();
             if (barRect.height > 0) {
-                top = Math.max(4, Math.round(barRect.top + ((barRect.height - 28) / 2)));
+                const existingButtonTop = barRect.top + ((barRect.height - 28) / 2);
+                top = Math.max(4, Math.round(existingButtonTop + 28 + 5));
             }
         }
 
