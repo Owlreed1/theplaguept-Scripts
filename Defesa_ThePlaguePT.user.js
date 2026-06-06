@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.80
+// @version      0.1.82
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
+// @icon         https://i.imgur.com/JXzrSKy.jpeg
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Defesa_ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Defesa_ThePlaguePT.user.js
 // @include      *://*.tribalwars.com.pt/game.php*
@@ -19,7 +20,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.80',
+        version: '0.1.82',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -205,15 +206,16 @@
             <style id="${APP.styleId}">
                 #tpDefLauncher {
                     position: fixed;
-                    right: 12px;
+                    left: 12px;
+                    right: auto;
                     top: 104px;
                     z-index: 9999;
                     display: inline-flex;
                     align-items: center;
                     justify-content: flex-start;
                     gap: 6px;
-                    width: 28px;
-                    height: 28px;
+                    width: var(--tpdef-launcher-width, 28px);
+                    height: var(--tpdef-launcher-height, 28px);
                     padding: 0 5px;
                     border: 1px solid #3b160f;
                     border-radius: 3px;
@@ -1542,19 +1544,22 @@
 
         const anchor = findSidebarLauncherAnchor();
         if (!anchor) {
-            launcher.style.right = '12px';
+            launcher.style.left = '12px';
+            launcher.style.right = 'auto';
             launcher.style.top = '104px';
             return;
         }
 
         const rect = anchor.getBoundingClientRect();
-        const launcherWidth = 28;
-        const anchorCenter = rect.left + rect.width / 2;
-        const launcherRight = anchorCenter + launcherWidth / 2;
-        const right = Math.max(8, Math.round(window.innerWidth - launcherRight));
+        const width = clamp(Math.round(rect.width), 26, 34);
+        const height = clamp(Math.round(rect.height), 26, 34);
+        const left = Math.max(0, Math.round(rect.left));
         const top = Math.max(8, Math.round(rect.bottom + 5));
 
-        launcher.style.right = `${right}px`;
+        launcher.style.setProperty('--tpdef-launcher-width', `${width}px`);
+        launcher.style.setProperty('--tpdef-launcher-height', `${height}px`);
+        launcher.style.left = `${left}px`;
+        launcher.style.right = 'auto';
         launcher.style.top = `${top}px`;
     }
 
@@ -1574,12 +1579,22 @@
                     bottom: rect.bottom,
                     horizontalDistance: Math.abs(containerRect.left - rect.right)
                 };
-            })
-            .sort(function (a, b) {
-                return b.bottom - a.bottom || a.horizontalDistance - b.horizontalDistance;
             });
 
-        return candidates.length ? candidates[0].element : null;
+        if (!candidates.length) return null;
+
+        const nearestDistance = Math.min.apply(null, candidates.map(function (candidate) {
+            return candidate.horizontalDistance;
+        }));
+        const nearestColumn = candidates
+            .filter(function (candidate) {
+                return candidate.horizontalDistance <= nearestDistance + 6;
+            })
+            .sort(function (a, b) {
+                return b.bottom - a.bottom;
+            });
+
+        return nearestColumn.length ? nearestColumn[0].element : null;
     }
 
     function isVisibleSidebarCandidate(element, containerRect) {
@@ -1591,8 +1606,8 @@
         return (
             style.display !== 'none' &&
             style.visibility !== 'hidden' &&
-            rect.width > 0 &&
-            rect.height > 0 &&
+            rect.width >= 18 &&
+            rect.height >= 18 &&
             rect.width <= 42 &&
             rect.height <= 42 &&
             rect.top >= 0 &&
