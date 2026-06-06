@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.3.0
+// @version      2.4.1
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
@@ -16,9 +16,14 @@
 
     const SCRIPT_ID = "renomear-ataques-cores-theplaguept";
     const STYLE_ID = `${SCRIPT_ID}-style`;
+    const STORAGE_KEY = `${SCRIPT_ID}-config-v1`;
+    const CONFIG_BUTTON_ID = `${SCRIPT_ID}-config-button`;
+    const CONFIG_MODAL_ID = `${SCRIPT_ID}-config-modal`;
 
-    const CONFIG = {
+    const CONFIG_PADRAO = {
         tamanhoLetraPx: 8,
+        tamanhoBotaoPx: 18,
+        paddingHorizontalBotaoPx: 3,
         paginaDeAtaques: "coluna", // Modos: coluna, linha, nada
         mostrarBotoesNoMapa: false,
         intervaloFallbackMs: 2500,
@@ -29,7 +34,14 @@
         realcarInformacoesTabela: true,
         ocultarBotoesApoios: true,
         ocultarBotoesAmigos: true,
+        mostrarBotaoReset: true,
+        botoesOcultos: [],
         tribosAliadasIds: [],
+    };
+    const CONFIG = {
+        ...CONFIG_PADRAO,
+        botoesOcultos: [...CONFIG_PADRAO.botoesOcultos],
+        tribosAliadasIds: [...CONFIG_PADRAO.tribosAliadasIds],
     };
 
     const CORES = {
@@ -109,6 +121,98 @@
     const relacoesJogadores = new Map();
     let tribosAliadasCache = null;
     let tribosAliadasPromise = null;
+    let configButtonPositionFrame = 0;
+
+    function carregarConfiguracao() {
+        try {
+            const guardada = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+            aplicarValoresConfiguracao(guardada);
+        } catch (erro) {
+            console.warn("[Renomear Ataques TP] Configuracao guardada invalida:", erro);
+        }
+    }
+
+    function aplicarValoresConfiguracao(valores) {
+        const booleanos = [
+            "mostrarBotoesNoMapa",
+            "manterInfoAtacante",
+            "realcarTexto",
+            "realcarInformacoesTabela",
+            "ocultarBotoesApoios",
+            "ocultarBotoesAmigos",
+            "mostrarBotaoReset",
+        ];
+
+        booleanos.forEach((chave) => {
+            if (typeof valores?.[chave] === "boolean") CONFIG[chave] = valores[chave];
+        });
+
+        if (["coluna", "linha", "nada"].includes(valores?.paginaDeAtaques)) {
+            CONFIG.paginaDeAtaques = valores.paginaDeAtaques;
+        }
+
+        CONFIG.tamanhoLetraPx = limitarNumero(
+            valores?.tamanhoLetraPx,
+            4,
+            14,
+            CONFIG.tamanhoLetraPx,
+        );
+        CONFIG.tamanhoBotaoPx = limitarNumero(
+            valores?.tamanhoBotaoPx,
+            12,
+            30,
+            CONFIG.tamanhoBotaoPx,
+        );
+        CONFIG.paddingHorizontalBotaoPx = limitarNumero(
+            valores?.paddingHorizontalBotaoPx,
+            0,
+            8,
+            CONFIG.paddingHorizontalBotaoPx,
+        );
+
+        if (Array.isArray(valores?.tribosAliadasIds)) {
+            CONFIG.tribosAliadasIds = [...new Set(
+                valores.tribosAliadasIds
+                    .map(Number)
+                    .filter((id) => Number.isInteger(id) && id > 0),
+            )];
+        }
+
+        if (Array.isArray(valores?.botoesOcultos)) {
+            CONFIG.botoesOcultos = [...new Set(
+                valores.botoesOcultos
+                    .map(Number)
+                    .filter((index) => Number.isInteger(index) && index >= 0 && index < COMANDOS.length),
+            )];
+        }
+    }
+
+    function guardarConfiguracao() {
+        const valores = {
+            tamanhoLetraPx: CONFIG.tamanhoLetraPx,
+            tamanhoBotaoPx: CONFIG.tamanhoBotaoPx,
+            paddingHorizontalBotaoPx: CONFIG.paddingHorizontalBotaoPx,
+            paginaDeAtaques: CONFIG.paginaDeAtaques,
+            mostrarBotoesNoMapa: CONFIG.mostrarBotoesNoMapa,
+            manterInfoAtacante: CONFIG.manterInfoAtacante,
+            realcarTexto: CONFIG.realcarTexto,
+            realcarInformacoesTabela: CONFIG.realcarInformacoesTabela,
+            ocultarBotoesApoios: CONFIG.ocultarBotoesApoios,
+            ocultarBotoesAmigos: CONFIG.ocultarBotoesAmigos,
+            mostrarBotaoReset: CONFIG.mostrarBotaoReset,
+            botoesOcultos: [...CONFIG.botoesOcultos],
+            tribosAliadasIds: [...CONFIG.tribosAliadasIds],
+        };
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(valores));
+    }
+
+    function limitarNumero(valor, minimo, maximo, fallback) {
+        const numero = Number(valor);
+        if (!Number.isFinite(numero)) return fallback;
+
+        return Math.min(maximo, Math.max(minimo, Math.round(numero)));
+    }
 
     function iniciar() {
         if (!document.body) {
@@ -116,11 +220,19 @@
             return;
         }
 
+        carregarConfiguracao();
         aplicarEstilos();
+        criarBotaoConfiguracao();
         executar();
 
         const observer = new MutationObserver(agendarExecucao);
         observer.observe(document.body, { childList: true, subtree: true });
+
+        window.addEventListener("resize", agendarPosicaoBotaoConfiguracao);
+        window.addEventListener("orientationchange", agendarPosicaoBotaoConfiguracao);
+        agendarPosicaoBotaoConfiguracao();
+        setTimeout(agendarPosicaoBotaoConfiguracao, 250);
+        setTimeout(agendarPosicaoBotaoConfiguracao, 1000);
 
         setInterval(executar, CONFIG.intervaloFallbackMs);
         console.log("[Renomear Ataques TP] Script carregado:", location.href);
@@ -133,6 +245,327 @@
         requestAnimationFrame(() => {
             execucaoAgendada = false;
             executar();
+            agendarPosicaoBotaoConfiguracao();
+        });
+    }
+
+    function criarBotaoConfiguracao() {
+        if (document.getElementById(CONFIG_BUTTON_ID)) return;
+
+        const botao = document.createElement("button");
+        botao.id = CONFIG_BUTTON_ID;
+        botao.type = "button";
+        botao.className = "ra-tp-config-button";
+        botao.title = "Configurar Renomear Ataques";
+        botao.setAttribute("aria-label", "Configurar Renomear Ataques");
+        botao.textContent = "\u2699";
+        botao.addEventListener("click", abrirPainelConfiguracao);
+
+        document.body.appendChild(botao);
+        criarModalConfiguracao();
+        agendarPosicaoBotaoConfiguracao();
+    }
+
+    function agendarPosicaoBotaoConfiguracao() {
+        if (configButtonPositionFrame) cancelAnimationFrame(configButtonPositionFrame);
+
+        configButtonPositionFrame = requestAnimationFrame(() => {
+            configButtonPositionFrame = 0;
+            posicionarBotaoConfiguracao();
+        });
+    }
+
+    function posicionarBotaoConfiguracao() {
+        const botao = document.getElementById(CONFIG_BUTTON_ID);
+        if (!botao) return;
+
+        const layout =
+            document.querySelector("#main_layout td.maincell")
+            || document.querySelector("td.maincell")
+            || document.querySelector("#contentContainer")
+            || document.querySelector("#content_value");
+        const barraAldeia =
+            document.querySelector("#header_info")
+            || document.querySelector("#menu_row2");
+
+        let left = 12;
+        let top = 104;
+
+        if (layout) {
+            const rectLayout = layout.getBoundingClientRect();
+            if (rectLayout.width > 0) left = Math.max(4, Math.round(rectLayout.left - 55));
+        }
+
+        if (barraAldeia) {
+            const rectBarra = barraAldeia.getBoundingClientRect();
+            if (rectBarra.height > 0) {
+                top = Math.max(4, Math.round(rectBarra.top + ((rectBarra.height - 28) / 2)));
+            }
+        }
+
+        const launchers = obterLaunchersLaterais(botao, left);
+        if (launchers.length) {
+            const ultimo = launchers.reduce((atual, rect) => rect.bottom > atual.bottom ? rect : atual);
+            left = Math.max(4, Math.round(ultimo.left));
+            top = Math.max(4, Math.round(ultimo.bottom + 5));
+        }
+
+        botao.style.setProperty("left", `${left}px`, "important");
+        botao.style.setProperty("right", "auto", "important");
+        botao.style.setProperty("top", `${top}px`, "important");
+        botao.style.setProperty("bottom", "auto", "important");
+    }
+
+    function obterLaunchersLaterais(botaoAtual, leftEsperado) {
+        const seletoresConhecidos = [
+            "#tpDefLauncher",
+            "#tw-discord-alerts-ui",
+            "#tw-discord-alerts-toggle",
+            "#tpconq-launcher",
+            "#tpTwHub-launcher",
+            "[id$='-launcher']",
+            "[class*='quickbar']",
+        ];
+        const candidatos = new Set(
+            seletoresConhecidos.flatMap((seletor) => [...document.querySelectorAll(seletor)]),
+        );
+
+        document.querySelectorAll("body > button, body > a, body > div").forEach((elemento) => {
+            candidatos.add(elemento);
+        });
+
+        return [...candidatos]
+            .filter((elemento) => elemento !== botaoAtual && !elemento.closest(`#${CONFIG_MODAL_ID}`))
+            .filter((elemento) => getComputedStyle(elemento).position === "fixed")
+            .map((elemento) => elemento.getBoundingClientRect())
+            .filter((rect) => (
+                rect.width > 0
+                && rect.height > 0
+                && rect.height <= 60
+                && rect.top >= 0
+                && rect.bottom <= window.innerHeight
+                && Math.abs(rect.left - leftEsperado) <= 12
+            ));
+    }
+
+    function criarModalConfiguracao() {
+        if (document.getElementById(CONFIG_MODAL_ID)) return;
+
+        const modal = document.createElement("div");
+        modal.id = CONFIG_MODAL_ID;
+        modal.className = "ra-tp-config-overlay";
+        modal.hidden = true;
+        modal.innerHTML = `
+            <div class="ra-tp-config-dialog" role="dialog" aria-modal="true" aria-labelledby="${SCRIPT_ID}-config-title">
+                <div class="ra-tp-config-header">
+                    <strong id="${SCRIPT_ID}-config-title">Renomear Ataques</strong>
+                    <button type="button" class="ra-tp-config-close" data-ra-config-action="fechar" aria-label="Fechar">&times;</button>
+                </div>
+                <div class="ra-tp-config-body">
+                    <section class="ra-tp-config-section">
+                        <h3>Aparencia</h3>
+                        <label class="ra-tp-config-field">
+                            <span>Pintura dos ataques</span>
+                            <select id="${SCRIPT_ID}-config-pagina">
+                                <option value="coluna">Coluna do comando</option>
+                                <option value="linha">Linha completa</option>
+                                <option value="nada">Sem fundo</option>
+                            </select>
+                        </label>
+                        <label class="ra-tp-config-field">
+                            <span>Tamanho da letra</span>
+                            <input id="${SCRIPT_ID}-config-letra" type="number" min="4" max="14" step="1">
+                        </label>
+                        <label class="ra-tp-config-field">
+                            <span>Tamanho do botao</span>
+                            <input id="${SCRIPT_ID}-config-botao" type="number" min="12" max="30" step="1">
+                        </label>
+                        <label class="ra-tp-config-field">
+                            <span>Espaco lateral</span>
+                            <input id="${SCRIPT_ID}-config-padding" type="number" min="0" max="8" step="1">
+                        </label>
+                    </section>
+                    <section class="ra-tp-config-section">
+                        <h3>Conteudo</h3>
+                        ${criarToggleConfigHtml("info-atacante", "Manter atacante e origem")}
+                        ${criarToggleConfigHtml("realce-texto", "Realcar texto do comando")}
+                        ${criarToggleConfigHtml("realce-tabela", "Realcar informacoes da tabela")}
+                    </section>
+                    <section class="ra-tp-config-section">
+                        <h3>Botoes</h3>
+                        <div id="${SCRIPT_ID}-config-comandos" class="ra-tp-config-command-list">
+                            ${criarListaBotoesConfigHtml()}
+                        </div>
+                        ${criarToggleConfigHtml("botao-reset", "Mostrar botao RS")}
+                        ${criarToggleConfigHtml("botoes-mapa", "Mostrar botoes no mapa")}
+                        ${criarToggleConfigHtml("ocultar-apoios", "Ocultar botoes em apoios")}
+                        ${criarToggleConfigHtml("ocultar-amigos", "Ocultar botoes em aliados e mesma tribo")}
+                        <label class="ra-tp-config-field ra-tp-config-field-wide">
+                            <span>IDs adicionais de tribos aliadas</span>
+                            <input id="${SCRIPT_ID}-config-aliados" type="text" placeholder="123, 456">
+                        </label>
+                    </section>
+                </div>
+                <div class="ra-tp-config-footer">
+                    <button type="button" class="ra-tp-config-secondary" data-ra-config-action="restaurar">Predefinicoes</button>
+                    <span class="ra-tp-config-spacer"></span>
+                    <button type="button" class="ra-tp-config-secondary" data-ra-config-action="fechar">Cancelar</button>
+                    <button type="button" class="ra-tp-config-primary" data-ra-config-action="guardar">Guardar</button>
+                </div>
+            </div>
+        `;
+
+        modal.addEventListener("click", (evento) => {
+            const acao = evento.target.closest("[data-ra-config-action]")?.dataset.raConfigAction;
+
+            if (acao === "fechar") fecharPainelConfiguracao();
+            if (acao === "restaurar") preencherFormularioConfiguracao(CONFIG_PADRAO);
+            if (acao === "guardar") guardarFormularioConfiguracao();
+            if (evento.target === modal) fecharPainelConfiguracao();
+        });
+
+        document.addEventListener("keydown", (evento) => {
+            if (evento.key === "Escape" && !modal.hidden) fecharPainelConfiguracao();
+        });
+
+        document.body.appendChild(modal);
+    }
+
+    function criarListaBotoesConfigHtml() {
+        return COMANDOS.map((comando, index) => `
+            <label class="ra-tp-config-command">
+                <input type="checkbox" data-ra-config-command="${index}">
+                <span>${escapeHtml(comando.label)} - ${escapeHtml(comando.tag.trim())}</span>
+            </label>
+        `).join("");
+    }
+
+    function escapeHtml(valor) {
+        return String(valor || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function criarToggleConfigHtml(sufixo, label) {
+        return `
+            <label class="ra-tp-config-toggle">
+                <input id="${SCRIPT_ID}-config-${sufixo}" type="checkbox">
+                <span>${label}</span>
+            </label>
+        `;
+    }
+
+    function abrirPainelConfiguracao() {
+        const modal = document.getElementById(CONFIG_MODAL_ID);
+        if (!modal) return;
+
+        preencherFormularioConfiguracao(CONFIG);
+        modal.hidden = false;
+        modal.querySelector("select, input, button")?.focus();
+    }
+
+    function fecharPainelConfiguracao() {
+        const modal = document.getElementById(CONFIG_MODAL_ID);
+        if (modal) modal.hidden = true;
+    }
+
+    function preencherFormularioConfiguracao(valores) {
+        obterCampoConfig("pagina").value = valores.paginaDeAtaques;
+        obterCampoConfig("letra").value = valores.tamanhoLetraPx;
+        obterCampoConfig("botao").value = valores.tamanhoBotaoPx;
+        obterCampoConfig("padding").value = valores.paddingHorizontalBotaoPx;
+        obterCampoConfig("info-atacante").checked = valores.manterInfoAtacante;
+        obterCampoConfig("realce-texto").checked = valores.realcarTexto;
+        obterCampoConfig("realce-tabela").checked = valores.realcarInformacoesTabela;
+        obterCampoConfig("botao-reset").checked = valores.mostrarBotaoReset;
+        obterCampoConfig("botoes-mapa").checked = valores.mostrarBotoesNoMapa;
+        obterCampoConfig("ocultar-apoios").checked = valores.ocultarBotoesApoios;
+        obterCampoConfig("ocultar-amigos").checked = valores.ocultarBotoesAmigos;
+        obterCampoConfig("aliados").value = (valores.tribosAliadasIds || []).join(", ");
+
+        document.querySelectorAll("[data-ra-config-command]").forEach((checkbox) => {
+            checkbox.checked = !(valores.botoesOcultos || []).includes(Number(checkbox.dataset.raConfigCommand));
+        });
+    }
+
+    function guardarFormularioConfiguracao() {
+        const valores = {
+            paginaDeAtaques: obterCampoConfig("pagina").value,
+            tamanhoLetraPx: obterCampoConfig("letra").value,
+            tamanhoBotaoPx: obterCampoConfig("botao").value,
+            paddingHorizontalBotaoPx: obterCampoConfig("padding").value,
+            manterInfoAtacante: obterCampoConfig("info-atacante").checked,
+            realcarTexto: obterCampoConfig("realce-texto").checked,
+            realcarInformacoesTabela: obterCampoConfig("realce-tabela").checked,
+            mostrarBotaoReset: obterCampoConfig("botao-reset").checked,
+            mostrarBotoesNoMapa: obterCampoConfig("botoes-mapa").checked,
+            ocultarBotoesApoios: obterCampoConfig("ocultar-apoios").checked,
+            ocultarBotoesAmigos: obterCampoConfig("ocultar-amigos").checked,
+            botoesOcultos: [...document.querySelectorAll("[data-ra-config-command]")]
+                .filter((checkbox) => !checkbox.checked)
+                .map((checkbox) => Number(checkbox.dataset.raConfigCommand)),
+            tribosAliadasIds: obterCampoConfig("aliados").value
+                .split(/[\s,;]+/)
+                .filter(Boolean)
+                .map(Number),
+        };
+
+        aplicarValoresConfiguracao(valores);
+        guardarConfiguracao();
+        reiniciarCachesRelacoes();
+        aplicarConfiguracaoNaPagina();
+        fecharPainelConfiguracao();
+    }
+
+    function obterCampoConfig(sufixo) {
+        return document.getElementById(`${SCRIPT_ID}-config-${sufixo}`);
+    }
+
+    function reiniciarCachesRelacoes() {
+        relacoesJogadores.clear();
+        tribosAliadasCache = null;
+        tribosAliadasPromise = null;
+    }
+
+    function aplicarConfiguracaoNaPagina() {
+        aplicarEstilos();
+
+        obterLinhasValidas().forEach((linha) => {
+            removerBotoes(linha);
+            limparPintura(linha);
+            restaurarTextoSemRealce(linha);
+            limparRealceInformacoesLinha(linha);
+        });
+
+        executar();
+    }
+
+    function restaurarTextoSemRealce(linha) {
+        const label = linha.querySelector(SELETORES.etiquetaNome);
+        if (!label) return;
+
+        const texto = normalizarEspacos(label.textContent);
+        label.textContent = texto;
+        delete label.dataset.raTpRealceTexto;
+        delete label.dataset.raTpRealceEscuro;
+    }
+
+    function limparRealceInformacoesLinha(linha) {
+        linha.querySelectorAll("[data-ra-tp-info-realce]").forEach((celula) => {
+            celula.style.removeProperty("color");
+            celula.style.removeProperty("font-weight");
+            celula.style.removeProperty("text-shadow");
+            delete celula.dataset.raTpInfoRealce;
+        });
+
+        linha.querySelectorAll("[data-ra-tp-info-elemento]").forEach((elemento) => {
+            elemento.style.removeProperty("color");
+            elemento.style.removeProperty("font-weight");
+            elemento.style.removeProperty("text-shadow");
+            delete elemento.dataset.raTpInfoElemento;
         });
     }
 
@@ -158,6 +591,8 @@
             realcarTextoLinha(linha);
             realcarInformacoesLinha(linha);
         });
+
+        agendarPosicaoBotaoConfiguracao();
     }
 
     function obterContextoPagina() {
@@ -435,7 +870,7 @@
         container.className = "ra-tp-botoes";
 
         COMANDOS.forEach((comando, index) => {
-            if (!comando.tag || !comando.label) return;
+            if (!comando.tag || !comando.label || CONFIG.botoesOcultos.includes(index)) return;
 
             const botao = criarBotao(comando.label, comando.tag.trim(), comando.corBotao, comando.corTexto);
             botao.dataset.comandoIndex = String(index);
@@ -448,16 +883,18 @@
             container.appendChild(botao);
         });
 
-        const reset = criarBotao("RS", "Resetar etiquetas", "dark", "white");
-        reset.classList.add("ra-tp-reset");
-        reset.addEventListener("click", (evento) => {
-            evento.preventDefault();
-            evento.stopPropagation();
-            editarNomeLinha(linha, (valorAtual) => limparEtiquetas(valorAtual, linha));
-        });
-        container.appendChild(reset);
+        if (CONFIG.mostrarBotaoReset) {
+            const reset = criarBotao("RS", "Resetar etiquetas", "dark", "white");
+            reset.classList.add("ra-tp-reset");
+            reset.addEventListener("click", (evento) => {
+                evento.preventDefault();
+                evento.stopPropagation();
+                editarNomeLinha(linha, (valorAtual) => limparEtiquetas(valorAtual, linha));
+            });
+            container.appendChild(reset);
+        }
 
-        containerDestino.appendChild(container);
+        if (container.childElementCount) containerDestino.appendChild(container);
     }
 
     function obterContainerBotoes(linha) {
@@ -947,6 +1384,7 @@
         celula.querySelectorAll("a, span").forEach((elemento) => {
             if (deveIgnorarRealceInfo(elemento)) return;
 
+            elemento.dataset.raTpInfoElemento = "1";
             elemento.style.setProperty("color", estilo.cor, "important");
             elemento.style.setProperty("font-weight", estilo.peso);
             elemento.style.setProperty("text-shadow", estilo.sombra, "important");
@@ -1164,10 +1602,13 @@
     }
 
     function aplicarEstilos() {
-        if (document.getElementById(STYLE_ID)) return;
+        let style = document.getElementById(STYLE_ID);
+        if (!style) {
+            style = document.createElement("style");
+            style.id = STYLE_ID;
+            document.head.appendChild(style);
+        }
 
-        const style = document.createElement("style");
-        style.id = STYLE_ID;
         style.textContent = `
             .ra-tp-botoes {
                 float: right;
@@ -1182,9 +1623,9 @@
             }
 
             .ra-tp-botao {
-                min-width: 18px;
-                height: 18px;
-                padding: 0 3px !important;
+                min-width: ${CONFIG.tamanhoBotaoPx}px;
+                height: ${CONFIG.tamanhoBotaoPx}px;
+                padding: 0 ${CONFIG.paddingHorizontalBotaoPx}px !important;
                 border: 1px solid rgba(0, 0, 0, 0.45) !important;
                 border-radius: 3px;
                 line-height: 1 !important;
@@ -1235,9 +1676,227 @@
             .ra-tp-reset {
                 margin-left: 3px !important;
             }
-        `;
 
-        document.head.appendChild(style);
+            .ra-tp-config-button {
+                position: fixed;
+                left: 12px;
+                right: auto;
+                top: 104px;
+                bottom: auto;
+                z-index: 2147483647;
+                width: 30px;
+                min-width: 30px;
+                height: 28px;
+                padding: 0;
+                border: 1px solid #4f120f;
+                border-radius: 2px;
+                background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
+                color: #f7dfa2;
+                font-size: 17px;
+                line-height: 26px;
+                text-align: center;
+                cursor: pointer;
+                box-sizing: border-box;
+                text-shadow: 1px 1px 1px #000;
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+                    inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+                    0 2px 5px rgba(0, 0, 0, 0.45);
+            }
+
+            .ra-tp-config-button:hover {
+                background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
+                filter: brightness(1.08);
+            }
+
+            .ra-tp-config-overlay[hidden] {
+                display: none !important;
+            }
+
+            .ra-tp-config-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 10001;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 12px;
+                background: rgba(0, 0, 0, 0.58);
+                box-sizing: border-box;
+            }
+
+            .ra-tp-config-dialog {
+                width: min(520px, calc(100vw - 24px));
+                max-height: calc(100vh - 24px);
+                overflow: auto;
+                border: 2px solid #7d5526;
+                border-radius: 6px;
+                background: #f3e2b6;
+                color: #2b1a0b;
+                box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+                box-sizing: border-box;
+            }
+
+            .ra-tp-config-header,
+            .ra-tp-config-footer {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 9px 11px;
+                background: #c99a45;
+            }
+
+            .ra-tp-config-header {
+                border-bottom: 1px solid #8b632f;
+            }
+
+            .ra-tp-config-header strong {
+                flex: 1;
+                font-size: 15px;
+            }
+
+            .ra-tp-config-close {
+                width: 26px;
+                height: 26px;
+                padding: 0;
+                border: 1px solid #69451e;
+                border-radius: 4px;
+                background: #f0d58b;
+                color: #321d0b;
+                font-size: 18px;
+                line-height: 22px;
+                cursor: pointer;
+            }
+
+            .ra-tp-config-body {
+                padding: 0 11px;
+            }
+
+            .ra-tp-config-section {
+                padding: 10px 0;
+                border-bottom: 1px solid rgba(110, 72, 29, 0.28);
+            }
+
+            .ra-tp-config-section:last-child {
+                border-bottom: 0;
+            }
+
+            .ra-tp-config-section h3 {
+                margin: 0 0 8px;
+                font-size: 13px;
+                color: #5b3512;
+            }
+
+            .ra-tp-config-field {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 150px;
+                gap: 10px;
+                align-items: center;
+                min-height: 30px;
+                font-weight: 700;
+            }
+
+            .ra-tp-config-field input,
+            .ra-tp-config-field select {
+                width: 100%;
+                min-width: 0;
+                height: 25px;
+                border: 1px solid #8b632f;
+                border-radius: 3px;
+                background: #fffaf0;
+                color: #261609;
+                box-sizing: border-box;
+            }
+
+            .ra-tp-config-toggle {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                min-height: 28px;
+                font-weight: 700;
+                cursor: pointer;
+            }
+
+            .ra-tp-config-toggle input {
+                width: 16px;
+                height: 16px;
+                margin: 0;
+            }
+
+            .ra-tp-config-command-list {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 4px 8px;
+                margin-bottom: 8px;
+            }
+
+            .ra-tp-config-command {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                min-width: 0;
+                font-size: 11px;
+                font-weight: 700;
+                cursor: pointer;
+            }
+
+            .ra-tp-config-command input {
+                width: 14px;
+                height: 14px;
+                margin: 0;
+                flex: 0 0 auto;
+            }
+
+            .ra-tp-config-command span {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ra-tp-config-footer {
+                border-top: 1px solid #8b632f;
+            }
+
+            .ra-tp-config-spacer {
+                flex: 1;
+            }
+
+            .ra-tp-config-primary,
+            .ra-tp-config-secondary {
+                min-height: 27px;
+                padding: 3px 10px;
+                border: 1px solid #65421d;
+                border-radius: 4px;
+                font-weight: 700;
+                cursor: pointer;
+            }
+
+            .ra-tp-config-primary {
+                background: #6e8c32;
+                color: #fff;
+            }
+
+            .ra-tp-config-secondary {
+                background: #ead193;
+                color: #2b1a0b;
+            }
+
+            @media (max-width: 560px) {
+                .ra-tp-config-field {
+                    grid-template-columns: 1fr;
+                    gap: 3px;
+                    padding: 4px 0;
+                }
+
+                .ra-tp-config-footer {
+                    flex-wrap: wrap;
+                }
+
+                .ra-tp-config-command-list {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+            }
+        `;
     }
 
     if (document.readyState === "loading") {
