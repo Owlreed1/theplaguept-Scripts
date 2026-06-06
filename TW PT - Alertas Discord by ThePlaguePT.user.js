@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord by ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.1.9
+// @version      1.1.11
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @match        https://*.tribalwars.com.pt/*
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
@@ -16,7 +16,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.1.9 carregada');
+    console.log('[TW Discord Alerts] Versao 1.1.11 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -3625,6 +3625,77 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
 `;
 
         (uiDoc.body || uiDoc.documentElement).appendChild(root);
+
+        const uiWindow = uiDoc.defaultView || window;
+        const launcherWidth = 30;
+        const launcherGap = 10;
+
+        function positionLauncher() {
+            const gameLayout =
+                uiDoc.querySelector('#main_layout td.maincell') ||
+                uiDoc.querySelector('td.maincell') ||
+                uiDoc.querySelector('#contentContainer') ||
+                uiDoc.querySelector('#content_value');
+
+            const villageBar =
+                uiDoc.querySelector('#header_info') ||
+                uiDoc.querySelector('#menu_row2');
+
+            if (gameLayout) {
+                const layoutRect = gameLayout.getBoundingClientRect();
+
+                if (layoutRect.width > 0) {
+                    const left = Math.max(
+                        4,
+                        Math.round(layoutRect.left - launcherWidth - launcherGap)
+                    );
+
+                    root.style.setProperty('left', `${left}px`, 'important');
+                }
+            }
+
+            if (villageBar) {
+                const barRect = villageBar.getBoundingClientRect();
+
+                if (barRect.height > 0) {
+                    const top = Math.max(
+                        4,
+                        Math.round(barRect.top + ((barRect.height - 28) / 2))
+                    );
+
+                    root.style.setProperty('top', `${top}px`, 'important');
+                }
+            }
+        }
+
+        let launcherPositionFrame = 0;
+
+        function scheduleLauncherPosition() {
+            uiWindow.cancelAnimationFrame(launcherPositionFrame);
+            launcherPositionFrame = uiWindow.requestAnimationFrame(positionLauncher);
+        }
+
+        positionLauncher();
+        uiWindow.addEventListener('resize', scheduleLauncherPosition);
+        uiWindow.addEventListener('orientationchange', scheduleLauncherPosition);
+
+        if (typeof uiWindow.ResizeObserver === 'function') {
+            const launcherResizeObserver = new uiWindow.ResizeObserver(scheduleLauncherPosition);
+            const observedLayout =
+                uiDoc.querySelector('#main_layout td.maincell') ||
+                uiDoc.querySelector('td.maincell') ||
+                uiDoc.querySelector('#contentContainer') ||
+                uiDoc.querySelector('#content_value');
+            const observedBar =
+                uiDoc.querySelector('#header_info') ||
+                uiDoc.querySelector('#menu_row2');
+
+            if (observedLayout) launcherResizeObserver.observe(observedLayout);
+            if (observedBar) launcherResizeObserver.observe(observedBar);
+        }
+
+        uiWindow.setTimeout(positionLauncher, 250);
+        uiWindow.setTimeout(positionLauncher, 1000);
 
         const panel = root.querySelector('#tw-discord-alerts-panel');
         const backdrop = root.querySelector('#tw-discord-alerts-backdrop');
