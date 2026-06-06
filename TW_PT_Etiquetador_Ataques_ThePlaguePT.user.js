@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW_PT_Etiquetador_Ataques_ThePlaguePT
-// @version      1.0.0
+// @version      1.0.1
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -1630,7 +1630,7 @@
             </style>
             <div class="ti-config">
                 <strong>Etiquetador de ataques</strong>
-                <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.0</div>
+                <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.1</div>
                 ${criarCheckbox("Ativo", "ativo", config.ativo)}
                 ${criarCheckbox("Modo teste", "modoTeste", config.modoTeste)}
                 ${criarCheckbox("Destacar linhas", "destacarLinhas", config.destacarLinhas)}
