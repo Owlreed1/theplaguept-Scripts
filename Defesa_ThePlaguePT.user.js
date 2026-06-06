@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.82
+// @version      0.1.83
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.82',
+        version: '0.1.83',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -220,12 +220,14 @@
                     border: 1px solid #3b160f;
                     border-radius: 3px;
                     background: linear-gradient(to bottom, #9e312a 0%, #6f211c 100%);
-                    color: #fff4d3;
-                    font-weight: bold;
+                    color: #fff !important;
+                    font-family: Verdana, Arial, sans-serif !important;
+                    font-size: 12px !important;
+                    font-weight: bold !important;
                     cursor: pointer;
                     overflow: hidden;
                     white-space: nowrap;
-                    text-shadow: 1px 1px 1px #230b08;
+                    text-shadow: 1px 1px 1px #000 !important;
                     box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 2px 6px rgba(0,0,0,.3);
                     box-sizing: border-box;
                     transition: width .18s ease, padding .18s ease, background .18s ease;
@@ -287,6 +289,12 @@
                     max-width: 0;
                     opacity: 0;
                     overflow: hidden;
+                    color: #fff !important;
+                    font-family: Verdana, Arial, sans-serif !important;
+                    font-size: 12px !important;
+                    font-weight: bold !important;
+                    line-height: 16px !important;
+                    text-shadow: 1px 1px 1px #000 !important;
                     transition: max-width .18s ease, opacity .12s ease;
                 }
 
