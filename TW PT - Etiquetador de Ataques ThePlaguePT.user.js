@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.23
+// @version      1.0.24
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -2250,28 +2250,6 @@
         config.sons.ataque = lerBooleanoPainel("somAtaque", raiz);
         config.sons.nobre = lerBooleanoPainel("somNobre", raiz);
         config.sons.cancelado = lerBooleanoPainel("somCancelado", raiz);
-        config.etiquetas.ataque = lerTextoPainel("etiquetaAtaque", raiz) || CONFIG_PADRAO.etiquetas.ataque;
-        config.etiquetas.apoio = lerTextoPainel("etiquetaApoio", raiz) || CONFIG_PADRAO.etiquetas.apoio;
-        config.etiquetas.nobre = lerTextoPainel("etiquetaNobre", raiz) || CONFIG_PADRAO.etiquetas.nobre;
-        config.formatoContagem = lerTextoPainel("formatoContagem", raiz) || CONFIG_PADRAO.formatoContagem;
-        config.atrasoIncomingsMinMs = lerNumeroPainel("atrasoIncomingsMinMs", CONFIG_PADRAO.atrasoIncomingsMinMs, 1000, raiz);
-        config.atrasoIncomingsMaxMs = lerNumeroPainel("atrasoIncomingsMaxMs", CONFIG_PADRAO.atrasoIncomingsMaxMs, 1000, raiz);
-        config.atrasoGlobalMinMs = lerNumeroPainel("atrasoGlobalMinMs", CONFIG_PADRAO.atrasoGlobalMinMs, 1000, raiz);
-        config.atrasoGlobalMaxMs = lerNumeroPainel("atrasoGlobalMaxMs", CONFIG_PADRAO.atrasoGlobalMaxMs, 1000, raiz);
-        config.intervaloEdicaoMinMs = lerNumeroPainel("intervaloEdicaoMinMs", CONFIG_PADRAO.intervaloEdicaoMinMs, 1000, raiz);
-        config.intervaloEdicaoMaxMs = lerNumeroPainel("intervaloEdicaoMaxMs", CONFIG_PADRAO.intervaloEdicaoMaxMs, 1000, raiz);
-
-        if (config.atrasoIncomingsMaxMs < config.atrasoIncomingsMinMs) {
-            config.atrasoIncomingsMaxMs = config.atrasoIncomingsMinMs;
-        }
-
-        if (config.atrasoGlobalMaxMs < config.atrasoGlobalMinMs) {
-            config.atrasoGlobalMaxMs = config.atrasoGlobalMinMs;
-        }
-
-        if (config.intervaloEdicaoMaxMs < config.intervaloEdicaoMinMs) {
-            config.intervaloEdicaoMaxMs = config.intervaloEdicaoMinMs;
-        }
 
         guardarConfig();
         if (!config.sons.nobre) {
@@ -2310,7 +2288,7 @@
                     #tag-incomings-pt-dialog .ti-config {
                         position: static !important;
                         display: block !important;
-                        width: min(940px, calc(100vw - 70px)) !important;
+                        width: min(820px, calc(100vw - 70px)) !important;
                         max-width: none !important;
                         max-height: calc(100vh - 90px) !important;
                         overflow: visible !important;
@@ -2322,7 +2300,8 @@
                         transform: none !important;
                     }
                     #tag-incomings-pt-dialog .ti-content {
-                        max-height: calc(100vh - 180px) !important;
+                        max-height: none !important;
+                        overflow: visible !important;
                     }
                     #tag-incomings-pt-dialog .ti-backdrop,
                     #tag-incomings-pt-dialog .ti-close,
@@ -2619,7 +2598,7 @@
                     z-index: 4 !important;
                     display: none;
                     box-sizing: border-box !important;
-                    width: min(980px, calc(100vw - 54px));
+                    width: min(860px, calc(100vw - 54px));
                     max-height: calc(100vh - 54px);
                     overflow: visible;
                     padding: 12px;
@@ -2694,7 +2673,7 @@
                 }
                 #tag-incomings-pt-panel .ti-section {
                     display: grid;
-                    grid-template-columns: 180px minmax(0, 1fr);
+                    grid-template-columns: 155px minmax(0, 1fr);
                     gap: 18px;
                     padding: 14px;
                     border-bottom: 1px solid #d1ad65;
@@ -2728,7 +2707,7 @@
                     align-items: center;
                     gap: 12px;
                     min-width: 0;
-                    min-height: 48px;
+                    min-height: 44px;
                     margin: 0;
                     padding: 5px 0;
                     border-bottom: 1px solid rgba(157, 110, 45, 0.22);
@@ -2854,7 +2833,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.23</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.24</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -2911,83 +2890,6 @@
                                 class="ti-audio-state ${audioDesbloqueado ? "ti-audio-ready" : ""}"
                                 data-ti-audio-state
                             >${audioDesbloqueado ? "Áudio ativo nesta sessão" : "Requer um clique em Ativar sons"}</span>
-                        </div>
-                    </section>
-                    <section class="ti-section" style="--ti-section-color:#2588b8">
-                        <div class="ti-section-heading">
-                            <strong>Etiquetas</strong>
-                            <small>Nomes e formato aplicados aos comandos.</small>
-                        </div>
-                        <div class="ti-fields">
-                            ${criarCampoTexto(
-                                "Ataque",
-                                "etiquetaAtaque",
-                                config.etiquetas.ataque,
-                                "Texto usado para reconhecer ataques ainda sem unidade identificada.",
-                            )}
-                            ${criarCampoTexto(
-                                "Apoio",
-                                "etiquetaApoio",
-                                config.etiquetas.apoio,
-                                "Texto usado para reconhecer e tratar comandos de apoio.",
-                            )}
-                            ${criarCampoTexto(
-                                "Nobre",
-                                "etiquetaNobre",
-                                config.etiquetas.nobre,
-                                "Nome aplicado quando a unidade mais lenta detetada é o Nobre.",
-                            )}
-                            ${criarCampoTexto(
-                                "Formato",
-                                "formatoContagem",
-                                config.formatoContagem,
-                                "Usa {nome}, {grupo}, {pos} e {total} para diferenciar ataques da mesma aldeia.",
-                                "{nome} [{grupo} {pos}/{total}]",
-                            )}
-                        </div>
-                    </section>
-                    <section class="ti-section" style="--ti-section-color:#8a63a8">
-                        <div class="ti-section-heading">
-                            <strong>Verificação</strong>
-                            <small>Intervalos aleatórios; todos os valores estão em segundos.</small>
-                        </div>
-                        <div class="ti-fields">
-                            ${criarCampoNumero(
-                                "Página min",
-                                "atrasoIncomingsMinMs",
-                                config.atrasoIncomingsMinMs,
-                                "Espera mínima antes de processar uma página de ataques já aberta.",
-                            )}
-                            ${criarCampoNumero(
-                                "Página max",
-                                "atrasoIncomingsMaxMs",
-                                config.atrasoIncomingsMaxMs,
-                                "Espera máxima antes de processar uma página de ataques já aberta.",
-                            )}
-                            ${criarCampoNumero(
-                                "Global min",
-                                "atrasoGlobalMinMs",
-                                config.atrasoGlobalMinMs,
-                                "Tempo mínimo entre procuras escondidas feitas a partir de qualquer página.",
-                            )}
-                            ${criarCampoNumero(
-                                "Global max",
-                                "atrasoGlobalMaxMs",
-                                config.atrasoGlobalMaxMs,
-                                "Tempo máximo entre procuras escondidas; o padrão rápido é 25 segundos.",
-                            )}
-                            ${criarCampoNumero(
-                                "Editar min",
-                                "intervaloEdicaoMinMs",
-                                config.intervaloEdicaoMinMs,
-                                "Pausa mínima entre duas renomeações enviadas ao servidor.",
-                            )}
-                            ${criarCampoNumero(
-                                "Editar max",
-                                "intervaloEdicaoMaxMs",
-                                config.intervaloEdicaoMaxMs,
-                                "Pausa máxima entre duas renomeações enviadas ao servidor.",
-                            )}
                         </div>
                     </section>
                     <section class="ti-section" style="--ti-section-color:#59a85b">
