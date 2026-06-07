@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
 // @namespace    theplaguept.tw.renomeador
-// @version      2.4.19
+// @version      2.4.20
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -608,8 +608,9 @@
             const relacaoAmigavel = obterRelacaoAmigavelSincrona(linha);
             const ocultarNoMapa = contexto.isMapa && !CONFIG.mostrarBotoesNoMapa;
             const ocultarApoio = CONFIG.ocultarBotoesApoios && isApoio(linha);
+            const ocultarComandoProprio = isComandoProprio(linha);
 
-            if (ocultarNoMapa || ocultarApoio || relacaoAmigavel === true) {
+            if (ocultarNoMapa || ocultarApoio || ocultarComandoProprio || relacaoAmigavel === true) {
                 removerBotoes(linha);
             } else if (relacaoAmigavel === null) {
                 removerBotoes(linha);
@@ -894,6 +895,11 @@
     }
 
     function inserirBotoes(linha) {
+        if (isComandoProprio(linha)) {
+            removerBotoes(linha);
+            return;
+        }
+
         const containerDestino = obterContainerBotoes(linha);
         if (!containerDestino || linha.querySelector(".ra-tp-botoes")) return;
 
@@ -1602,6 +1608,17 @@
 
         const textoLinha = normalizarSemAcentos(linha.textContent);
         return /\b(apoio|suporte|support)\b/.test(textoLinha);
+    }
+
+    function isComandoProprio(linha) {
+        const tabela = linha.closest("table");
+        if (!tabela) return false;
+
+        const textoCabecalhos = [...tabela.querySelectorAll("th")]
+            .map((cabecalho) => normalizarSemAcentos(cabecalho.textContent))
+            .join(" ");
+
+        return /\b(os seus comandos|seus comandos|your commands|own commands)\b/.test(textoCabecalhos);
     }
 
     function obterCor(nome, fallback) {

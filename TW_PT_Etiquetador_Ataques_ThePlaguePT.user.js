@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.13
+// @version      1.0.16
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -26,6 +26,11 @@
         mostrarResumo: true,
         recarregarAoTerminar: false,
         destacarLinhas: true,
+        sons: {
+            ataque: true,
+            nobre: true,
+            cancelado: true,
+        },
         etiquetas: {
             ataque: "ataque",
             apoio: "apoio",
@@ -62,6 +67,7 @@
     };
 
     const FRAME_FUNDO_ID = "tag-incomings-pt-frame-fundo";
+    const MARGEM_CANCELAMENTO_MS = 15_000;
 
     const CORES_GRUPO = [
         "#e6194b",
@@ -162,6 +168,9 @@
     let execucaoEmCurso = false;
     let verificacaoAgendada = false;
     let posicionamentoBotaoFrame = 0;
+    let contextoAudio = null;
+    let filaSons = [];
+    const ultimoSomPorTipo = new Map();
 
     const esperar = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -194,11 +203,27 @@
     function carregarEstado() {
         try {
             const guardado = JSON.parse(localStorage.getItem(STATE_KEY) || "{}");
+            const comandosTratados = Array.isArray(guardado.comandosTratados)
+                ? guardado.comandosTratados.map(String)
+                : [];
             return {
                 ultimoTotalIncomings: Number(guardado.ultimoTotalIncomings) || 0,
                 ultimoTotalContador: Number(guardado.ultimoTotalContador) || 0,
                 ultimaAssinatura: String(guardado.ultimaAssinatura || ""),
                 processado: Boolean(guardado.processado),
+                comandosTratados,
+                comandosPendentes: Array.isArray(guardado.comandosPendentes)
+                    ? guardado.comandosPendentes.map(String)
+                    : [],
+                comandosConhecidos: guardado.comandosConhecidos && typeof guardado.comandosConhecidos === "object"
+                    ? guardado.comandosConhecidos
+                    : {},
+                comandosAvisadosAtaque: Array.isArray(guardado.comandosAvisadosAtaque)
+                    ? guardado.comandosAvisadosAtaque.map(String)
+                    : [...comandosTratados],
+                comandosAvisadosNobre: Array.isArray(guardado.comandosAvisadosNobre)
+                    ? guardado.comandosAvisadosNobre.map(String)
+                    : [...comandosTratados],
             };
         } catch {
             return {
@@ -206,6 +231,11 @@
                 ultimoTotalContador: 0,
                 ultimaAssinatura: "",
                 processado: false,
+                comandosTratados: [],
+                comandosPendentes: [],
+                comandosConhecidos: {},
+                comandosAvisadosAtaque: [],
+                comandosAvisadosNobre: [],
             };
         }
     }
@@ -285,6 +315,140 @@
         console.info("[Etiquetador de Ataques]", ...args);
     }
 
+    function somAtivo(tipo) {
+        return Boolean(config.sons?.[tipo]) && !config.modoTeste;
+    }
+
+    function obterContextoAudio() {
+        if (contextoAudio) {
+            return contextoAudio;
+        }
+
+        const AudioContexto = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContexto) {
+            log("Este navegador nao suporta os alertas sonoros.");
+            return null;
+        }
+
+        contextoAudio = new AudioContexto();
+        return contextoAudio;
+    }
+
+    function obterPadraoSom(tipo) {
+        const padroes = {
+            ataque: [
+                { frequencia: 440, inicio: 0, duracao: 0.12, onda: "square", volume: 0.13 },
+                { frequencia: 660, inicio: 0.16, duracao: 0.16, onda: "square", volume: 0.13 },
+            ],
+            nobre: [
+                { frequencia: 392, inicio: 0, duracao: 0.16, onda: "triangle", volume: 0.15 },
+                { frequencia: 523.25, inicio: 0.18, duracao: 0.18, onda: "triangle", volume: 0.15 },
+                { frequencia: 783.99, inicio: 0.38, duracao: 0.28, onda: "triangle", volume: 0.16 },
+            ],
+            cancelado: [
+                { frequencia: 659.25, inicio: 0, duracao: 0.15, onda: "sawtooth", volume: 0.12 },
+                { frequencia: 440, inicio: 0.18, duracao: 0.17, onda: "sawtooth", volume: 0.12 },
+                { frequencia: 220, inicio: 0.38, duracao: 0.28, onda: "sawtooth", volume: 0.13 },
+            ],
+        };
+
+        return padroes[tipo] || [];
+    }
+
+    function reproduzirSomLocal(tipo, atrasoMs = 0) {
+        if (!somAtivo(tipo)) {
+            return;
+        }
+
+        const agora = Date.now();
+        if (agora - (ultimoSomPorTipo.get(tipo) || 0) < 1_200) {
+            return;
+        }
+
+        const contexto = obterContextoAudio();
+        if (!contexto) {
+            return;
+        }
+
+        if (contexto.state !== "running") {
+            if (!filaSons.some((item) => item.tipo === tipo)) {
+                filaSons.push({ tipo, atrasoMs });
+            }
+            return;
+        }
+
+        ultimoSomPorTipo.set(tipo, agora);
+        const inicioBase = contexto.currentTime + Math.max(0, atrasoMs) / 1000;
+
+        obterPadraoSom(tipo).forEach((nota) => {
+            const oscilador = contexto.createOscillator();
+            const ganho = contexto.createGain();
+            const inicio = inicioBase + nota.inicio;
+            const fim = inicio + nota.duracao;
+
+            oscilador.type = nota.onda;
+            oscilador.frequency.setValueAtTime(nota.frequencia, inicio);
+            ganho.gain.setValueAtTime(0.0001, inicio);
+            ganho.gain.exponentialRampToValueAtTime(nota.volume, inicio + 0.015);
+            ganho.gain.exponentialRampToValueAtTime(0.0001, fim);
+            oscilador.connect(ganho);
+            ganho.connect(contexto.destination);
+            oscilador.start(inicio);
+            oscilador.stop(fim + 0.02);
+        });
+    }
+
+    function emitirSom(tipo, atrasoMs = 0) {
+        if (!somAtivo(tipo)) {
+            return;
+        }
+
+        if (estaEmFrame()) {
+            window.parent.postMessage({
+                tipo: "tag-incomings-pt-som",
+                som: tipo,
+                atrasoMs,
+            }, window.location.origin);
+            return;
+        }
+
+        reproduzirSomLocal(tipo, atrasoMs);
+    }
+
+    function instalarDesbloqueioAudio() {
+        if (estaEmFrame()) {
+            return;
+        }
+
+        const desbloquear = async () => {
+            const contexto = obterContextoAudio();
+            if (!contexto) {
+                return;
+            }
+
+            try {
+                await contexto.resume();
+            } catch {
+                return;
+            }
+
+            if (contexto.state !== "running") {
+                return;
+            }
+
+            document.removeEventListener("pointerdown", desbloquear, true);
+            document.removeEventListener("keydown", desbloquear, true);
+            const pendentes = filaSons;
+            filaSons = [];
+            pendentes.forEach((item, indice) => {
+                reproduzirSomLocal(item.tipo, item.atrasoMs + indice * 250);
+            });
+        };
+
+        document.addEventListener("pointerdown", desbloquear, true);
+        document.addEventListener("keydown", desbloquear, true);
+    }
+
     function estaEmFrame() {
         return window.self !== window.top;
     }
@@ -351,14 +515,224 @@
     }
 
     function obterIdComando(linha) {
+        const link = linha.querySelector('a[href*="screen=info_command"][href*="id="]');
+        if (link?.href) {
+            try {
+                const id = new URL(link.href, window.location.href).searchParams.get("id");
+                if (id) {
+                    return `command_${id}`;
+                }
+            } catch {
+                // Continua com os dados da checkbox.
+            }
+        }
+
         const checkbox = linha.querySelector(SELETORES.checkboxComando);
-        return checkbox?.value || checkbox?.name || "";
+        const textoCheckbox = [
+            checkbox?.value,
+            checkbox?.name,
+            checkbox?.id,
+        ].filter(Boolean).join("_");
+        const idCheckbox = textoCheckbox.match(/\d{3,}/)?.[0];
+        if (idCheckbox) {
+            return `command_${idCheckbox}`;
+        }
+
+        return [
+            obterAldeiaAtacante(linha),
+            obterCelulaJogador(linha)?.textContent?.trim() || "",
+            linha.children[4]?.textContent?.trim() || "",
+            linha.children[5]?.textContent?.trim() || "",
+        ].join("|");
+    }
+
+    function obterIndiceCabecalho(linha, termos) {
+        const tabela = linha.closest("table");
+        const cabecalhos = [...(tabela?.rows || [])]
+            .find((linhaCabecalho) => linhaCabecalho.querySelector("th"))
+            ?.querySelectorAll("th,td");
+        if (!cabecalhos) {
+            return -1;
+        }
+
+        return [...cabecalhos].findIndex((cabecalho) => {
+            const texto = normalizar(cabecalho.textContent);
+            return termos.some((termo) => texto === termo || texto.includes(termo));
+        });
+    }
+
+    function obterCelulaChegada(linha) {
+        const indice = obterIndiceCabecalho(linha, ["chegada", "arrival"]);
+        return indice >= 0 ? linha.children[indice] : linha.children[5];
+    }
+
+    function obterCelulaTempoRestante(linha) {
+        const indice = obterIndiceCabecalho(linha, ["chega em", "arrives in", "tempo restante"]);
+        return indice >= 0 ? linha.children[indice] : linha.children[6];
+    }
+
+    function normalizarTimestamp(valor) {
+        const numero = Number(valor);
+        if (!Number.isFinite(numero)) {
+            return 0;
+        }
+
+        if (numero >= 1_000_000_000_000) {
+            return numero;
+        }
+
+        if (numero >= 1_000_000_000) {
+            return numero * 1000;
+        }
+
+        return 0;
+    }
+
+    function obterAgoraServidorMs() {
+        try {
+            const valor = window.Timing?.getCurrentServerTime?.();
+            if (valor instanceof Date) {
+                return valor.getTime();
+            }
+
+            const timestamp = normalizarTimestamp(valor);
+            if (timestamp) {
+                return timestamp;
+            }
+        } catch {
+            // Usa o relogio local se a API do jogo nao estiver disponivel.
+        }
+
+        return Date.now();
+    }
+
+    function obterTimestampPorAtributo(linha) {
+        const atributos = [
+            "data-endtime",
+            "data-end-time",
+            "data-arrival",
+            "data-arrival-time",
+            "data-timestamp",
+        ];
+        const elementos = [linha, ...linha.querySelectorAll("*")];
+
+        for (const elemento of elementos) {
+            for (const atributo of atributos) {
+                const timestamp = normalizarTimestamp(elemento.getAttribute?.(atributo));
+                if (timestamp) {
+                    return timestamp;
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    function obterTimestampPorContagem(linha, agoraMs) {
+        const texto = obterCelulaTempoRestante(linha)?.textContent?.trim() || "";
+        const resultado = texto.match(/(\d+):(\d{2}):(\d{2})/);
+        if (!resultado) {
+            return 0;
+        }
+
+        const [, horas, minutos, segundos] = resultado.map(Number);
+        return agoraMs + (((horas * 60 + minutos) * 60 + segundos) * 1000);
+    }
+
+    function obterTimestampPorTexto(linha, agoraMs) {
+        const textoOriginal = obterCelulaChegada(linha)?.textContent?.trim() || "";
+        const texto = normalizar(textoOriginal);
+        const hora = texto.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+        if (!hora) {
+            return 0;
+        }
+
+        const base = new Date(agoraMs);
+        const data = texto.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
+        if (data) {
+            const anoCurto = Number(data[3] || base.getFullYear());
+            const ano = anoCurto < 100 ? 2000 + anoCurto : anoCurto;
+            base.setFullYear(ano, Number(data[2]) - 1, Number(data[1]));
+        } else if (texto.includes("amanha") || texto.includes("tomorrow")) {
+            base.setDate(base.getDate() + 1);
+        }
+
+        base.setHours(Number(hora[1]), Number(hora[2]), Number(hora[3]), 0);
+        if (!data && !texto.includes("hoje") && !texto.includes("today") && base.getTime() < agoraMs - 60_000) {
+            base.setDate(base.getDate() + 1);
+        }
+
+        return base.getTime();
+    }
+
+    function obterTimestampChegada(linha) {
+        const agoraMs = obterAgoraServidorMs();
+        return obterTimestampPorAtributo(linha)
+            || obterTimestampPorContagem(linha, agoraMs)
+            || obterTimestampPorTexto(linha, agoraMs);
+    }
+
+    function criarSnapshotComandos(linhas) {
+        return Object.fromEntries(linhas.map((linha) => [
+            obterIdComando(linha),
+            {
+                chegadaMs: obterTimestampChegada(linha),
+            },
+        ]).filter(([chave]) => Boolean(chave)));
+    }
+
+    function sincronizarComandosConhecidos(linhas) {
+        const anteriores = estado.comandosConhecidos || {};
+        const atuais = criarSnapshotComandos(linhas);
+        const agoraMs = obterAgoraServidorMs();
+        const cancelados = Object.entries(anteriores).filter(([chave, dados]) => (
+            !atuais[chave]
+            && Number(dados?.chegadaMs) > agoraMs + MARGEM_CANCELAMENTO_MS
+        ));
+
+        if (cancelados.length > 0) {
+            emitirSom("cancelado");
+            log(`${cancelados.length} ataque(s) cancelado(s) antes da chegada.`);
+        }
+
+        const chavesAtuais = new Set(Object.keys(atuais));
+        estado.comandosConhecidos = atuais;
+        estado.comandosAvisadosAtaque = (estado.comandosAvisadosAtaque || [])
+            .filter((chave) => chavesAtuais.has(chave));
+        estado.comandosAvisadosNobre = (estado.comandosAvisadosNobre || [])
+            .filter((chave) => chavesAtuais.has(chave));
+        guardarEstado();
+        return cancelados.length;
+    }
+
+    function avisarNovosAtaques(linhas) {
+        const avisadosAtaque = new Set(estado.comandosAvisadosAtaque || []);
+        const avisadosNobre = new Set(estado.comandosAvisadosNobre || []);
+        const porTratar = linhas.filter((linha) => !linhaJaEstaEtiquetada(linha));
+        const novos = linhas.filter((linha) => !avisadosAtaque.has(obterIdComando(linha)));
+        const novosNobres = porTratar.filter((linha) => (
+            !avisadosNobre.has(obterIdComando(linha))
+            && detectarUnidadeMaisLenta(linha)?.id === "snob"
+        ));
+
+        if (novos.length > 0) {
+            emitirSom("ataque");
+        }
+
+        if (novosNobres.length > 0) {
+            emitirSom("nobre", novos.length > 0 ? 650 : 0);
+        }
+
+        novos.forEach((linha) => avisadosAtaque.add(obterIdComando(linha)));
+        novosNobres.forEach((linha) => avisadosNobre.add(obterIdComando(linha)));
+        estado.comandosAvisadosAtaque = [...avisadosAtaque];
+        estado.comandosAvisadosNobre = [...avisadosNobre];
+        guardarEstado();
     }
 
     function assinaturaIncomings(linhas = obterLinhasValidas()) {
         return linhas.map((linha) => [
             obterIdComando(linha),
-            obterNome(linha),
             obterAldeiaAtacante(linha),
             linha.children[3]?.textContent?.trim() || "",
             linha.children[4]?.textContent?.trim() || "",
@@ -366,10 +740,24 @@
     }
 
     function atualizarEstadoIncomings(linhas = obterLinhasValidas()) {
+        const chavesAtuais = new Set(linhas.map(obterIdComando).filter(Boolean));
+        const tratados = new Set([
+            ...(estado.comandosTratados || []),
+            ...(estado.comandosPendentes || []),
+        ]);
+
+        linhas.forEach((linha) => {
+            if (linhaJaTemEtiquetaNoNome(linha)) {
+                tratados.add(obterIdComando(linha));
+            }
+        });
+
         estado.ultimoTotalIncomings = linhas.length;
         estado.ultimoTotalContador = obterLinhasTabela().length;
         estado.ultimaAssinatura = assinaturaIncomings(linhas);
         estado.processado = true;
+        estado.comandosTratados = [...tratados].filter((chave) => chavesAtuais.has(chave));
+        estado.comandosPendentes = [];
         guardarEstado();
         atualizarContadorBotao();
     }
@@ -380,6 +768,11 @@
             && estado.ultimoTotalIncomings === 0
             && estado.ultimoTotalContador === 0
             && !estado.ultimaAssinatura
+            && (estado.comandosTratados || []).length === 0
+            && (estado.comandosPendentes || []).length === 0
+            && Object.keys(estado.comandosConhecidos || {}).length === 0
+            && (estado.comandosAvisadosAtaque || []).length === 0
+            && (estado.comandosAvisadosNobre || []).length === 0
         ) {
             return;
         }
@@ -388,6 +781,11 @@
         estado.ultimoTotalContador = 0;
         estado.ultimaAssinatura = "";
         estado.processado = true;
+        estado.comandosTratados = [];
+        estado.comandosPendentes = [];
+        estado.comandosConhecidos = {};
+        estado.comandosAvisadosAtaque = [];
+        estado.comandosAvisadosNobre = [];
         guardarEstado();
         atualizarContadorBotao();
     }
@@ -846,6 +1244,17 @@
     }
 
     function linhaJaEstaEtiquetada(linha) {
+        const chave = obterIdComando(linha);
+        const tratados = new Set(estado.comandosTratados || []);
+        const pendentes = new Set(estado.comandosPendentes || []);
+        if (chave && (tratados.has(chave) || pendentes.has(chave))) {
+            return true;
+        }
+
+        return linhaJaTemEtiquetaNoNome(linha);
+    }
+
+    function linhaJaTemEtiquetaNoNome(linha) {
         const nome = obterNome(linha);
         return temEtiquetaNativa(nome) || temEtiquetaAutomaticaTw(nome);
     }
@@ -883,6 +1292,26 @@
         }
 
         return selecionados;
+    }
+
+    function registarComandosPendentes(linhas) {
+        const pendentes = new Set(estado.comandosPendentes || []);
+
+        linhas.forEach((linha) => {
+            const checkbox = linha.querySelector(SELETORES.checkboxComando);
+            const chave = obterIdComando(linha);
+            if (checkbox?.checked && chave) {
+                pendentes.add(chave);
+            }
+        });
+
+        estado.comandosPendentes = [...pendentes];
+        guardarEstado();
+    }
+
+    function limparComandosPendentes() {
+        estado.comandosPendentes = [];
+        guardarEstado();
     }
 
     async function esperarPor(condicao, timeoutMs, intervaloMs = 150) {
@@ -1186,6 +1615,7 @@
         execucaoEmCurso = true;
 
         try {
+            sincronizarEstado();
             await esperarTabelaIncomings();
 
             const tabela = document.querySelector(SELETORES.tabela);
@@ -1199,6 +1629,8 @@
                 .filter(linhaDoProprioJogador)
                 .forEach(desmarcarParaNaoEtiquetar);
             const linhas = obterLinhasValidas();
+            sincronizarComandosConhecidos(linhas);
+            avisarNovosAtaques(linhas);
             const gruposRepetidos = criarGruposPorAldeia(linhas);
             const fullsNobre = contarFullsPorComboioDeNobres(gruposRepetidos.grupos);
             let renomeados = 0;
@@ -1244,6 +1676,9 @@
             }
 
             selecionados = selecionarLinhasParaEtiquetar(linhas, etiquetas);
+            if (selecionados > 0 && !config.modoTeste) {
+                registarComandosPendentes(linhas);
+            }
             const etiquetaEnviada = clicarBotaoEtiquetar(selecionados);
             mostrarResumo({
                 renomeados,
@@ -1254,6 +1689,7 @@
             });
             if (selecionados > 0) {
                 if (!etiquetaEnviada) {
+                    limparComandosPendentes();
                     log("Nao foi possivel submeter a etiqueta automaticamente.");
                     if (!estaEmFrame()) {
                         agendarVerificacaoGlobal();
@@ -1308,6 +1744,8 @@
             return;
         }
 
+        atualizarSimboloAtaques();
+
         const total = obterTotalContadorBotao();
         contador.textContent = total > 99 ? "99+" : (total > 0 ? String(total) : "");
         contador.hidden = total <= 0;
@@ -1323,6 +1761,59 @@
         );
     }
 
+    function atualizarSimboloAtaques() {
+        const destino = document.querySelector("#tag-incomings-pt-panel .ti-attack-symbol");
+        if (!destino) {
+            return;
+        }
+
+        const candidatos = [
+            ...document.querySelectorAll(SELETORES.contadorIncomings),
+            ...document.querySelectorAll(SELETORES.linkIncomings),
+        ];
+        const origem = candidatos
+            .flatMap((elemento) => [
+                elemento,
+                ...elemento.querySelectorAll("span.icon, img"),
+            ])
+            .find((elemento) => {
+                if (elemento.closest("#tag-incomings-pt-panel")) {
+                    return false;
+                }
+
+                if (elemento.tagName === "IMG") {
+                    return /attack|incoming|sword/i.test([
+                        elemento.src,
+                        elemento.alt,
+                        elemento.title,
+                        elemento.className,
+                    ].join(" "));
+                }
+
+                const estilo = window.getComputedStyle(elemento);
+                return /attack|incoming/i.test(String(elemento.className))
+                    && estilo.backgroundImage !== "none";
+            });
+
+        if (!origem) {
+            return;
+        }
+
+        if (origem.tagName === "IMG") {
+            destino.style.backgroundImage = `url("${origem.src}")`;
+            destino.style.backgroundPosition = "center";
+            destino.style.backgroundRepeat = "no-repeat";
+            destino.style.backgroundSize = "contain";
+            return;
+        }
+
+        const estilo = window.getComputedStyle(origem);
+        destino.style.backgroundImage = estilo.backgroundImage;
+        destino.style.backgroundPosition = estilo.backgroundPosition;
+        destino.style.backgroundRepeat = estilo.backgroundRepeat;
+        destino.style.backgroundSize = estilo.backgroundSize;
+    }
+
     function obterTotalAtualIncomings() {
         const totalTabela = paginaDeIncomings() ? obterLinhasValidas().length : 0;
         return Math.max(totalTabela, obterContadorIncomings());
@@ -1334,6 +1825,7 @@
         if (!paginaDeIncomings()) {
             const totalContador = obterContadorIncomings();
             if (totalContador <= 0) {
+                sincronizarComandosConhecidos([]);
                 atualizarEstadoSemIncomings();
                 return false;
             }
@@ -1343,8 +1835,7 @@
             }
 
             if (totalContador < estado.ultimoTotalContador) {
-                estado.ultimoTotalContador = totalContador;
-                guardarEstado();
+                return true;
             }
 
             return false;
@@ -1352,6 +1843,7 @@
 
         const totalAtual = obterLinhasValidas().length;
         if (totalAtual <= 0) {
+            sincronizarComandosConhecidos([]);
             atualizarEstadoIncomings([]);
             return false;
         }
@@ -1364,8 +1856,8 @@
             return true;
         }
 
-        if (!paginaDeIncomings()) {
-            return false;
+        if (totalAtual < estado.ultimoTotalIncomings) {
+            return true;
         }
 
         const assinaturaAtual = assinaturaIncomings();
@@ -1440,7 +1932,7 @@
         ].join(";");
         document.body.appendChild(iframe);
 
-        log("Novo ataque detectado. A processar incomings em fundo, sem redirecionar a pagina atual.");
+        log("Alteracao nos ataques detetada. A processar incomings em fundo, sem redirecionar a pagina atual.");
 
         window.setTimeout(() => {
             iframe.remove();
@@ -1461,7 +1953,16 @@
         }
 
         window.addEventListener("message", (evento) => {
-            if (evento.origin !== window.location.origin || evento.data?.tipo !== "tag-incomings-pt-concluido") {
+            if (evento.origin !== window.location.origin) {
+                return;
+            }
+
+            if (evento.data?.tipo === "tag-incomings-pt-som") {
+                reproduzirSomLocal(evento.data.som, Number(evento.data.atrasoMs) || 0);
+                return;
+            }
+
+            if (evento.data?.tipo !== "tag-incomings-pt-concluido") {
                 return;
             }
 
@@ -1550,6 +2051,9 @@
         config.modoTeste = lerBooleanoPainel("modoTeste", raiz);
         config.recarregarAoTerminar = false;
         config.destacarLinhas = lerBooleanoPainel("destacarLinhas", raiz);
+        config.sons.ataque = lerBooleanoPainel("somAtaque", raiz);
+        config.sons.nobre = lerBooleanoPainel("somNobre", raiz);
+        config.sons.cancelado = lerBooleanoPainel("somCancelado", raiz);
         config.etiquetas.ataque = lerTextoPainel("etiquetaAtaque", raiz) || CONFIG_PADRAO.etiquetas.ataque;
         config.etiquetas.apoio = lerTextoPainel("etiquetaApoio", raiz) || CONFIG_PADRAO.etiquetas.apoio;
         config.etiquetas.nobre = lerTextoPainel("etiquetaNobre", raiz) || CONFIG_PADRAO.etiquetas.nobre;
@@ -1782,10 +2286,11 @@
                     background: transparent !important;
                     box-shadow: none !important;
                 }
-                #tag-incomings-pt-panel .ti-toggle-icon img {
+                #tag-incomings-pt-panel .ti-attack-symbol {
                     display: block !important;
                     width: 16px !important;
                     height: 16px !important;
+                    flex: 0 0 16px !important;
                     filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.85)) !important;
                 }
                 #tag-incomings-pt-panel .ti-counter-value {
@@ -2013,7 +2518,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>Etiquetador de ataques - ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.13</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.16</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -2025,6 +2530,17 @@
                             ${criarCheckbox("Ativo", "ativo", config.ativo)}
                             ${criarCheckbox("Modo teste", "modoTeste", config.modoTeste)}
                             ${criarCheckbox("Destacar linhas", "destacarLinhas", config.destacarLinhas)}
+                        </div>
+                    </section>
+                    <section class="ti-section" style="--ti-section-color:#d08a24">
+                        <div class="ti-section-heading">
+                            <strong>Sons</strong>
+                            <small>Alertas distintos para novos ataques, Nobres e cancelamentos.</small>
+                        </div>
+                        <div class="ti-fields">
+                            ${criarCheckbox("Novo ataque", "somAtaque", config.sons.ataque)}
+                            ${criarCheckbox("Nobre detetado", "somNobre", config.sons.nobre)}
+                            ${criarCheckbox("Ataque cancelado", "somCancelado", config.sons.cancelado)}
                         </div>
                     </section>
                     <section class="ti-section" style="--ti-section-color:#2588b8">
@@ -2067,7 +2583,7 @@
             </div>
             <button class="ti-toggle" type="button" data-ti-action="toggle" title="${config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador"}" aria-label="Configurar etiquetador de ataques" aria-expanded="${config.painelAberto ? "true" : "false"}">
                 <span class="ti-toggle-icon" aria-hidden="true">
-                    <img src="/graphic/icons/attack.png" alt="">
+                    <span class="icon header attack ti-attack-symbol"></span>
                     <span class="ti-counter-value" hidden></span>
                 </span>
                 <span class="ti-toggle-label">Etiquetador de ataques</span>
@@ -2121,6 +2637,7 @@
 
     function iniciar() {
         instalarListenerFrameFundo();
+        instalarDesbloqueioAudio();
         criarPainel();
 
         if (!config.ativo) {
