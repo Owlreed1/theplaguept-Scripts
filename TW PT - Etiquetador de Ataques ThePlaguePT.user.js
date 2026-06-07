@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.21
+// @version      1.0.23
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -42,8 +42,8 @@
         formatoContagem: "{nome} [{grupo} {pos}/{total}]",
         atrasoIncomingsMinMs: 1_000,
         atrasoIncomingsMaxMs: 3_000,
-        atrasoGlobalMinMs: 30_000,
-        atrasoGlobalMaxMs: 90_000,
+        atrasoGlobalMinMs: 10_000,
+        atrasoGlobalMaxMs: 25_000,
         intervaloEdicaoMinMs: 800,
         intervaloEdicaoMaxMs: 2_000,
         pausaLoteQuantidade: 8,
@@ -197,7 +197,10 @@
                 carregado.intervaloEdicaoMaxMs = CONFIG_PADRAO.intervaloEdicaoMaxMs;
             }
 
-            if (carregado.atrasoGlobalMinMs === 60_000 && carregado.atrasoGlobalMaxMs === 180_000) {
+            if (
+                (carregado.atrasoGlobalMinMs === 60_000 && carregado.atrasoGlobalMaxMs === 180_000)
+                || (carregado.atrasoGlobalMinMs === 30_000 && carregado.atrasoGlobalMaxMs === 90_000)
+            ) {
                 carregado.atrasoGlobalMinMs = CONFIG_PADRAO.atrasoGlobalMinMs;
                 carregado.atrasoGlobalMaxMs = CONFIG_PADRAO.atrasoGlobalMaxMs;
             }
@@ -424,11 +427,13 @@
         audio.play()
             .then(() => {
                 audioDesbloqueado = true;
+                atualizarEstadoAudioPainel();
             })
             .catch(() => {
                 audioDesbloqueado = false;
                 guardarSomPendente(tipo, repetir);
                 atualizarAlertaNobreUI();
+                atualizarEstadoAudioPainel();
             });
     }
 
@@ -465,6 +470,15 @@
                 ? "Som desativado nas configuracoes"
                 : (audioDesbloqueado ? "Alarme ativo" : "Clica para ativar o som");
         }
+    }
+
+    function atualizarEstadoAudioPainel() {
+        document.querySelectorAll("[data-ti-audio-state]").forEach((elemento) => {
+            elemento.textContent = audioDesbloqueado
+                ? "Áudio ativo nesta sessão"
+                : "Requer um clique em Ativar sons";
+            elemento.classList.toggle("ti-audio-ready", audioDesbloqueado);
+        });
     }
 
     function ativarAlertaNobre(atrasoMs = 0) {
@@ -532,6 +546,7 @@
                 audio.muted = false;
             });
             audioDesbloqueado = false;
+            atualizarEstadoAudioPainel();
             return false;
         }
 
@@ -541,6 +556,7 @@
             reproduzirSomLocal(item.tipo, indice * 250, false, item.repetir);
         });
         atualizarAlertaNobreUI();
+        atualizarEstadoAudioPainel();
         return true;
     }
 
@@ -584,6 +600,15 @@
         reproduzirSomLocal("nobre", 1_500, true);
         reproduzirSomLocal("cancelado", 3_000, true);
         mostrarMensagem("Teste: ataque, Nobre e cancelamento.");
+    }
+
+    async function ativarSonsPainel() {
+        if (!await desbloquearAudio()) {
+            mostrarMensagem("O navegador bloqueou o áudio. Clica novamente em Ativar sons.");
+            return;
+        }
+
+        mostrarMensagem("Sons ativados nesta sessão.");
     }
 
     function estaEmFrame() {
@@ -2140,16 +2165,73 @@
         return Math.max(0, Math.round(valor * escala));
     }
 
-    function criarCampoTexto(rotulo, chave, valor) {
-        return `<label>${rotulo}<input data-ti-text="${chave}" type="text" value="${escaparHtml(valor)}"></label>`;
+    function criarCampoTexto(rotulo, chave, valor, descricao, exemplo = "") {
+        return `
+            <label class="ti-setting ti-setting-field">
+                <span class="ti-setting-copy">
+                    <strong>${escaparHtml(rotulo)}</strong>
+                    <small>${escaparHtml(descricao)}</small>
+                </span>
+                <input
+                    data-ti-text="${chave}"
+                    type="text"
+                    value="${escaparHtml(valor)}"
+                    ${exemplo ? `placeholder="${escaparHtml(exemplo)}"` : ""}
+                    aria-label="${escaparHtml(rotulo)}"
+                >
+            </label>
+        `;
     }
 
-    function criarCampoNumero(rotulo, chave, valorMs) {
-        return `<label>${rotulo}<input data-ti-number="${chave}" type="number" min="0" step="1" value="${Math.round(valorMs / 1000)}"></label>`;
+    function criarCampoNumero(rotulo, chave, valorMs, descricao) {
+        return `
+            <label class="ti-setting ti-setting-field">
+                <span class="ti-setting-copy">
+                    <strong>${escaparHtml(rotulo)}</strong>
+                    <small>${escaparHtml(descricao)}</small>
+                </span>
+                <span class="ti-number-control">
+                    <input
+                        data-ti-number="${chave}"
+                        type="number"
+                        min="0"
+                        step="1"
+                        value="${Math.round(valorMs / 1000)}"
+                        aria-label="${escaparHtml(rotulo)} em segundos"
+                    >
+                    <span>s</span>
+                </span>
+            </label>
+        `;
     }
 
-    function criarCheckbox(rotulo, chave, valor) {
-        return `<label><input data-ti-bool="${chave}" type="checkbox" ${valor ? "checked" : ""}>${rotulo}</label>`;
+    function criarCheckbox(rotulo, chave, valor, descricao) {
+        return `
+            <label class="ti-setting ti-setting-toggle">
+                <span class="ti-setting-copy">
+                    <strong>${escaparHtml(rotulo)}</strong>
+                    <small>${escaparHtml(descricao)}</small>
+                </span>
+                <input
+                    data-ti-bool="${chave}"
+                    type="checkbox"
+                    ${valor ? "checked" : ""}
+                    aria-label="${escaparHtml(rotulo)}"
+                >
+            </label>
+        `;
+    }
+
+    function criarAcao(rotulo, acao, descricao) {
+        return `
+            <div class="ti-action-item">
+                <span>
+                    <strong>${escaparHtml(rotulo)}</strong>
+                    <small>${escaparHtml(descricao)}</small>
+                </span>
+                <button type="button" data-ti-action="${acao}">${escaparHtml(rotulo)}</button>
+            </div>
+        `;
     }
 
     function escaparHtml(texto) {
@@ -2228,7 +2310,7 @@
                     #tag-incomings-pt-dialog .ti-config {
                         position: static !important;
                         display: block !important;
-                        width: min(820px, calc(100vw - 70px)) !important;
+                        width: min(940px, calc(100vw - 70px)) !important;
                         max-width: none !important;
                         max-height: calc(100vh - 90px) !important;
                         overflow: visible !important;
@@ -2280,7 +2362,12 @@
                 if (acao === "testar-sons") {
                     testarSons();
                 }
+
+                if (acao === "ativar-sons") {
+                    ativarSonsPainel();
+                }
             });
+            atualizarEstadoAudioPainel();
         }, 0);
 
         return true;
@@ -2532,7 +2619,7 @@
                     z-index: 4 !important;
                     display: none;
                     box-sizing: border-box !important;
-                    width: min(900px, calc(100vw - 54px));
+                    width: min(980px, calc(100vw - 54px));
                     max-height: calc(100vh - 54px);
                     overflow: visible;
                     padding: 12px;
@@ -2607,7 +2694,7 @@
                 }
                 #tag-incomings-pt-panel .ti-section {
                     display: grid;
-                    grid-template-columns: 185px minmax(0, 1fr);
+                    grid-template-columns: 180px minmax(0, 1fr);
                     gap: 18px;
                     padding: 14px;
                     border-bottom: 1px solid #d1ad65;
@@ -2633,23 +2720,44 @@
                 #tag-incomings-pt-panel .ti-fields {
                     display: grid;
                     grid-template-columns: repeat(2, minmax(0, 1fr));
-                    gap: 8px 18px;
+                    column-gap: 22px;
                 }
-                #tag-incomings-pt-panel label {
-                    display: flex;
+                #tag-incomings-pt-panel .ti-setting {
+                    display: grid;
+                    grid-template-columns: minmax(0, 1fr) auto;
                     align-items: center;
-                    justify-content: space-between;
-                    gap: 8px;
+                    gap: 12px;
                     min-width: 0;
+                    min-height: 48px;
                     margin: 0;
-                    font-weight: bold;
+                    padding: 5px 0;
+                    border-bottom: 1px solid rgba(157, 110, 45, 0.22);
+                }
+                #tag-incomings-pt-panel .ti-setting-copy {
+                    display: block;
+                    min-width: 0;
+                }
+                #tag-incomings-pt-panel .ti-setting-copy strong {
+                    display: block;
+                    color: #3c260f;
+                    font-size: 12px;
+                    line-height: 15px;
+                }
+                #tag-incomings-pt-panel .ti-setting-copy small {
+                    display: block;
+                    margin-top: 2px;
+                    color: #795128;
+                    font-size: 10px;
+                    font-weight: normal;
+                    line-height: 13px;
                 }
                 #tag-incomings-pt-panel input[type="text"],
                 #tag-incomings-pt-panel input[type="number"],
                 #tag-incomings-pt-panel input:not([type]) {
-                    width: min(170px, 55%);
+                    width: 180px;
                     height: 27px;
                     box-sizing: border-box;
+                    padding: 3px 5px;
                     border: 1px solid #c27c24;
                     background: #fff9e6;
                     font-size: 12px;
@@ -2659,13 +2767,54 @@
                     height: 14px;
                     accent-color: #c62037;
                 }
+                #tag-incomings-pt-panel .ti-number-control {
+                    display: grid;
+                    grid-template-columns: 74px 14px;
+                    align-items: center;
+                    gap: 5px;
+                    color: #795128;
+                    font-size: 10px;
+                }
+                #tag-incomings-pt-panel .ti-number-control input {
+                    width: 74px !important;
+                }
+                #tag-incomings-pt-panel .ti-audio-state {
+                    display: block;
+                    grid-column: 1 / -1;
+                    margin-top: 7px;
+                    color: #8c281f;
+                    font-size: 10px;
+                    font-weight: bold;
+                }
+                #tag-incomings-pt-panel .ti-audio-state.ti-audio-ready {
+                    color: #257226;
+                }
                 #tag-incomings-pt-panel .ti-actions {
+                    display: grid;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    gap: 12px 18px;
+                }
+                #tag-incomings-pt-panel .ti-action-item {
                     display: flex;
-                    justify-content: flex-end;
-                    gap: 10px;
+                    flex-direction: column;
+                    justify-content: space-between;
+                    gap: 7px;
+                    min-width: 0;
+                }
+                #tag-incomings-pt-panel .ti-action-item strong {
+                    display: block;
+                    color: #3c260f;
+                    font-size: 11px;
+                }
+                #tag-incomings-pt-panel .ti-action-item small {
+                    display: block;
+                    margin-top: 2px;
+                    color: #795128;
+                    font-size: 10px;
+                    line-height: 13px;
                 }
                 #tag-incomings-pt-panel .ti-actions button {
-                    min-width: 150px;
+                    width: 100%;
                     height: 28px;
                     cursor: pointer;
                     border: 1px solid #4f120f;
@@ -2696,11 +2845,7 @@
                         grid-template-columns: 1fr;
                     }
                     #tag-incomings-pt-panel .ti-actions {
-                        display: grid;
-                        grid-template-columns: 1fr 1fr;
-                    }
-                    #tag-incomings-pt-panel .ti-actions button {
-                        min-width: 0;
+                        grid-template-columns: 1fr;
                     }
                 }
             </style>
@@ -2709,66 +2854,168 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.21</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.23</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
                         <div class="ti-section-heading">
                             <strong>Estado</strong>
-                            <small>Ativar o monitor e controlar o modo de execução.</small>
+                            <small>Funcionamento geral do monitor.</small>
                         </div>
                         <div class="ti-fields">
-                            ${criarCheckbox("Ativo", "ativo", config.ativo)}
-                            ${criarCheckbox("Modo teste", "modoTeste", config.modoTeste)}
-                            ${criarCheckbox("Destacar linhas", "destacarLinhas", config.destacarLinhas)}
+                            ${criarCheckbox(
+                                "Ativo",
+                                "ativo",
+                                config.ativo,
+                                "Mantém a procura automática e etiqueta novos ataques em segundo plano.",
+                            )}
+                            ${criarCheckbox(
+                                "Modo teste",
+                                "modoTeste",
+                                config.modoTeste,
+                                "Simula a análise sem renomear comandos, submeter etiquetas ou tocar alertas.",
+                            )}
+                            ${criarCheckbox(
+                                "Destacar linhas",
+                                "destacarLinhas",
+                                config.destacarLinhas,
+                                "Aplica cores às linhas e aos grupos repetidos para facilitar a leitura.",
+                            )}
                         </div>
                     </section>
                     <section class="ti-section" style="--ti-section-color:#d08a24">
                         <div class="ti-section-heading">
                             <strong>Sons</strong>
-                            <small>Alertas distintos para novos ataques, Nobres e cancelamentos.</small>
+                            <small>Alertas sonoros incorporados no próprio script.</small>
                         </div>
                         <div class="ti-fields">
-                            ${criarCheckbox("Novo ataque", "somAtaque", config.sons.ataque)}
-                            ${criarCheckbox("Nobre detetado", "somNobre", config.sons.nobre)}
-                            ${criarCheckbox("Ataque cancelado", "somCancelado", config.sons.cancelado)}
+                            ${criarCheckbox(
+                                "Novo ataque",
+                                "somAtaque",
+                                config.sons.ataque,
+                                "Reproduz o primeiro MP3 uma vez quando aparece um novo comando.",
+                            )}
+                            ${criarCheckbox(
+                                "Nobre detetado",
+                                "somNobre",
+                                config.sons.nobre,
+                                "Repete o segundo MP3 e mostra o alerta lateral até carregar em Desligar.",
+                            )}
+                            ${criarCheckbox(
+                                "Ataque cancelado",
+                                "somCancelado",
+                                config.sons.cancelado,
+                                "Reproduz o terceiro MP3 quando um comando desaparece antes da chegada.",
+                            )}
+                            <span
+                                class="ti-audio-state ${audioDesbloqueado ? "ti-audio-ready" : ""}"
+                                data-ti-audio-state
+                            >${audioDesbloqueado ? "Áudio ativo nesta sessão" : "Requer um clique em Ativar sons"}</span>
                         </div>
                     </section>
                     <section class="ti-section" style="--ti-section-color:#2588b8">
                         <div class="ti-section-heading">
                             <strong>Etiquetas</strong>
-                            <small>Nomes utilizados para identificar cada tipo de comando.</small>
+                            <small>Nomes e formato aplicados aos comandos.</small>
                         </div>
                         <div class="ti-fields">
-                            ${criarCampoTexto("Ataque", "etiquetaAtaque", config.etiquetas.ataque)}
-                            ${criarCampoTexto("Apoio", "etiquetaApoio", config.etiquetas.apoio)}
-                            ${criarCampoTexto("Nobre", "etiquetaNobre", config.etiquetas.nobre)}
-                            ${criarCampoTexto("Formato", "formatoContagem", config.formatoContagem)}
+                            ${criarCampoTexto(
+                                "Ataque",
+                                "etiquetaAtaque",
+                                config.etiquetas.ataque,
+                                "Texto usado para reconhecer ataques ainda sem unidade identificada.",
+                            )}
+                            ${criarCampoTexto(
+                                "Apoio",
+                                "etiquetaApoio",
+                                config.etiquetas.apoio,
+                                "Texto usado para reconhecer e tratar comandos de apoio.",
+                            )}
+                            ${criarCampoTexto(
+                                "Nobre",
+                                "etiquetaNobre",
+                                config.etiquetas.nobre,
+                                "Nome aplicado quando a unidade mais lenta detetada é o Nobre.",
+                            )}
+                            ${criarCampoTexto(
+                                "Formato",
+                                "formatoContagem",
+                                config.formatoContagem,
+                                "Usa {nome}, {grupo}, {pos} e {total} para diferenciar ataques da mesma aldeia.",
+                                "{nome} [{grupo} {pos}/{total}]",
+                            )}
                         </div>
                     </section>
                     <section class="ti-section" style="--ti-section-color:#8a63a8">
                         <div class="ti-section-heading">
                             <strong>Verificação</strong>
-                            <small>Intervalos aleatórios em segundos para reduzir pedidos ao servidor.</small>
+                            <small>Intervalos aleatórios; todos os valores estão em segundos.</small>
                         </div>
                         <div class="ti-fields">
-                            ${criarCampoNumero("Página min", "atrasoIncomingsMinMs", config.atrasoIncomingsMinMs)}
-                            ${criarCampoNumero("Página max", "atrasoIncomingsMaxMs", config.atrasoIncomingsMaxMs)}
-                            ${criarCampoNumero("Global min", "atrasoGlobalMinMs", config.atrasoGlobalMinMs)}
-                            ${criarCampoNumero("Global max", "atrasoGlobalMaxMs", config.atrasoGlobalMaxMs)}
-                            ${criarCampoNumero("Editar min", "intervaloEdicaoMinMs", config.intervaloEdicaoMinMs)}
-                            ${criarCampoNumero("Editar max", "intervaloEdicaoMaxMs", config.intervaloEdicaoMaxMs)}
+                            ${criarCampoNumero(
+                                "Página min",
+                                "atrasoIncomingsMinMs",
+                                config.atrasoIncomingsMinMs,
+                                "Espera mínima antes de processar uma página de ataques já aberta.",
+                            )}
+                            ${criarCampoNumero(
+                                "Página max",
+                                "atrasoIncomingsMaxMs",
+                                config.atrasoIncomingsMaxMs,
+                                "Espera máxima antes de processar uma página de ataques já aberta.",
+                            )}
+                            ${criarCampoNumero(
+                                "Global min",
+                                "atrasoGlobalMinMs",
+                                config.atrasoGlobalMinMs,
+                                "Tempo mínimo entre procuras escondidas feitas a partir de qualquer página.",
+                            )}
+                            ${criarCampoNumero(
+                                "Global max",
+                                "atrasoGlobalMaxMs",
+                                config.atrasoGlobalMaxMs,
+                                "Tempo máximo entre procuras escondidas; o padrão rápido é 25 segundos.",
+                            )}
+                            ${criarCampoNumero(
+                                "Editar min",
+                                "intervaloEdicaoMinMs",
+                                config.intervaloEdicaoMinMs,
+                                "Pausa mínima entre duas renomeações enviadas ao servidor.",
+                            )}
+                            ${criarCampoNumero(
+                                "Editar max",
+                                "intervaloEdicaoMaxMs",
+                                config.intervaloEdicaoMaxMs,
+                                "Pausa máxima entre duas renomeações enviadas ao servidor.",
+                            )}
                         </div>
                     </section>
                     <section class="ti-section" style="--ti-section-color:#59a85b">
                         <div class="ti-section-heading">
                             <strong>Ações</strong>
-                            <small>Guardar preferências ou executar imediatamente.</small>
+                            <small>Controlos manuais do monitor e do áudio.</small>
                         </div>
                         <div class="ti-actions">
-                            <button type="button" data-ti-action="testar-sons">Testar sons</button>
-                            <button type="button" data-ti-action="guardar">Guardar</button>
-                            <button type="button" data-ti-action="executar">Executar</button>
+                            ${criarAcao(
+                                "Ativar sons",
+                                "ativar-sons",
+                                "Desbloqueia os três MP3 no navegador para esta sessão.",
+                            )}
+                            ${criarAcao(
+                                "Testar sons",
+                                "testar-sons",
+                                "Reproduz ataque, Nobre e cancelamento pela ordem configurada.",
+                            )}
+                            ${criarAcao(
+                                "Guardar",
+                                "guardar",
+                                "Guarda todas as opções sem iniciar uma verificação manual.",
+                            )}
+                            ${criarAcao(
+                                "Executar agora",
+                                "executar",
+                                "Guarda as opções e verifica imediatamente os ataques.",
+                            )}
                         </div>
                     </section>
                 </div>
@@ -2832,6 +3079,10 @@
                 testarSons();
             }
 
+            if (acao === "ativar-sons") {
+                ativarSonsPainel();
+            }
+
             if (acao === "parar-nobre") {
                 desligarAlertaNobre();
             }
@@ -2841,6 +3092,7 @@
         instalarPosicionamentoBotao();
         atualizarContadorBotao();
         atualizarAlertaNobreUI();
+        atualizarEstadoAudioPainel();
         if (estado.alertaNobreAtivo && somAtivo("nobre")) {
             reproduzirSomLocal("nobre", 0, false, true);
         }
