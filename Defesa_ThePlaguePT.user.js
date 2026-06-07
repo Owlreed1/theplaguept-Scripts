@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.97
+// @version      0.1.98
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.97',
+        version: '0.1.98',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -91,8 +91,7 @@
             loadedAt: 0,
             value: false
         },
-        launcherPositionFrame: 0,
-        launcherLockedPosition: null
+        launcherPositionFrame: 0
     };
 
     let settings = {};
@@ -1588,7 +1587,10 @@
         scheduleLauncherPosition();
         setTimeout(scheduleLauncherPosition, 250);
         setTimeout(scheduleLauncherPosition, 1000);
-        setTimeout(scheduleLauncherPosition, 2000);
+
+        $(window)
+            .off('resize.tpdefLauncher orientationchange.tpdefLauncher')
+            .on('resize.tpdefLauncher orientationchange.tpdefLauncher', scheduleLauncherPosition);
     }
 
     function scheduleLauncherPosition() {
@@ -1606,19 +1608,11 @@
         const button = document.getElementById('tpDefLauncher');
         if (!button) return;
 
-        if (state.launcherLockedPosition) {
-            applyLauncherPosition(button, state.launcherLockedPosition);
-            return;
-        }
-
         const gameLayout =
             document.querySelector('#main_layout td.maincell') ||
             document.querySelector('td.maincell') ||
             document.querySelector('#contentContainer') ||
             document.querySelector('#content_value');
-        const villageBar =
-            document.querySelector('#header_info') ||
-            document.querySelector('#menu_row2');
 
         let left = 12;
         let top = 104;
@@ -1628,21 +1622,6 @@
             if (layoutRect.width > 0) left = Math.max(4, Math.round(layoutRect.left - 30 - 25));
         }
 
-        const launcherAbove = findLauncherAbove(left, button);
-
-        if (launcherAbove) {
-            const anchorRect = launcherAbove.getBoundingClientRect();
-            left = Math.round(anchorRect.left);
-            top = Math.round(anchorRect.bottom + 3);
-            state.launcherLockedPosition = {left, top};
-        } else if (villageBar) {
-            const barRect = villageBar.getBoundingClientRect();
-            if (barRect.height > 0) {
-                const existingButtonTop = barRect.top + ((barRect.height - 28) / 2);
-                top = Math.max(4, Math.round(existingButtonTop + 28 + 3));
-            }
-        }
-
         applyLauncherPosition(button, {left, top});
     }
 
@@ -1650,34 +1629,6 @@
         button.style.setProperty('left', `${position.left}px`, 'important');
         button.style.setProperty('right', 'auto', 'important');
         button.style.setProperty('top', `${position.top}px`, 'important');
-    }
-
-    function findLauncherAbove(expectedLeft, ownButton) {
-        const candidates = Array.from(document.querySelectorAll('body *'));
-
-        return candidates
-            .filter(function (element) {
-                if (!element || element === ownButton || ownButton.contains(element)) return false;
-
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-
-                return (
-                    style.display !== 'none' &&
-                    style.visibility !== 'hidden' &&
-                    style.position === 'fixed' &&
-                    rect.width >= 24 &&
-                    rect.width <= 42 &&
-                    rect.height >= 24 &&
-                    rect.height <= 38 &&
-                    Math.abs(rect.left - expectedLeft) <= 10 &&
-                    rect.top >= 0 &&
-                    rect.bottom < window.innerHeight
-                );
-            })
-            .sort(function (a, b) {
-                return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
-            })[0] || null;
     }
 
     function openSettings() {
