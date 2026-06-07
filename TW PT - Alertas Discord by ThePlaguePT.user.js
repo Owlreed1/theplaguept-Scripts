@@ -1,9 +1,12 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord by ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.1.17
+// @version      1.1.18
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
+// @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
+// @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
+// @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
 // @grant        GM_xmlhttpRequest
@@ -16,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.1.17 carregada');
+    console.log('[TW Discord Alerts] Versao 1.1.18 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -3637,10 +3640,6 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 uiDoc.querySelector('#contentContainer') ||
                 uiDoc.querySelector('#content_value');
 
-            const villageBar =
-                uiDoc.querySelector('#header_info') ||
-                uiDoc.querySelector('#menu_row2');
-
             if (gameLayout) {
                 const layoutRect = gameLayout.getBoundingClientRect();
 
@@ -3651,19 +3650,6 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                     );
 
                     root.style.setProperty('left', `${left}px`, 'important');
-                }
-            }
-
-            if (villageBar) {
-                const barRect = villageBar.getBoundingClientRect();
-
-                if (barRect.height > 0) {
-                    const top = Math.max(
-                        4,
-                        Math.round(barRect.top + ((barRect.height - 28) / 2))
-                    );
-
-                    root.style.setProperty('top', `${top}px`, 'important');
                 }
             }
         }
@@ -3686,12 +3672,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 uiDoc.querySelector('td.maincell') ||
                 uiDoc.querySelector('#contentContainer') ||
                 uiDoc.querySelector('#content_value');
-            const observedBar =
-                uiDoc.querySelector('#header_info') ||
-                uiDoc.querySelector('#menu_row2');
-
             if (observedLayout) launcherResizeObserver.observe(observedLayout);
-            if (observedBar) launcherResizeObserver.observe(observedBar);
         }
 
         uiWindow.setTimeout(positionLauncher, 250);
