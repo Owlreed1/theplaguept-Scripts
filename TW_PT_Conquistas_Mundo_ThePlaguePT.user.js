@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.36
+// @version      1.0.37
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.36",
+        version: "1.0.37",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -89,7 +89,7 @@
                 position: fixed !important;
                 left: 12px;
                 right: auto !important;
-                top: 279px;
+                top: 303px;
                 bottom: auto !important;
                 z-index: 2147483647;
                 box-sizing: border-box;
@@ -843,47 +843,17 @@
             || document.querySelector("td.maincell")
             || document.querySelector("#contentContainer")
             || document.querySelector("#content_value");
-        const villageBar =
-            document.querySelector("#header_info")
-            || document.querySelector("#menu_row2");
 
         let left = 12;
-        let top = 104;
 
         if (gameLayout) {
             const layoutRect = gameLayout.getBoundingClientRect();
             if (layoutRect.width > 0) left = Math.max(4, Math.round(layoutRect.left - 55));
         }
 
-        if (villageBar) {
-            const barRect = villageBar.getBoundingClientRect();
-            if (barRect.height > 0) {
-                const barButtonTop = barRect.top + ((barRect.height - 28) / 2);
-                top = Math.max(4, Math.round(barButtonTop + 33));
-            }
-        }
-
-        const discordLauncher =
-            document.querySelector("#tw-discord-alerts-ui")
-            || document.querySelector("#tw-discord-alerts-toggle");
-        const anchors = [
-            document.querySelector("#tpDefLauncher"),
-            discordLauncher,
-            document.querySelector("#tpTwHub-launcher"),
-        ].filter((node) => node && node !== button);
-        const visibleRects = anchors
-            .map((node) => node.getBoundingClientRect())
-            .filter((rect) => rect.width > 0 && rect.height > 0);
-
-        if (visibleRects.length) {
-            const lowest = visibleRects.reduce((current, rect) => rect.bottom > current.bottom ? rect : current);
-            left = Math.max(4, Math.round(lowest.left));
-            top = Math.max(4, Math.round(lowest.bottom + 5));
-        }
-
         button.style.setProperty("left", `${left}px`, "important");
         button.style.setProperty("right", "auto", "important");
-        button.style.setProperty("top", `${top}px`, "important");
+        button.style.setProperty("top", "303px", "important");
         button.style.setProperty("bottom", "auto", "important");
     }
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
 // @namespace    theplaguept.tw.renomeador
-// @version      2.4.10
+// @version      2.4.11
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -290,68 +290,19 @@
             || document.querySelector("td.maincell")
             || document.querySelector("#contentContainer")
             || document.querySelector("#content_value");
-        const barraAldeia =
-            document.querySelector("#header_info")
-            || document.querySelector("#menu_row2");
 
         let left = 12;
-        let top = 104;
+        const top = 336;
 
         if (layout) {
             const rectLayout = layout.getBoundingClientRect();
             if (rectLayout.width > 0) left = Math.max(4, Math.round(rectLayout.left - 55));
         }
 
-        if (barraAldeia) {
-            const rectBarra = barraAldeia.getBoundingClientRect();
-            if (rectBarra.height > 0) {
-                top = Math.max(4, Math.round(rectBarra.top + ((rectBarra.height - 28) / 2)));
-            }
-        }
-
-        const launchers = obterLaunchersLaterais(botao, left);
-        if (launchers.length) {
-            const ultimo = launchers.reduce((atual, rect) => rect.bottom > atual.bottom ? rect : atual);
-            left = Math.max(4, Math.round(ultimo.left));
-            top = Math.max(4, Math.round(ultimo.bottom + 5));
-        }
-
         botao.style.setProperty("left", `${left}px`, "important");
         botao.style.setProperty("right", "auto", "important");
         botao.style.setProperty("top", `${top}px`, "important");
         botao.style.setProperty("bottom", "auto", "important");
-    }
-
-    function obterLaunchersLaterais(botaoAtual, leftEsperado) {
-        const seletoresConhecidos = [
-            "#tpDefLauncher",
-            "#tw-discord-alerts-ui",
-            "#tw-discord-alerts-toggle",
-            "#tpconq-launcher",
-            "#tpTwHub-launcher",
-            "[id$='-launcher']",
-            "[class*='quickbar']",
-        ];
-        const candidatos = new Set(
-            seletoresConhecidos.flatMap((seletor) => [...document.querySelectorAll(seletor)]),
-        );
-
-        document.querySelectorAll("body > button, body > a, body > div").forEach((elemento) => {
-            candidatos.add(elemento);
-        });
-
-        return [...candidatos]
-            .filter((elemento) => elemento !== botaoAtual && !elemento.closest(`#${CONFIG_MODAL_ID}`))
-            .filter((elemento) => getComputedStyle(elemento).position === "fixed")
-            .map((elemento) => elemento.getBoundingClientRect())
-            .filter((rect) => (
-                rect.width > 0
-                && rect.height > 0
-                && rect.height <= 60
-                && rect.top >= 0
-                && rect.bottom <= window.innerHeight
-                && Math.abs(rect.left - leftEsperado) <= 12
-            ));
     }
 
     function criarModalConfiguracao() {
@@ -1761,7 +1712,7 @@
                 position: fixed;
                 left: 12px;
                 right: auto;
-                top: 104px;
+                top: 336px;
                 bottom: auto;
                 z-index: 2147483647;
                 box-sizing: border-box !important;

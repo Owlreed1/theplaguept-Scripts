@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW_PT_Etiquetador_Ataques_ThePlaguePT
-// @version      1.0.6
+// @version      1.0.7
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -1557,12 +1557,8 @@
             || document.querySelector("td.maincell")
             || document.querySelector("#contentContainer")
             || document.querySelector("#content_value");
-        const barraAldeia =
-            document.querySelector("#header_info")
-            || document.querySelector("#menu_row2");
-
         let left = 12;
-        let top = 104;
+        const top = 369;
 
         if (layout) {
             const rectLayout = layout.getBoundingClientRect();
@@ -1571,67 +1567,15 @@
             }
         }
 
-        if (barraAldeia) {
-            const rectBarra = barraAldeia.getBoundingClientRect();
-            if (rectBarra.height > 0) {
-                top = Math.max(4, Math.round(rectBarra.top + ((rectBarra.height - 28) / 2)));
-            }
-        }
-
-        const launchers = obterLaunchersLaterais(painel, left);
-        if (launchers.length) {
-            const ultimo = launchers.reduce((atual, rect) => (
-                rect.bottom > atual.bottom ? rect : atual
-            ));
-            left = Math.max(4, Math.round(ultimo.left));
-            top = Math.max(4, Math.round(ultimo.bottom + 5));
-        }
-
         painel.style.setProperty("left", `${left}px`, "important");
         painel.style.setProperty("right", "auto", "important");
         painel.style.setProperty("top", `${top}px`, "important");
         painel.style.setProperty("bottom", "auto", "important");
     }
 
-    function obterLaunchersLaterais(painelAtual, leftEsperado) {
-        const seletores = [
-            "#tpDefLauncher",
-            "#tw-discord-alerts-ui",
-            "#tw-discord-alerts-toggle",
-            "#tpconq-launcher",
-            "#tpTwHub-launcher",
-            ".ra-tp-config-button",
-            "[id$='-launcher']",
-            "[class*='quickbar']",
-        ];
-        const candidatos = new Set(
-            seletores.flatMap((seletor) => [...document.querySelectorAll(seletor)]),
-        );
-
-        document.querySelectorAll("body > button, body > a, body > div").forEach((elemento) => {
-            candidatos.add(elemento);
-        });
-
-        return [...candidatos]
-            .filter((elemento) => elemento !== painelAtual && !painelAtual.contains(elemento))
-            .filter((elemento) => window.getComputedStyle(elemento).position === "fixed")
-            .map((elemento) => elemento.getBoundingClientRect())
-            .filter((rect) => (
-                rect.width > 0
-                && rect.height > 0
-                && rect.height <= 60
-                && rect.top >= 0
-                && rect.bottom <= window.innerHeight
-                && Math.abs(rect.left - leftEsperado) <= 12
-            ));
-    }
-
     function instalarPosicionamentoBotao() {
         window.addEventListener("resize", agendarPosicaoBotao);
         window.addEventListener("orientationchange", agendarPosicaoBotao);
-
-        const observer = new MutationObserver(agendarPosicaoBotao);
-        observer.observe(document.body, { childList: true });
 
         agendarPosicaoBotao();
         window.setTimeout(agendarPosicaoBotao, 250);
@@ -1653,7 +1597,7 @@
                     position: fixed !important;
                     left: 12px !important;
                     right: auto !important;
-                    top: 139px !important;
+                    top: 369px !important;
                     bottom: auto !important;
                     z-index: 2147483647 !important;
                     font: 12px Verdana, Arial, sans-serif !important;
@@ -1919,7 +1863,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>Etiquetador de ataques - ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.6</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.7</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
