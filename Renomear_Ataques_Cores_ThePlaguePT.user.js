@@ -1,18 +1,15 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.4.9
+// @namespace    theplaguept.tw.renomeador
+// @version      2.4.10
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
-// @namespace    https://github.com/ThePlaguePT
-// @match        https://*.tribalwars.com.pt/game.php?*
-// @match        https://*.tribalwars.co.uk/game.php?*
-// @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
-// @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
+// @icon         https://i.imgur.com/JXzrSKy.jpeg
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Renomear_Ataques_Cores_ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Renomear_Ataques_Cores_ThePlaguePT.user.js
+// @include      *://*.tribalwars.com.pt/game.php*
 // @grant        none
 // @run-at       document-idle
-// @icon         https://i.imgur.com/JXzrSKy.jpeg
 // ==/UserScript==
 
 (() => {
