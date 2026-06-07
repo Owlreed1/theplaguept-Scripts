@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.94
+// @version      0.1.95
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
+// @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
+// @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Defesa_ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Defesa_ThePlaguePT.user.js
 // @include      *://*.tribalwars.com.pt/game.php*
@@ -20,7 +22,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.94',
+        version: '0.1.95',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -1588,15 +1590,20 @@
 
         $(window)
             .off('resize.tpdefLauncher orientationchange.tpdefLauncher')
-            .on('resize.tpdefLauncher orientationchange.tpdefLauncher', scheduleLauncherPosition);
+            .on('resize.tpdefLauncher orientationchange.tpdefLauncher', function () {
+                scheduleLauncherPosition();
+                setTimeout(scheduleLauncherPosition, 100);
+            });
     }
 
     function scheduleLauncherPosition() {
         if (state.launcherPositionFrame) cancelAnimationFrame(state.launcherPositionFrame);
 
         state.launcherPositionFrame = requestAnimationFrame(function () {
-            state.launcherPositionFrame = 0;
-            positionLauncher();
+            state.launcherPositionFrame = requestAnimationFrame(function () {
+                state.launcherPositionFrame = 0;
+                positionLauncher();
+            });
         });
     }
 
@@ -1621,17 +1628,51 @@
             if (layoutRect.width > 0) left = Math.max(4, Math.round(layoutRect.left - 30 - 25));
         }
 
-        if (villageBar) {
+        const launcherAbove = findLauncherAbove(left, button);
+
+        if (launcherAbove) {
+            const anchorRect = launcherAbove.getBoundingClientRect();
+            left = Math.round(anchorRect.left);
+            top = Math.round(anchorRect.bottom + 3);
+        } else if (villageBar) {
             const barRect = villageBar.getBoundingClientRect();
             if (barRect.height > 0) {
                 const existingButtonTop = barRect.top + ((barRect.height - 28) / 2);
-                top = Math.max(4, Math.round(existingButtonTop + 28 + 5));
+                top = Math.max(4, Math.round(existingButtonTop + 28 + 3));
             }
         }
 
         button.style.setProperty('left', `${left}px`, 'important');
         button.style.setProperty('right', 'auto', 'important');
         button.style.setProperty('top', `${top}px`, 'important');
+    }
+
+    function findLauncherAbove(expectedLeft, ownButton) {
+        const candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+
+        return candidates
+            .filter(function (element) {
+                if (!element || element === ownButton || ownButton.contains(element)) return false;
+
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+
+                return (
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    style.position === 'fixed' &&
+                    rect.width >= 24 &&
+                    rect.width <= 38 &&
+                    rect.height >= 24 &&
+                    rect.height <= 34 &&
+                    Math.abs(rect.left - expectedLeft) <= 8 &&
+                    rect.top >= 0 &&
+                    rect.bottom < window.innerHeight
+                );
+            })
+            .sort(function (a, b) {
+                return b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom;
+            })[0] || null;
     }
 
     function openSettings() {
