@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         TW PT - Alertas Discord by ThePlaguePT
+// @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.1.18
+// @version      1.1.20
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.1.18 carregada');
+    console.log('[TW Discord Alerts] Versao 1.1.20 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2218,7 +2218,7 @@
         style.textContent = `
 #tw-discord-alerts-ui {
     position: fixed !important;
-    top: 246px !important;
+    top: 300px !important;
     right: auto !important;
     left: 16px !important;
     z-index: 2147483647 !important;
@@ -2258,8 +2258,8 @@
 
 #tw-discord-alerts-toggle:hover,
 #tw-discord-alerts-toggle:focus-visible {
-    width: 244px !important;
-    min-width: 244px !important;
+    width: 286px !important;
+    min-width: 286px !important;
     gap: 8px !important;
     padding: 0 9px !important;
     background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
@@ -2298,7 +2298,7 @@
 
 #tw-discord-alerts-toggle:hover .tw-alerts-toggle-label,
 #tw-discord-alerts-toggle:focus-visible .tw-alerts-toggle-label {
-    max-width: 198px !important;
+    max-width: 242px !important;
     opacity: 1 !important;
     transform: translateX(0) !important;
 }
@@ -3394,9 +3394,9 @@
         const root = uiDoc.createElement('div');
         root.id = 'tw-discord-alerts-ui';
         root.innerHTML = `
-<button id="tw-discord-alerts-toggle" type="button" title="Alertas Discord - ThePlaguePT" aria-label="Alertas Discord - ThePlaguePT">
+<button id="tw-discord-alerts-toggle" type="button" title="TW PT - Alertas Discord ThePlaguePT" aria-label="TW PT - Alertas Discord ThePlaguePT">
     <span class="tw-alerts-eye"></span>
-    <span class="tw-alerts-toggle-label">Alertas Discord - ThePlaguePT</span>
+    <span class="tw-alerts-toggle-label">TW PT - Alertas Discord ThePlaguePT</span>
 </button>
 
 <div id="tw-discord-alerts-backdrop"></div>
@@ -3405,7 +3405,7 @@
     <button id="tw-alerts-close" type="button" title="Fechar">×</button>
     <div class="tw-alerts-frame" data-tw-alerts-settings="template">
         <div class="tw-alerts-header">
-            <h3>TW Discord Alerts - ThePlaguePT</h3>
+            <h3>TW PT - Alertas Discord ThePlaguePT</h3>
             <span>Alertas, resumos e segurança para Tribal Wars!</span>
         </div>
 
