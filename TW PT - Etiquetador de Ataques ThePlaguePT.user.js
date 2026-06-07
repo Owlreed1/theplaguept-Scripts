@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.25
+// @version      1.0.26
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -42,8 +42,8 @@
         formatoContagem: "{nome} [{grupo} {pos}/{total}]",
         atrasoIncomingsMinMs: 1_000,
         atrasoIncomingsMaxMs: 3_000,
-        atrasoGlobalMinMs: 10_000,
-        atrasoGlobalMaxMs: 25_000,
+        atrasoGlobalMinMs: 3_000,
+        atrasoGlobalMaxMs: 8_000,
         intervaloEdicaoMinMs: 800,
         intervaloEdicaoMaxMs: 2_000,
         pausaLoteQuantidade: 8,
@@ -179,6 +179,8 @@
     let posicionamentoBotaoFrame = 0;
     let posicaoBotaoLeft = null;
     let posicaoBotaoBloqueada = false;
+    let ultimoContadorObservado = null;
+    let verificacaoContadorTimer = 0;
     let audioDesbloqueado = false;
     const audios = new Map();
     let filaSons = [];
@@ -202,6 +204,7 @@
             if (
                 (carregado.atrasoGlobalMinMs === 60_000 && carregado.atrasoGlobalMaxMs === 180_000)
                 || (carregado.atrasoGlobalMinMs === 30_000 && carregado.atrasoGlobalMaxMs === 90_000)
+                || (carregado.atrasoGlobalMinMs === 10_000 && carregado.atrasoGlobalMaxMs === 25_000)
             ) {
                 carregado.atrasoGlobalMinMs = CONFIG_PADRAO.atrasoGlobalMinMs;
                 carregado.atrasoGlobalMaxMs = CONFIG_PADRAO.atrasoGlobalMaxMs;
@@ -1975,6 +1978,44 @@
         );
     }
 
+    function instalarObservadorContador() {
+        if (estaEmFrame()) {
+            return;
+        }
+
+        const elementos = [
+            ...document.querySelectorAll(SELETORES.contadorIncomings),
+            ...document.querySelectorAll(SELETORES.linkIncomings),
+        ];
+        ultimoContadorObservado = obterContadorIncomings();
+
+        const verificarAumento = () => {
+            window.clearTimeout(verificacaoContadorTimer);
+            verificacaoContadorTimer = window.setTimeout(() => {
+                const totalAtual = obterContadorIncomings();
+                const totalAnterior = ultimoContadorObservado ?? totalAtual;
+                ultimoContadorObservado = totalAtual;
+                atualizarContadorBotao();
+
+                if (config.ativo && totalAtual > totalAnterior) {
+                    log(`Contador aumentou de ${totalAnterior} para ${totalAtual}. Verificacao imediata.`);
+                    processarIncomingsEmFundo(true);
+                }
+            }, 150);
+        };
+
+        const observador = new MutationObserver(verificarAumento);
+        elementos.forEach((elemento) => {
+            observador.observe(elemento, {
+                childList: true,
+                characterData: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ["title", "aria-label"],
+            });
+        });
+    }
+
     function verificarPaginaDoJogo() {
         if (!config.ativo || paginaDeIncomings()) {
             return;
@@ -2858,7 +2899,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.25</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.26</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -3029,6 +3070,7 @@
         instalarListenerFrameFundo();
         instalarDesbloqueioAudio();
         criarPainel();
+        instalarObservadorContador();
 
         if (!config.ativo) {
             log("Script inativo por configuracao.");
