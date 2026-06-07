@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
 // @namespace    theplaguept.tw.renomeador
-// @version      2.4.15
+// @version      2.4.16
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -1769,17 +1769,18 @@
                 align-items: center !important;
                 justify-content: center !important;
                 box-sizing: border-box !important;
-                border: 1px solid #29110a !important;
-                border-radius: 50% !important;
-                background: radial-gradient(circle at 35% 30%, #fff2ba 0 28%, #d7a44e 31% 68%, #77300f 72% 100%) !important;
-                color: #3d1208 !important;
+                border: 1px solid #b8d9ec !important;
+                border-radius: 2px !important;
+                background: linear-gradient(to bottom, #43a9e5 0%, #2588c7 52%, #176ca8 100%) !important;
+                color: #fff !important;
                 font-size: 9px !important;
                 font-weight: 900 !important;
                 line-height: 14px !important;
-                text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+                text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.8) !important;
                 box-shadow:
-                    inset 0 1px 1px rgba(255, 255, 255, 0.35),
-                    0 1px 1px #000 !important;
+                    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+                    inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+                    0 1px 1px rgba(0, 0, 0, 0.75) !important;
             }
 
             .ra-tp-config-button-label {
