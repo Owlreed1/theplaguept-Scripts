@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.95
+// @version      0.1.96
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.95',
+        version: '0.1.96',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -1671,7 +1671,7 @@
                 );
             })
             .sort(function (a, b) {
-                return b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom;
+                return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
             })[0] || null;
     }
 
