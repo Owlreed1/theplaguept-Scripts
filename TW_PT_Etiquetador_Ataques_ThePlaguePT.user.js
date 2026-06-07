@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.12
+// @version      1.0.13
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -1309,7 +1309,8 @@
         }
 
         const total = obterTotalContadorBotao();
-        contador.textContent = total > 99 ? "99+" : String(total);
+        contador.textContent = total > 99 ? "99+" : (total > 0 ? String(total) : "");
+        contador.hidden = total <= 0;
 
         const botao = contador.closest(".ti-toggle");
         botao?.setAttribute(
@@ -1732,8 +1733,8 @@
                     align-items: center !important;
                     justify-content: flex-start !important;
                     gap: 0 !important;
-                    width: 34px !important;
-                    min-width: 34px !important;
+                    width: 30px !important;
+                    min-width: 30px !important;
                     height: 28px !important;
                     overflow: hidden !important;
                     padding: 0 6px !important;
@@ -1767,32 +1768,45 @@
                     background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
                 }
                 #tag-incomings-pt-panel .ti-toggle-icon {
+                    position: relative !important;
                     display: inline-flex !important;
                     align-items: center !important;
                     justify-content: center !important;
-                    gap: 2px !important;
-                    min-width: 24px !important;
-                    height: 18px !important;
-                    flex: 0 0 auto !important;
+                    width: 16px !important;
+                    min-width: 16px !important;
+                    height: 16px !important;
+                    flex: 0 0 16px !important;
                     box-sizing: border-box !important;
-                    padding: 0 3px !important;
-                    border: 1px solid #765523 !important;
-                    border-radius: 2px !important;
-                    background: linear-gradient(to bottom, #fff2c5, #dec180) !important;
-                    box-shadow:
-                        inset 0 1px 0 rgba(255, 255, 255, 0.75),
-                        0 1px 1px rgba(0, 0, 0, 0.55) !important;
+                    padding: 0 !important;
+                    border: 0 !important;
+                    background: transparent !important;
+                    box-shadow: none !important;
                 }
                 #tag-incomings-pt-panel .ti-toggle-icon img {
                     display: block !important;
-                    width: 11px !important;
-                    height: 11px !important;
-                    filter: none !important;
+                    width: 16px !important;
+                    height: 16px !important;
+                    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.85)) !important;
                 }
                 #tag-incomings-pt-panel .ti-counter-value {
-                    color: #3c250f !important;
-                    font: bold 11px/16px Arial, sans-serif !important;
-                    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+                    position: absolute !important;
+                    right: -5px !important;
+                    bottom: -5px !important;
+                    min-width: 10px !important;
+                    height: 10px !important;
+                    box-sizing: border-box !important;
+                    padding: 0 2px !important;
+                    border: 1px solid rgba(255, 255, 255, 0.65) !important;
+                    border-radius: 5px !important;
+                    background: rgba(32, 12, 8, 0.72) !important;
+                    color: #fff !important;
+                    font: bold 8px/9px Arial, sans-serif !important;
+                    text-align: center !important;
+                    text-shadow: 1px 1px 1px #000 !important;
+                    pointer-events: none !important;
+                }
+                #tag-incomings-pt-panel .ti-counter-value[hidden] {
+                    display: none !important;
                 }
                 #tag-incomings-pt-panel .ti-toggle-label {
                     display: inline-block !important;
@@ -1999,7 +2013,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>Etiquetador de ataques - ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.12</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.13</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -2054,7 +2068,7 @@
             <button class="ti-toggle" type="button" data-ti-action="toggle" title="${config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador"}" aria-label="Configurar etiquetador de ataques" aria-expanded="${config.painelAberto ? "true" : "false"}">
                 <span class="ti-toggle-icon" aria-hidden="true">
                     <img src="/graphic/icons/attack.png" alt="">
-                    <span class="ti-counter-value">0</span>
+                    <span class="ti-counter-value" hidden></span>
                 </span>
                 <span class="ti-toggle-label">Etiquetador de ataques</span>
             </button>
