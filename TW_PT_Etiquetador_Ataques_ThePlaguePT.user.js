@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.16
+// @version      1.0.17
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -1744,8 +1744,6 @@
             return;
         }
 
-        atualizarSimboloAtaques();
-
         const total = obterTotalContadorBotao();
         contador.textContent = total > 99 ? "99+" : (total > 0 ? String(total) : "");
         contador.hidden = total <= 0;
@@ -1759,59 +1757,6 @@
             "aria-label",
             `${total} ataque(s) recebido(s). Abrir etiquetador de ataques`,
         );
-    }
-
-    function atualizarSimboloAtaques() {
-        const destino = document.querySelector("#tag-incomings-pt-panel .ti-attack-symbol");
-        if (!destino) {
-            return;
-        }
-
-        const candidatos = [
-            ...document.querySelectorAll(SELETORES.contadorIncomings),
-            ...document.querySelectorAll(SELETORES.linkIncomings),
-        ];
-        const origem = candidatos
-            .flatMap((elemento) => [
-                elemento,
-                ...elemento.querySelectorAll("span.icon, img"),
-            ])
-            .find((elemento) => {
-                if (elemento.closest("#tag-incomings-pt-panel")) {
-                    return false;
-                }
-
-                if (elemento.tagName === "IMG") {
-                    return /attack|incoming|sword/i.test([
-                        elemento.src,
-                        elemento.alt,
-                        elemento.title,
-                        elemento.className,
-                    ].join(" "));
-                }
-
-                const estilo = window.getComputedStyle(elemento);
-                return /attack|incoming/i.test(String(elemento.className))
-                    && estilo.backgroundImage !== "none";
-            });
-
-        if (!origem) {
-            return;
-        }
-
-        if (origem.tagName === "IMG") {
-            destino.style.backgroundImage = `url("${origem.src}")`;
-            destino.style.backgroundPosition = "center";
-            destino.style.backgroundRepeat = "no-repeat";
-            destino.style.backgroundSize = "contain";
-            return;
-        }
-
-        const estilo = window.getComputedStyle(origem);
-        destino.style.backgroundImage = estilo.backgroundImage;
-        destino.style.backgroundPosition = estilo.backgroundPosition;
-        destino.style.backgroundRepeat = estilo.backgroundRepeat;
-        destino.style.backgroundSize = estilo.backgroundSize;
     }
 
     function obterTotalAtualIncomings() {
@@ -2287,10 +2232,20 @@
                     box-shadow: none !important;
                 }
                 #tag-incomings-pt-panel .ti-attack-symbol {
-                    display: block !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
                     width: 16px !important;
                     height: 16px !important;
                     flex: 0 0 16px !important;
+                    color: #d8c99d !important;
+                    font: 18px/16px "Segoe UI Symbol", "Arial Unicode MS", sans-serif !important;
+                    text-align: center !important;
+                    text-shadow:
+                        -1px 0 #4a3925,
+                        0 1px #4a3925,
+                        1px 0 #4a3925,
+                        0 -1px #4a3925 !important;
                     filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.85)) !important;
                 }
                 #tag-incomings-pt-panel .ti-counter-value {
@@ -2518,7 +2473,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>Etiquetador de ataques - ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.16</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.17</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -2583,7 +2538,7 @@
             </div>
             <button class="ti-toggle" type="button" data-ti-action="toggle" title="${config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador"}" aria-label="Configurar etiquetador de ataques" aria-expanded="${config.painelAberto ? "true" : "false"}">
                 <span class="ti-toggle-icon" aria-hidden="true">
-                    <span class="icon header attack ti-attack-symbol"></span>
+                    <span class="ti-attack-symbol">&#9876;</span>
                     <span class="ti-counter-value" hidden></span>
                 </span>
                 <span class="ti-toggle-label">Etiquetador de ataques</span>
