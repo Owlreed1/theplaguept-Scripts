@@ -1,11 +1,15 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
-// @version      2.4.7
+// @version      2.4.9
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php?*
 // @match        https://*.tribalwars.co.uk/game.php?*
+// @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
+// @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
+// @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Renomear_Ataques_Cores_ThePlaguePT.user.js
+// @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/Renomear_Ataques_Cores_ThePlaguePT.user.js
 // @grant        none
 // @run-at       document-idle
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -19,6 +23,7 @@
     const STORAGE_KEY = `${SCRIPT_ID}-config-v1`;
     const CONFIG_BUTTON_ID = `${SCRIPT_ID}-config-button`;
     const CONFIG_MODAL_ID = `${SCRIPT_ID}-config-modal`;
+    const CONFIG_DIALOG_ID = "renomearAtaquesThePlaguePT";
 
     const CONFIG_PADRAO = {
         tamanhoLetraPx: 8,
@@ -122,6 +127,7 @@
     let tribosAliadasCache = null;
     let tribosAliadasPromise = null;
     let configButtonPositionFrame = 0;
+    let configFormRoot = null;
 
     function carregarConfiguracao() {
         try {
@@ -361,7 +367,7 @@
         modal.innerHTML = `
             <div class="ra-tp-config-dialog" role="dialog" aria-modal="true" aria-labelledby="${SCRIPT_ID}-config-title">
                 <button type="button" class="ra-tp-config-close" data-ra-config-action="fechar" aria-label="Fechar">&times;</button>
-                <div class="ra-tp-config-frame">
+                <div class="ra-tp-config-frame" data-ra-config-form="template">
                     <div class="ra-tp-config-header">
                         <h3 id="${SCRIPT_ID}-config-title">Renomear Ataques - ThePlaguePT</h3>
                         <span>Botoes rapidos, cores e organizacao dos comandos do Tribal Wars.</span>
@@ -443,20 +449,27 @@
             </div>
         `;
 
-        modal.addEventListener("click", (evento) => {
-            const acao = evento.target.closest("[data-ra-config-action]")?.dataset.raConfigAction;
-
-            if (acao === "fechar") fecharPainelConfiguracao();
-            if (acao === "restaurar") preencherFormularioConfiguracao(CONFIG_PADRAO);
-            if (acao === "guardar") guardarFormularioConfiguracao();
-            if (evento.target === modal) fecharPainelConfiguracao();
-        });
+        vincularEventosConfiguracao(modal);
 
         document.addEventListener("keydown", (evento) => {
             if (evento.key === "Escape" && !modal.hidden) fecharPainelConfiguracao();
         });
 
         document.body.appendChild(modal);
+    }
+
+    function vincularEventosConfiguracao(root) {
+        if (!root || root.dataset.raConfigBound === "1") return;
+        root.dataset.raConfigBound = "1";
+
+        root.addEventListener("click", (evento) => {
+            const acao = evento.target.closest("[data-ra-config-action]")?.dataset.raConfigAction;
+
+            if (acao === "fechar") fecharPainelConfiguracao();
+            if (acao === "restaurar") preencherFormularioConfiguracao(CONFIG_PADRAO);
+            if (acao === "guardar") guardarFormularioConfiguracao();
+            if (evento.target === root && root.id === CONFIG_MODAL_ID) fecharPainelConfiguracao();
+        });
     }
 
     function criarListaBotoesConfigHtml() {
@@ -490,14 +503,52 @@
         const modal = document.getElementById(CONFIG_MODAL_ID);
         if (!modal) return;
 
+        const dialog = obterDialogNativo();
+        const frame = modal.querySelector('[data-ra-config-form="template"]');
+
+        if (dialog && typeof dialog.show === "function" && frame) {
+            const html = frame.outerHTML.replace(
+                'data-ra-config-form="template"',
+                'data-ra-config-form="dialog"',
+            );
+
+            dialog.show(CONFIG_DIALOG_ID, html);
+
+            const formularios = document.querySelectorAll('[data-ra-config-form="dialog"]');
+            const formulario = formularios[formularios.length - 1];
+
+            if (formulario) {
+                configFormRoot = formulario;
+                vincularEventosConfiguracao(formulario);
+                preencherFormularioConfiguracao(CONFIG);
+                formulario.querySelector("select, input, button")?.focus();
+                return;
+            }
+        }
+
+        configFormRoot = modal;
         preencherFormularioConfiguracao(CONFIG);
         modal.hidden = false;
         modal.querySelector("select, input, button")?.focus();
     }
 
     function fecharPainelConfiguracao() {
+        if (configFormRoot?.matches('[data-ra-config-form="dialog"]')) {
+            const dialog = obterDialogNativo();
+            if (dialog && typeof dialog.close === "function") {
+                dialog.close(CONFIG_DIALOG_ID);
+                configFormRoot = null;
+                return;
+            }
+        }
+
         const modal = document.getElementById(CONFIG_MODAL_ID);
         if (modal) modal.hidden = true;
+        configFormRoot = null;
+    }
+
+    function obterDialogNativo() {
+        return window.Dialog || null;
     }
 
     function preencherFormularioConfiguracao(valores) {
@@ -514,7 +565,7 @@
         obterCampoConfig("ocultar-amigos").checked = valores.ocultarBotoesAmigos;
         obterCampoConfig("aliados").value = (valores.tribosAliadasIds || []).join(", ");
 
-        document.querySelectorAll("[data-ra-config-command]").forEach((checkbox) => {
+        obterRaizFormularioConfiguracao().querySelectorAll("[data-ra-config-command]").forEach((checkbox) => {
             checkbox.checked = !(valores.botoesOcultos || []).includes(Number(checkbox.dataset.raConfigCommand));
         });
     }
@@ -532,7 +583,7 @@
             mostrarBotoesNoMapa: obterCampoConfig("botoes-mapa").checked,
             ocultarBotoesApoios: obterCampoConfig("ocultar-apoios").checked,
             ocultarBotoesAmigos: obterCampoConfig("ocultar-amigos").checked,
-            botoesOcultos: [...document.querySelectorAll("[data-ra-config-command]")]
+            botoesOcultos: [...obterRaizFormularioConfiguracao().querySelectorAll("[data-ra-config-command]")]
                 .filter((checkbox) => !checkbox.checked)
                 .map((checkbox) => Number(checkbox.dataset.raConfigCommand)),
             tribosAliadasIds: obterCampoConfig("aliados").value
@@ -549,7 +600,11 @@
     }
 
     function obterCampoConfig(sufixo) {
-        return document.getElementById(`${SCRIPT_ID}-config-${sufixo}`);
+        return obterRaizFormularioConfiguracao().querySelector(`#${SCRIPT_ID}-config-${sufixo}`);
+    }
+
+    function obterRaizFormularioConfiguracao() {
+        return configFormRoot || document.getElementById(CONFIG_MODAL_ID) || document;
     }
 
     function reiniciarCachesRelacoes() {
@@ -1839,18 +1894,15 @@
             }
 
             .ra-tp-config-frame {
-                position: relative;
-                z-index: 1;
-                width: 100%;
-                max-width: 100%;
-                max-height: calc(100vh - 88px);
-                overflow-x: hidden;
-                overflow-y: auto;
+                width: 820px;
+                max-width: calc(100vw - 48px);
                 border: 2px solid #7e211c;
                 border-radius: 4px;
                 background: #f4e4b8;
+                color: #3b2508;
+                font-family: Arial, Verdana, sans-serif;
                 box-sizing: border-box;
-                box-shadow: none;
+                overflow: hidden;
             }
 
             .ra-tp-config-header {

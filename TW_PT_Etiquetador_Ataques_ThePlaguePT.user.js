@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW_PT_Etiquetador_Ataques_ThePlaguePT
-// @version      1.0.3
+// @version      1.0.4
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -1386,16 +1386,16 @@
         }, atraso);
     }
 
-    function lerBooleanoPainel(nome) {
-        return Boolean(document.querySelector(`[data-ti-bool="${nome}"]`)?.checked);
+    function lerBooleanoPainel(nome, raiz = document) {
+        return Boolean(raiz.querySelector(`[data-ti-bool="${nome}"]`)?.checked);
     }
 
-    function lerTextoPainel(nome) {
-        return document.querySelector(`[data-ti-text="${nome}"]`)?.value?.trim() ?? "";
+    function lerTextoPainel(nome, raiz = document) {
+        return raiz.querySelector(`[data-ti-text="${nome}"]`)?.value?.trim() ?? "";
     }
 
-    function lerNumeroPainel(nome, fallback, escala = 1) {
-        const valor = Number(document.querySelector(`[data-ti-number="${nome}"]`)?.value);
+    function lerNumeroPainel(nome, fallback, escala = 1, raiz = document) {
+        const valor = Number(raiz.querySelector(`[data-ti-number="${nome}"]`)?.value);
         if (!Number.isFinite(valor)) {
             return fallback;
         }
@@ -1423,21 +1423,21 @@
             .replace(/"/g, "&quot;");
     }
 
-    function guardarPainel() {
-        config.ativo = lerBooleanoPainel("ativo");
-        config.modoTeste = lerBooleanoPainel("modoTeste");
+    function guardarPainel(raiz = document) {
+        config.ativo = lerBooleanoPainel("ativo", raiz);
+        config.modoTeste = lerBooleanoPainel("modoTeste", raiz);
         config.recarregarAoTerminar = false;
-        config.destacarLinhas = lerBooleanoPainel("destacarLinhas");
-        config.etiquetas.ataque = lerTextoPainel("etiquetaAtaque") || CONFIG_PADRAO.etiquetas.ataque;
-        config.etiquetas.apoio = lerTextoPainel("etiquetaApoio") || CONFIG_PADRAO.etiquetas.apoio;
-        config.etiquetas.nobre = lerTextoPainel("etiquetaNobre") || CONFIG_PADRAO.etiquetas.nobre;
-        config.formatoContagem = lerTextoPainel("formatoContagem") || CONFIG_PADRAO.formatoContagem;
-        config.atrasoIncomingsMinMs = lerNumeroPainel("atrasoIncomingsMinMs", CONFIG_PADRAO.atrasoIncomingsMinMs, 1000);
-        config.atrasoIncomingsMaxMs = lerNumeroPainel("atrasoIncomingsMaxMs", CONFIG_PADRAO.atrasoIncomingsMaxMs, 1000);
-        config.atrasoGlobalMinMs = lerNumeroPainel("atrasoGlobalMinMs", CONFIG_PADRAO.atrasoGlobalMinMs, 1000);
-        config.atrasoGlobalMaxMs = lerNumeroPainel("atrasoGlobalMaxMs", CONFIG_PADRAO.atrasoGlobalMaxMs, 1000);
-        config.intervaloEdicaoMinMs = lerNumeroPainel("intervaloEdicaoMinMs", CONFIG_PADRAO.intervaloEdicaoMinMs, 1000);
-        config.intervaloEdicaoMaxMs = lerNumeroPainel("intervaloEdicaoMaxMs", CONFIG_PADRAO.intervaloEdicaoMaxMs, 1000);
+        config.destacarLinhas = lerBooleanoPainel("destacarLinhas", raiz);
+        config.etiquetas.ataque = lerTextoPainel("etiquetaAtaque", raiz) || CONFIG_PADRAO.etiquetas.ataque;
+        config.etiquetas.apoio = lerTextoPainel("etiquetaApoio", raiz) || CONFIG_PADRAO.etiquetas.apoio;
+        config.etiquetas.nobre = lerTextoPainel("etiquetaNobre", raiz) || CONFIG_PADRAO.etiquetas.nobre;
+        config.formatoContagem = lerTextoPainel("formatoContagem", raiz) || CONFIG_PADRAO.formatoContagem;
+        config.atrasoIncomingsMinMs = lerNumeroPainel("atrasoIncomingsMinMs", CONFIG_PADRAO.atrasoIncomingsMinMs, 1000, raiz);
+        config.atrasoIncomingsMaxMs = lerNumeroPainel("atrasoIncomingsMaxMs", CONFIG_PADRAO.atrasoIncomingsMaxMs, 1000, raiz);
+        config.atrasoGlobalMinMs = lerNumeroPainel("atrasoGlobalMinMs", CONFIG_PADRAO.atrasoGlobalMinMs, 1000, raiz);
+        config.atrasoGlobalMaxMs = lerNumeroPainel("atrasoGlobalMaxMs", CONFIG_PADRAO.atrasoGlobalMaxMs, 1000, raiz);
+        config.intervaloEdicaoMinMs = lerNumeroPainel("intervaloEdicaoMinMs", CONFIG_PADRAO.intervaloEdicaoMinMs, 1000, raiz);
+        config.intervaloEdicaoMaxMs = lerNumeroPainel("intervaloEdicaoMaxMs", CONFIG_PADRAO.intervaloEdicaoMaxMs, 1000, raiz);
 
         if (config.atrasoIncomingsMaxMs < config.atrasoIncomingsMinMs) {
             config.atrasoIncomingsMaxMs = config.atrasoIncomingsMinMs;
@@ -1455,6 +1455,87 @@
         mostrarMensagem("Configuracao guardada.");
     }
 
+    function abrirConfiguracoesNativas(painel) {
+        if (!window.Dialog || typeof window.Dialog.show !== "function") {
+            return false;
+        }
+
+        const origem = painel.querySelector(".ti-config");
+        const estilo = painel.querySelector("style");
+        if (!origem || !estilo) {
+            return false;
+        }
+
+        const dialogId = "twPtEtiquetadorAtaquesSettings";
+        const cssDialogo = estilo.textContent.replaceAll(
+            "#tag-incomings-pt-panel",
+            "#tag-incomings-pt-dialog",
+        );
+        const html = `
+            <div id="tag-incomings-pt-dialog">
+                <style>
+                    ${cssDialogo}
+                    #tag-incomings-pt-dialog {
+                        position: static !important;
+                        font: 12px Arial, Verdana, sans-serif !important;
+                    }
+                    #tag-incomings-pt-dialog .ti-config {
+                        position: static !important;
+                        display: block !important;
+                        width: min(820px, calc(100vw - 70px)) !important;
+                        max-width: none !important;
+                        max-height: calc(100vh - 90px) !important;
+                        overflow: visible !important;
+                        padding: 0 !important;
+                        border: 0 !important;
+                        border-radius: 0 !important;
+                        background: transparent !important;
+                        box-shadow: none !important;
+                        transform: none !important;
+                    }
+                    #tag-incomings-pt-dialog .ti-content {
+                        max-height: calc(100vh - 180px) !important;
+                    }
+                    #tag-incomings-pt-dialog .ti-backdrop,
+                    #tag-incomings-pt-dialog .ti-close,
+                    #tag-incomings-pt-dialog .ti-toggle {
+                        display: none !important;
+                    }
+                </style>
+                ${origem.outerHTML}
+            </div>
+        `;
+
+        window.Dialog.show(dialogId, html);
+
+        window.setTimeout(() => {
+            const raiz = document.querySelector(`#popup_box_${dialogId} #tag-incomings-pt-dialog`)
+                || document.querySelector("#tag-incomings-pt-dialog");
+            if (!raiz || raiz.dataset.tiLigado === "1") {
+                return;
+            }
+
+            raiz.dataset.tiLigado = "1";
+            raiz.addEventListener("click", (evento) => {
+                const acao = evento.target?.closest?.("[data-ti-action]")?.dataset?.tiAction;
+                if (acao === "guardar") {
+                    guardarPainel(raiz);
+                }
+
+                if (acao === "executar") {
+                    guardarPainel(raiz);
+                    if (paginaDeIncomings()) {
+                        etiquetarIncomings();
+                    } else {
+                        verificarPaginaDoJogo();
+                    }
+                }
+            });
+        }, 0);
+
+        return true;
+    }
+
     function criarPainel() {
         if (estaEmFrame() || !config.mostrarPainel || document.querySelector("#tag-incomings-pt-panel")) {
             return;
@@ -1462,7 +1543,7 @@
 
         const painel = document.createElement("div");
         painel.id = "tag-incomings-pt-panel";
-        painel.className = config.painelAberto ? "ti-open" : "";
+        painel.className = "";
         painel.innerHTML = `
             <style>
                 #tag-incomings-pt-panel {
@@ -1735,7 +1816,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>Etiquetador de ataques - ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.3</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.4</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -1797,6 +1878,10 @@
             const controlo = evento.target?.closest?.("[data-ti-action]");
             const acao = controlo?.dataset?.tiAction;
             if (acao === "toggle") {
+                if (abrirConfiguracoesNativas(painel)) {
+                    return;
+                }
+
                 config.painelAberto = !config.painelAberto;
                 painel.classList.toggle("ti-open", config.painelAberto);
                 controlo.setAttribute("aria-expanded", config.painelAberto ? "true" : "false");
