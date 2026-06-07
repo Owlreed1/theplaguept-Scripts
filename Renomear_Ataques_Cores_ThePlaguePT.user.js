@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Renomear Ataques Cores ThePlaguePT
 // @namespace    theplaguept.tw.renomeador
-// @version      2.4.17
+// @version      2.4.19
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -1137,12 +1137,23 @@
     }
 
     function realcarTextoLinha(linha) {
-        if (!CONFIG.realcarTexto) return;
+        if (!CONFIG.realcarTexto || isApoio(linha)) {
+            restaurarTextoSemRealce(linha);
+            return;
+        }
 
         const label = linha.querySelector(SELETORES.etiquetaNome);
         if (!label) return;
 
         const texto = normalizarEspacos(label.textContent);
+        const temComandoReconhecido = Boolean(obterComandoPrincipalRealce(texto));
+        const temInfoAtacanteOuOrigem = /\/\s*(Atacante|Origem):\s*/i.test(texto);
+
+        if (!temComandoReconhecido && !temInfoAtacanteOuOrigem) {
+            restaurarTextoSemRealce(linha);
+            return;
+        }
+
         const linhaEscura = linha.dataset.raTpLinhaEscura === "1";
         if (
             !texto
@@ -1345,7 +1356,10 @@
     }
 
     function realcarInformacoesLinha(linha) {
-        if (!CONFIG.realcarInformacoesTabela) return;
+        if (!CONFIG.realcarInformacoesTabela || isApoio(linha)) {
+            limparRealceInformacoesLinha(linha);
+            return;
+        }
         if (!linha.closest("#incomings_table")) return;
 
         const mapa = obterMapaCabecalhos(linha);
