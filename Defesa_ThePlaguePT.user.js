@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.96
+// @version      0.1.97
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.96',
+        version: '0.1.97',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -91,7 +91,8 @@
             loadedAt: 0,
             value: false
         },
-        launcherPositionFrame: 0
+        launcherPositionFrame: 0,
+        launcherLockedPosition: null
     };
 
     let settings = {};
@@ -1587,13 +1588,7 @@
         scheduleLauncherPosition();
         setTimeout(scheduleLauncherPosition, 250);
         setTimeout(scheduleLauncherPosition, 1000);
-
-        $(window)
-            .off('resize.tpdefLauncher orientationchange.tpdefLauncher')
-            .on('resize.tpdefLauncher orientationchange.tpdefLauncher', function () {
-                scheduleLauncherPosition();
-                setTimeout(scheduleLauncherPosition, 100);
-            });
+        setTimeout(scheduleLauncherPosition, 2000);
     }
 
     function scheduleLauncherPosition() {
@@ -1610,6 +1605,11 @@
     function positionLauncher() {
         const button = document.getElementById('tpDefLauncher');
         if (!button) return;
+
+        if (state.launcherLockedPosition) {
+            applyLauncherPosition(button, state.launcherLockedPosition);
+            return;
+        }
 
         const gameLayout =
             document.querySelector('#main_layout td.maincell') ||
@@ -1634,6 +1634,7 @@
             const anchorRect = launcherAbove.getBoundingClientRect();
             left = Math.round(anchorRect.left);
             top = Math.round(anchorRect.bottom + 3);
+            state.launcherLockedPosition = {left, top};
         } else if (villageBar) {
             const barRect = villageBar.getBoundingClientRect();
             if (barRect.height > 0) {
@@ -1642,13 +1643,17 @@
             }
         }
 
-        button.style.setProperty('left', `${left}px`, 'important');
+        applyLauncherPosition(button, {left, top});
+    }
+
+    function applyLauncherPosition(button, position) {
+        button.style.setProperty('left', `${position.left}px`, 'important');
         button.style.setProperty('right', 'auto', 'important');
-        button.style.setProperty('top', `${top}px`, 'important');
+        button.style.setProperty('top', `${position.top}px`, 'important');
     }
 
     function findLauncherAbove(expectedLeft, ownButton) {
-        const candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+        const candidates = Array.from(document.querySelectorAll('body *'));
 
         return candidates
             .filter(function (element) {
@@ -1662,10 +1667,10 @@
                     style.visibility !== 'hidden' &&
                     style.position === 'fixed' &&
                     rect.width >= 24 &&
-                    rect.width <= 38 &&
+                    rect.width <= 42 &&
                     rect.height >= 24 &&
-                    rect.height <= 34 &&
-                    Math.abs(rect.left - expectedLeft) <= 8 &&
+                    rect.height <= 38 &&
+                    Math.abs(rect.left - expectedLeft) <= 10 &&
                     rect.top >= 0 &&
                     rect.bottom < window.innerHeight
                 );
