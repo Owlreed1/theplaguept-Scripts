@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.24
+// @version      1.0.25
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -177,6 +177,8 @@
     let verificacaoTimer = 0;
     let monitorWorker = null;
     let posicionamentoBotaoFrame = 0;
+    let posicaoBotaoLeft = null;
+    let posicaoBotaoBloqueada = false;
     let audioDesbloqueado = false;
     const audios = new Map();
     let filaSons = [];
@@ -2273,6 +2275,8 @@
         }
 
         const dialogId = "twPtEtiquetadorAtaquesSettings";
+        posicionarBotao();
+        posicaoBotaoBloqueada = true;
         const cssDialogo = estilo.textContent.replaceAll(
             "#tag-incomings-pt-panel",
             "#tag-incomings-pt-dialog",
@@ -2314,6 +2318,7 @@
         `;
 
         window.Dialog.show(dialogId, html);
+        observarFechoDialogo(dialogId);
 
         window.setTimeout(() => {
             const raiz = document.querySelector(`#popup_box_${dialogId} #tag-incomings-pt-dialog`)
@@ -2352,6 +2357,20 @@
         return true;
     }
 
+    function observarFechoDialogo(dialogId) {
+        const seletorDialogo = `#popup_box_${dialogId}, #tag-incomings-pt-dialog`;
+        const observador = new MutationObserver(() => {
+            if (document.querySelector(seletorDialogo)) {
+                return;
+            }
+
+            observador.disconnect();
+            posicaoBotaoBloqueada = false;
+            window.setTimeout(agendarPosicaoBotao, 100);
+        });
+        observador.observe(document.body, { childList: true, subtree: true });
+    }
+
     function agendarPosicaoBotao() {
         if (posicionamentoBotaoFrame) {
             window.cancelAnimationFrame(posicionamentoBotaoFrame);
@@ -2366,6 +2385,11 @@
     function posicionarBotao() {
         const painel = document.querySelector("#tag-incomings-pt-panel");
         if (!painel) {
+            return;
+        }
+
+        if (posicaoBotaoBloqueada && posicaoBotaoLeft !== null) {
+            painel.style.setProperty("left", `${posicaoBotaoLeft}px`, "important");
             return;
         }
 
@@ -2384,6 +2408,7 @@
             }
         }
 
+        posicaoBotaoLeft = left;
         painel.style.setProperty("left", `${left}px`, "important");
         painel.style.setProperty("right", "auto", "important");
         painel.style.setProperty("top", `${top}px`, "important");
@@ -2833,7 +2858,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.24</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.25</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
