@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.11
+// @version      1.0.12
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -196,12 +196,16 @@
             const guardado = JSON.parse(localStorage.getItem(STATE_KEY) || "{}");
             return {
                 ultimoTotalIncomings: Number(guardado.ultimoTotalIncomings) || 0,
+                ultimoTotalContador: Number(guardado.ultimoTotalContador) || 0,
                 ultimaAssinatura: String(guardado.ultimaAssinatura || ""),
+                processado: Boolean(guardado.processado),
             };
         } catch {
             return {
                 ultimoTotalIncomings: 0,
+                ultimoTotalContador: 0,
                 ultimaAssinatura: "",
+                processado: false,
             };
         }
     }
@@ -296,11 +300,54 @@
             || Boolean(document.querySelector(SELETORES.tabela));
     }
 
-    function obterLinhasValidas() {
+    function obterLinhasTabela() {
         return [...document.querySelectorAll(SELETORES.linha)].filter((linha) => (
             linha.querySelector(SELETORES.nome)
             && linha.querySelector(SELETORES.aldeiaAtacante)
         ));
+    }
+
+    function obterCelulaJogador(linha) {
+        const tabela = linha.closest("table");
+        const cabecalhos = [...(tabela?.querySelectorAll("thead th, tr:first-child th") || [])];
+        const indiceJogador = cabecalhos.findIndex((cabecalho) => (
+            /^(jogador|player)$/i.test(cabecalho.textContent?.trim() || "")
+        ));
+
+        if (indiceJogador >= 0) {
+            return linha.children[indiceJogador] || null;
+        }
+
+        return linha.querySelector("td:nth-child(4)");
+    }
+
+    function linhaDoProprioJogador(linha) {
+        const celula = obterCelulaJogador(linha);
+        if (!celula) {
+            return false;
+        }
+
+        const jogadorAtual = window.game_data?.player || {};
+        const idAtual = String(jogadorAtual.id || "");
+        const nomeAtual = normalizar(jogadorAtual.name || "");
+        const link = celula.querySelector('a[href*="screen=info_player"], a[href*="info_player"]');
+
+        if (idAtual && link?.href) {
+            try {
+                const idLinha = new URL(link.href, window.location.href).searchParams.get("id");
+                if (idLinha && String(idLinha) === idAtual) {
+                    return true;
+                }
+            } catch {
+                // O nome do jogador continua a servir como alternativa.
+            }
+        }
+
+        return Boolean(nomeAtual && normalizar(celula.textContent) === nomeAtual);
+    }
+
+    function obterLinhasValidas() {
+        return obterLinhasTabela().filter((linha) => !linhaDoProprioJogador(linha));
     }
 
     function obterIdComando(linha) {
@@ -320,18 +367,29 @@
 
     function atualizarEstadoIncomings(linhas = obterLinhasValidas()) {
         estado.ultimoTotalIncomings = linhas.length;
+        estado.ultimoTotalContador = obterLinhasTabela().length;
         estado.ultimaAssinatura = assinaturaIncomings(linhas);
+        estado.processado = true;
         guardarEstado();
+        atualizarContadorBotao();
     }
 
     function atualizarEstadoSemIncomings() {
-        if (estado.ultimoTotalIncomings === 0 && !estado.ultimaAssinatura) {
+        if (
+            estado.processado
+            && estado.ultimoTotalIncomings === 0
+            && estado.ultimoTotalContador === 0
+            && !estado.ultimaAssinatura
+        ) {
             return;
         }
 
         estado.ultimoTotalIncomings = 0;
+        estado.ultimoTotalContador = 0;
         estado.ultimaAssinatura = "";
+        estado.processado = true;
         guardarEstado();
+        atualizarContadorBotao();
     }
 
     function obterNome(linha) {
@@ -843,7 +901,7 @@
 
     async function esperarTabelaIncomings() {
         await esperarPor(
-            () => document.querySelector(SELETORES.tabela) && obterLinhasValidas().length > 0,
+            () => document.querySelector(SELETORES.tabela) && obterLinhasTabela().length > 0,
             10_000,
             250,
         );
@@ -1137,6 +1195,9 @@
             }
 
             const etiquetas = obterEtiquetasNormalizadas();
+            obterLinhasTabela()
+                .filter(linhaDoProprioJogador)
+                .forEach(desmarcarParaNaoEtiquetar);
             const linhas = obterLinhasValidas();
             const gruposRepetidos = criarGruposPorAldeia(linhas);
             const fullsNobre = contarFullsPorComboioDeNobres(gruposRepetidos.grupos);
@@ -1229,6 +1290,38 @@
         }, 0);
     }
 
+    function obterTotalContadorBotao() {
+        sincronizarEstado();
+
+        if (paginaDeIncomings()) {
+            return obterLinhasValidas().length;
+        }
+
+        return estado.processado
+            ? Math.max(0, estado.ultimoTotalIncomings)
+            : Math.max(0, obterContadorIncomings());
+    }
+
+    function atualizarContadorBotao() {
+        const contador = document.querySelector("#tag-incomings-pt-panel .ti-counter-value");
+        if (!contador) {
+            return;
+        }
+
+        const total = obterTotalContadorBotao();
+        contador.textContent = total > 99 ? "99+" : String(total);
+
+        const botao = contador.closest(".ti-toggle");
+        botao?.setAttribute(
+            "title",
+            `${total} ataque(s) recebido(s) - abrir etiquetador`,
+        );
+        botao?.setAttribute(
+            "aria-label",
+            `${total} ataque(s) recebido(s). Abrir etiquetador de ataques`,
+        );
+    }
+
     function obterTotalAtualIncomings() {
         const totalTabela = paginaDeIncomings() ? obterLinhasValidas().length : 0;
         return Math.max(totalTabela, obterContadorIncomings());
@@ -1237,9 +1330,28 @@
     function novoAtaqueDetectado() {
         sincronizarEstado();
 
-        const totalAtual = obterTotalAtualIncomings();
+        if (!paginaDeIncomings()) {
+            const totalContador = obterContadorIncomings();
+            if (totalContador <= 0) {
+                atualizarEstadoSemIncomings();
+                return false;
+            }
+
+            if (!estado.processado || totalContador > estado.ultimoTotalContador) {
+                return true;
+            }
+
+            if (totalContador < estado.ultimoTotalContador) {
+                estado.ultimoTotalContador = totalContador;
+                guardarEstado();
+            }
+
+            return false;
+        }
+
+        const totalAtual = obterLinhasValidas().length;
         if (totalAtual <= 0) {
-            atualizarEstadoSemIncomings();
+            atualizarEstadoIncomings([]);
             return false;
         }
 
@@ -1354,7 +1466,17 @@
 
             document.querySelector(`#${FRAME_FUNDO_ID}`)?.remove();
             sincronizarEstado();
+            atualizarContadorBotao();
             log("Processamento em fundo concluido. Monitor parado ate aparecer novo ataque.");
+        });
+
+        window.addEventListener("storage", (evento) => {
+            if (evento.key !== STATE_KEY) {
+                return;
+            }
+
+            sincronizarEstado();
+            atualizarContadorBotao();
         });
     }
 
@@ -1610,8 +1732,8 @@
                     align-items: center !important;
                     justify-content: flex-start !important;
                     gap: 0 !important;
-                    width: 30px !important;
-                    min-width: 30px !important;
+                    width: 34px !important;
+                    min-width: 34px !important;
                     height: 28px !important;
                     overflow: hidden !important;
                     padding: 0 6px !important;
@@ -1648,15 +1770,29 @@
                     display: inline-flex !important;
                     align-items: center !important;
                     justify-content: center !important;
-                    width: 16px !important;
-                    height: 16px !important;
-                    flex: 0 0 16px !important;
+                    gap: 2px !important;
+                    min-width: 24px !important;
+                    height: 18px !important;
+                    flex: 0 0 auto !important;
+                    box-sizing: border-box !important;
+                    padding: 0 3px !important;
+                    border: 1px solid #765523 !important;
+                    border-radius: 2px !important;
+                    background: linear-gradient(to bottom, #fff2c5, #dec180) !important;
+                    box-shadow:
+                        inset 0 1px 0 rgba(255, 255, 255, 0.75),
+                        0 1px 1px rgba(0, 0, 0, 0.55) !important;
                 }
                 #tag-incomings-pt-panel .ti-toggle-icon img {
                     display: block !important;
-                    width: 16px !important;
-                    height: 16px !important;
-                    filter: drop-shadow(0 1px 1px #000);
+                    width: 11px !important;
+                    height: 11px !important;
+                    filter: none !important;
+                }
+                #tag-incomings-pt-panel .ti-counter-value {
+                    color: #3c250f !important;
+                    font: bold 11px/16px Arial, sans-serif !important;
+                    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) !important;
                 }
                 #tag-incomings-pt-panel .ti-toggle-label {
                     display: inline-block !important;
@@ -1863,7 +1999,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>Etiquetador de ataques - ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.11</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.12</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -1916,7 +2052,10 @@
                 </div>
             </div>
             <button class="ti-toggle" type="button" data-ti-action="toggle" title="${config.painelAberto ? "Fechar configuracoes" : "Configurar etiquetador"}" aria-label="Configurar etiquetador de ataques" aria-expanded="${config.painelAberto ? "true" : "false"}">
-                <span class="ti-toggle-icon" aria-hidden="true"><img src="/graphic/command/attack.png" alt=""></span>
+                <span class="ti-toggle-icon" aria-hidden="true">
+                    <img src="/graphic/icons/attack.png" alt="">
+                    <span class="ti-counter-value">0</span>
+                </span>
                 <span class="ti-toggle-label">Etiquetador de ataques</span>
             </button>
         `;
@@ -1963,6 +2102,7 @@
 
         document.body.appendChild(painel);
         instalarPosicionamentoBotao();
+        atualizarContadorBotao();
     }
 
     function iniciar() {
