@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Renomear Ataques Cores ThePlaguePT
 // @namespace    theplaguept.tw.renomeador
-// @version      2.4.22
+// @version      1.0.1
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -26,7 +26,7 @@
         tamanhoLetraPx: 8,
         tamanhoBotaoPx: 18,
         paddingHorizontalBotaoPx: 3,
-        paginaDeAtaques: "coluna", // Modos: coluna, linha, nada
+        paginaDeAtaques: "coluna", // Modos: coluna, linha, texto, nada
         mostrarBotoesNoMapa: false,
         intervaloFallbackMs: 2500,
         timeoutEdicaoMs: 1200,
@@ -150,7 +150,7 @@
             if (typeof valores?.[chave] === "boolean") CONFIG[chave] = valores[chave];
         });
 
-        if (["coluna", "linha", "nada"].includes(valores?.paginaDeAtaques)) {
+        if (["coluna", "linha", "texto", "nada"].includes(valores?.paginaDeAtaques)) {
             CONFIG.paginaDeAtaques = valores.paginaDeAtaques;
         }
 
@@ -332,6 +332,7 @@
                                     <select id="${SCRIPT_ID}-config-pagina">
                                         <option value="coluna">Coluna do comando</option>
                                         <option value="linha">Linha completa</option>
+                                        <option value="texto">Apenas texto do botao</option>
                                         <option value="nada">Sem fundo</option>
                                     </select>
                                 </label>
@@ -1323,6 +1324,10 @@
             };
         }
 
+        if (CONFIG.paginaDeAtaques === "texto") {
+            return { cor: "inherit", peso: "inherit", sombra: "none" };
+        }
+
         const infoLabel = { cor: "#ffe66d", peso: "800", sombra: sombraForte };
         const estilos = {
             infoLabelAtacante: infoLabel,
@@ -1362,7 +1367,11 @@
     }
 
     function realcarInformacoesLinha(linha) {
-        if (!CONFIG.realcarInformacoesTabela || isApoio(linha)) {
+        if (
+            !CONFIG.realcarInformacoesTabela
+            || CONFIG.paginaDeAtaques === "texto"
+            || isApoio(linha)
+        ) {
             limparRealceInformacoesLinha(linha);
             return;
         }
@@ -1485,6 +1494,7 @@
 
         if (
             CONFIG.paginaDeAtaques === "nada"
+            || CONFIG.paginaDeAtaques === "texto"
             || isApoio(linha)
             || isComandoProprio(linha)
         ) return;
@@ -1684,6 +1694,9 @@
             }
 
             .ra-tp-botao {
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
                 flex: 0 0 ${CONFIG.tamanhoBotaoPx}px;
                 width: ${CONFIG.tamanhoBotaoPx}px;
                 min-width: ${CONFIG.tamanhoBotaoPx}px;
@@ -1694,7 +1707,9 @@
                 border-radius: 3px;
                 line-height: 1 !important;
                 font-weight: 600;
-                text-align: center;
+                text-align: center !important;
+                text-indent: 0 !important;
+                white-space: nowrap !important;
                 cursor: pointer;
                 box-sizing: border-box;
                 box-shadow:
