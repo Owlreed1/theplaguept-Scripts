@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.112
+// @version      0.1.113
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.112',
+        version: '0.1.113',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -90,6 +90,8 @@
             requestId: 0,
             commandCount: 0
         },
+        supportPopupTroopsByCommand: {},
+        supportPopupCaptureInstalled: false,
         nightBonusCache: {
             loadedAt: 0,
             value: false
@@ -124,6 +126,7 @@
 
         if (screen === 'overview' && settings.features.wallResistance) {
             addWallResistanceWidget();
+            installSupportPopupCapture();
             setTimeout(refreshCurrentVillageDefenseWidget, 750);
             setTimeout(refreshCurrentVillageDefenseWidget, 2000);
         }
@@ -856,6 +859,53 @@
                     color: #6f4b16;
                     font-size: 10.5px;
                     line-height: 12px;
+                    white-space: nowrap;
+                }
+
+                #tpdefWallResistance .tpdef-support-forecast {
+                    display: none !important;
+                }
+
+                #tpdefIncomingSupportPanel {
+                    width: 100%;
+                    margin: 6px 0;
+                    border-left: 4px solid #1e87b8;
+                    box-sizing: border-box;
+                }
+
+                #tpdefIncomingSupportPanel th {
+                    padding: 3px 6px;
+                    text-align: left;
+                }
+
+                #tpdefIncomingSupportPanel td {
+                    padding: 5px 6px;
+                }
+
+                .tpdef-support-panel-row {
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 5px 10px;
+                    min-width: 0;
+                }
+
+                .tpdef-support-panel-units {
+                    display: flex;
+                    flex: 1 1 280px;
+                    flex-wrap: wrap;
+                    gap: 4px;
+                    min-width: 0;
+                }
+
+                .tpdef-support-panel-result {
+                    display: inline-flex;
+                    flex: 0 1 auto;
+                    align-items: center;
+                    gap: 4px;
+                    color: #8f2b25;
+                    font-weight: bold;
                     white-space: nowrap;
                 }
 
@@ -3034,6 +3084,8 @@
         if ($('#show_buildqueue').length) $('#show_buildqueue').after(widget);
         else $('#content_value').prepend(widget);
 
+        renderCurrentVillageSupportPanel(level);
+
         $('#tpdefWallToggle').off('click.tpdef').on('click.tpdef', function (event) {
             event.preventDefault();
             const body = $('#tpdefWallResistance .tpdef-defense-body');
@@ -3055,6 +3107,64 @@
             event.preventDefault();
             openDefenseCalculatorDialog();
         });
+    }
+
+    function renderCurrentVillageSupportPanel(level) {
+        $('#tpdefIncomingSupportPanel').remove();
+
+        const forecast = level && level.supportForecast;
+        if (!forecast) return;
+
+        const target = $('#commands_incomings').first();
+        if (!target.length) return;
+
+        const troops = forecast.troops || {};
+        const preferredOrder = (game_data.units || []).concat(Object.keys(APP.troopPop));
+        const units = Array.from(new Set(preferredOrder)).filter(function (unit) {
+            return parseAmount(troops[unit]) > 0;
+        });
+        const unitsHtml = units.length
+            ? units.map(function (unit) {
+                return `
+                    <span class="tpdef-support-unit">
+                        <img src="/graphic/unit/unit_${escapeAttr(unit)}.png" title="${escapeAttr(getUnitName(unit))}" alt="">
+                        ${formatNumber(troops[unit])}
+                    </span>
+                `;
+            }).join('')
+            : `<span class="tpdef-support-unit">${escapeHtml(forecast.status || 'A carregar tropas...')}</span>`;
+        const count = parseAmount(forecast.count);
+        const totalUnits = Object.keys(troops).reduce(function (sum, unit) {
+            return sum + parseAmount(troops[unit]);
+        }, 0);
+        const totalPopulation = calculateTroopPopulation(troops);
+        const totals = hasTroops(troops)
+            ? `${formatNumber(totalUnits)} unidades | Pop: ${formatNumber(totalPopulation)}`
+            : escapeHtml(forecast.status || 'A carregar tropas...');
+
+        target.before(`
+            <table id="tpdefIncomingSupportPanel" class="vis">
+                <tr>
+                    <th>
+                        <img src="/graphic/command/support.png" style="width:16px;height:16px;vertical-align:middle" alt="">
+                        Tropas de apoio a chegar${count > 0 ? ` (${formatNumber(count)})` : ''}
+                    </th>
+                </tr>
+                <tr>
+                    <td>
+                        <div class="tpdef-support-panel-row">
+                            <div class="tpdef-support-panel-units">${unitsHtml}</div>
+                            <div class="tpdef-support-summary">
+                                <span>${totals}</span>
+                                <span class="tpdef-support-panel-result">
+                                    Depois dos apoios: ${escapeHtml(forecast.capacity)}
+                                </span>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        `);
     }
 
     function getCurrentWallLevel() {
@@ -3215,8 +3325,16 @@
     function readVisibleIncomingSupportTroops() {
         const totals = {};
 
-        getIncomingSupportRows().each(function () {
-            addTroops(totals, readUnitAmountsFromRoot($(this)));
+        getIncomingSupportRows().each(function (index) {
+            const row = $(this);
+            const rowTroops = {};
+
+            mergeTroopsByMaximum(rowTroops, readUnitAmountsFromRoot(row));
+            mergeTroopsByMaximum(rowTroops, readUnitAmountsFromMetadata(row));
+
+            const key = getSupportCommandKey(row, index);
+            mergeTroopsByMaximum(rowTroops, state.supportPopupTroopsByCommand[key] || {});
+            addTroops(totals, rowTroops);
         });
 
         $('.popup_box:visible, .popup_box_content:visible, .tooltip:visible, #command_popup:visible')
@@ -3234,6 +3352,75 @@
         return totals;
     }
 
+    function readUnitAmountsFromMetadata(root) {
+        const troops = {};
+
+        root.find('*').addBack().each(function () {
+            const element = $(this);
+            const values = [
+                element.attr('data-units'),
+                element.attr('data-troops'),
+                element.attr('data-content'),
+                element.attr('data-title'),
+                element.attr('data-tooltip'),
+                element.attr('title'),
+                element.attr('onmouseover'),
+                element.attr('onmouseenter'),
+                element.attr('onclick')
+            ].filter(Boolean);
+
+            values.forEach(function (value) {
+                mergeTroopsByMaximum(troops, readUnitAmountsFromEncodedText(value));
+            });
+
+            const data = element.data();
+            if (data && typeof data === 'object') {
+                mergeTroopsByMaximum(troops, readUnitAmountsFromResponse(data));
+            }
+        });
+
+        return troops;
+    }
+
+    function readUnitAmountsFromEncodedText(value) {
+        const troops = {};
+        const decoded = $('<textarea>').html(String(value || '')).text();
+        const unitPattern = Object.keys(APP.unitStats).join('|');
+        const objectPattern = new RegExp(
+            `(?:["']?(${unitPattern})["']?|unit_(${unitPattern}))\\s*(?:\\.png)?\\s*["']?\\s*[:=,]\\s*["']?([\\d.]+)`,
+            'gi'
+        );
+        let match;
+
+        while ((match = objectPattern.exec(decoded))) {
+            const unit = match[1] || match[2];
+            const amount = parseAmount(match[3]);
+            if (unit && amount > 0) troops[unit] = Math.max(troops[unit] || 0, amount);
+        }
+
+        if (decoded.indexOf('<') >= 0) {
+            mergeTroopsByMaximum(
+                troops,
+                readUnitAmountsFromRoot($('<div>').append($.parseHTML(decoded, document, true)))
+            );
+        }
+
+        return troops;
+    }
+
+    function mergeTroopsByMaximum(target, extra) {
+        Object.keys(extra || {}).forEach(function (unit) {
+            const amount = parseAmount(extra[unit]);
+            if (amount > 0) target[unit] = Math.max(target[unit] || 0, amount);
+        });
+
+        return target;
+    }
+
+    function getSupportCommandKey(row, index) {
+        return extractSupportCommandId(row) || `support_${index}`;
+    }
+
     function getIncomingSupportRows() {
         return $('#commands_incomings tr, #commands_incomings .command-row')
             .filter(function () {
@@ -3246,6 +3433,97 @@
 
                 return looksLikeCommand && (hasSupportIcon || text.includes('apoio') || text.includes('suporte'));
             });
+    }
+
+    function installSupportPopupCapture() {
+        if (state.supportPopupCaptureInstalled) return;
+        state.supportPopupCaptureInstalled = true;
+
+        $(document)
+            .off('mouseover.tpdefSupportPopup', '#commands_incomings tr, #commands_incomings .command-row')
+            .on('mouseover.tpdefSupportPopup', '#commands_incomings tr, #commands_incomings .command-row', function () {
+                const row = $(this);
+
+                setTimeout(function () {
+                    captureSupportPopupTroops(row);
+                }, 120);
+                setTimeout(function () {
+                    captureSupportPopupTroops(row);
+                }, 350);
+            });
+
+        setTimeout(probeIncomingSupportPopups, 1200);
+    }
+
+    function probeIncomingSupportPopups() {
+        const rows = getIncomingSupportRows();
+
+        rows.each(function (index) {
+            const row = $(this);
+            const trigger = row.find(
+                '[onmouseover*="Popup"], [onmouseenter*="Popup"], a, .quickedit'
+            ).first();
+
+            if (!trigger.length) return;
+
+            setTimeout(function () {
+                trigger.trigger('mouseenter').trigger('mouseover');
+
+                setTimeout(function () {
+                    captureSupportPopupTroops(row);
+                    trigger.trigger('mouseout').trigger('mouseleave');
+                }, 280);
+            }, index * 380);
+        });
+    }
+
+    function captureSupportPopupTroops(row) {
+        const troops = readVisibleSupportPopupTroops();
+        if (!hasTroops(troops)) return;
+
+        const rows = getIncomingSupportRows();
+        const index = Math.max(0, rows.index(row));
+        const key = getSupportCommandKey(row, index);
+        state.supportPopupTroopsByCommand[key] = cloneTroops(troops);
+        state.supportTroopsCache.loadedAt = 0;
+
+        if (String(game_data.screen || '') === 'overview') addWallResistanceWidget();
+    }
+
+    function readVisibleSupportPopupTroops() {
+        const troops = {};
+        const roots = new Set();
+
+        $(
+            '.popup_box:visible, .popup_box_content:visible, .tooltip:visible, ' +
+            '.unit_popup:visible, .command_popup:visible, [id^="popup"]:visible'
+        ).each(function () {
+            const root = $(this);
+            const text = clean(root.text());
+            if (text.includes('apoio') || text.includes('suporte')) roots.add(this);
+        });
+
+        $('img[src*="/unit/unit_"]:visible, img[src*="unit/unit_"]:visible')
+            .not('#show_units img, #unit_overview_table img, #commands_incomings img, #tpdefWallResistance img, #tpdefIncomingSupportPanel img')
+            .each(function () {
+                let candidate = $(this).closest('table, .popup_box, .popup_box_content, .tooltip, div');
+
+                for (let depth = 0; candidate.length && depth < 6; depth += 1) {
+                    const text = clean(candidate.text());
+                    if (text.includes('apoio') || text.includes('suporte')) {
+                        roots.add(candidate[0]);
+                        break;
+                    }
+                    candidate = candidate.parent();
+                }
+            });
+
+        roots.forEach(function (root) {
+            mergeTroopsByMaximum(troops, readUnitAmountsFromRoot($(root)));
+            mergeTroopsByMaximum(troops, readUnitAmountsFromMetadata($(root)));
+        });
+
+        return troops;
     }
 
     function refreshCurrentVillageSupportTroopsCache(seedTroops, commandLinks, commandLinksKey) {
