@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.106
+// @version      0.1.107
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.106',
+        version: '0.1.107',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -776,6 +776,7 @@
                 .tpdef-support-forecast {
                     display: grid;
                     grid-template-columns: auto minmax(0, 1fr) auto;
+                    grid-column: 1 / -1;
                     flex: 1 1 100%;
                     gap: 4px 7px;
                     align-items: center;
@@ -2437,8 +2438,8 @@
                             ${level.defenseCounter ? renderFullCounter(level, 'defense') : ''}
                         </div>
                         ${level.shortage ? `<div class="tpdef-defense-extra tpdef-defense-shortage">${level.shortage}</div>` : ''}
-                        ${renderIncomingSupportForecast(level)}
                     </div>
+                    ${renderIncomingSupportForecast(level)}
                 </div>
             `;
     }
