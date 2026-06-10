@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.111
+// @version      0.1.112
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.111',
+        version: '0.1.112',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -3274,9 +3274,9 @@
         let remaining = links.length;
 
         links.forEach(function (url) {
-            $.get(url)
-                .done(function (html) {
-                    addTroops(fetchedTotals, readUnitAmountsFromRoot($('<div>').append($.parseHTML(html, document, true))));
+            fetchIncomingSupportCommandTroops(url)
+                .done(function (troops) {
+                    addTroops(fetchedTotals, troops);
                 })
                 .always(function () {
                     remaining -= 1;
@@ -3296,19 +3296,164 @@
         });
     }
 
+    function fetchIncomingSupportCommandTroops(commandUrl) {
+        const deferred = $.Deferred();
+        const detailsUrl = buildCommandDetailsUrl(commandUrl);
+
+        $.get(detailsUrl)
+            .done(function (response) {
+                const troops = readUnitAmountsFromResponse(response);
+
+                if (hasTroops(troops) || detailsUrl === commandUrl) {
+                    deferred.resolve(troops);
+                    return;
+                }
+
+                $.get(commandUrl)
+                    .done(function (fallbackResponse) {
+                        deferred.resolve(readUnitAmountsFromResponse(fallbackResponse));
+                    })
+                    .fail(function () {
+                        deferred.resolve({});
+                    });
+            })
+            .fail(function () {
+                if (detailsUrl === commandUrl) {
+                    deferred.resolve({});
+                    return;
+                }
+
+                $.get(commandUrl)
+                    .done(function (fallbackResponse) {
+                        deferred.resolve(readUnitAmountsFromResponse(fallbackResponse));
+                    })
+                    .fail(function () {
+                        deferred.resolve({});
+                    });
+            });
+
+        return deferred.promise();
+    }
+
+    function buildCommandDetailsUrl(commandUrl) {
+        try {
+            const url = new URL(commandUrl, window.location.href);
+            url.searchParams.set('screen', 'info_command');
+            url.searchParams.set('ajax', 'details');
+            return url.toString();
+        } catch (err) {
+            return commandUrl;
+        }
+    }
+
+    function readUnitAmountsFromResponse(response) {
+        const troops = {};
+
+        if (response && typeof response === 'object') {
+            collectUnitAmountsFromObject(troops, response);
+        }
+
+        const html = extractHtmlFromResponse(response);
+        if (html) {
+            addTroops(troops, readUnitAmountsFromRoot(
+                $('<div>').append($.parseHTML(html, document, true))
+            ));
+        }
+
+        return troops;
+    }
+
+    function collectUnitAmountsFromObject(target, source) {
+        if (!source || typeof source !== 'object') return;
+
+        [source.units, source.troops, source.support, source.data].forEach(function (unitMap) {
+            if (!unitMap || typeof unitMap !== 'object' || Array.isArray(unitMap)) return;
+
+            Object.keys(APP.unitStats).forEach(function (unit) {
+                const amount = parseAmount(unitMap[unit]);
+                if (amount > 0) target[unit] = Math.max(target[unit] || 0, amount);
+            });
+        });
+    }
+
+    function extractHtmlFromResponse(response) {
+        if (typeof response === 'string') return response;
+        if (!response || typeof response !== 'object') return '';
+
+        const fields = ['html', 'dialog', 'content', 'body', 'data'];
+
+        for (let i = 0; i < fields.length; i += 1) {
+            const value = response[fields[i]];
+            if (typeof value === 'string' && value.indexOf('<') >= 0) return value;
+        }
+
+        return '';
+    }
+
     function getIncomingSupportCommandLinks() {
         const links = new Set();
 
         getIncomingSupportRows().each(function () {
-            $(this).find('a[href*="info_command"][href*="id="]').each(function () {
+            const row = $(this);
+            const linksBeforeRow = links.size;
+
+            row.find('a[href*="info_command"][href*="id="]').each(function () {
                 const href = String($(this).attr('href') || '');
                 if (!href || !/[?&]id=\d+/.test(href)) return;
 
                 links.add(resolveGameUrl(href));
             });
+
+            if (links.size > linksBeforeRow) return;
+
+            const commandId = extractSupportCommandId(row);
+            if (commandId) links.add(buildInfoCommandUrl(commandId));
         });
 
         return Array.from(links);
+    }
+
+    function extractSupportCommandId(row) {
+        const elements = row.find('*').addBack();
+
+        for (let i = 0; i < elements.length; i += 1) {
+            const element = elements.eq(i);
+            const attributes = [
+                element.attr('data-command-id'),
+                element.attr('data-id'),
+                element.attr('href'),
+                element.attr('onmouseover'),
+                element.attr('onmouseenter'),
+                element.attr('onclick'),
+                element.attr('id'),
+                element.attr('name'),
+                element.attr('value')
+            ].filter(Boolean);
+
+            for (let j = 0; j < attributes.length; j += 1) {
+                const value = String(attributes[j]);
+                const queryMatch = value.match(/[?&]id=(\d+)/);
+                if (queryMatch) return queryMatch[1];
+
+                const popupMatch = value.match(/CommandPopup[^(]*\([^)]*?[,(\s'"](\d{3,})[,)\s'"]/i);
+                if (popupMatch) return popupMatch[1];
+
+                const commandMatch = value.match(/(?:command|cmd)[^\d]{0,12}(\d{3,})/i);
+                if (commandMatch) return commandMatch[1];
+            }
+        }
+
+        return '';
+    }
+
+    function buildInfoCommandUrl(commandId) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('screen', 'info_command');
+        url.searchParams.set('id', commandId);
+        url.searchParams.delete('mode');
+        url.searchParams.delete('action');
+        url.searchParams.delete('ajax');
+        return url.toString();
     }
 
     function resolveGameUrl(href) {
@@ -4695,11 +4840,6 @@
     function formatFullCapacity(endurance, targetCount) {
         if (endurance.safeAttacks >= targetCount && endurance.finalWall > 0) {
             return `${targetCount}+`;
-        }
-
-        if (endurance.safeAttacks <= 0 && endurance.initialDefenseRatio > 0) {
-            const percentage = Math.max(1, Math.min(99, Math.round(endurance.initialDefenseRatio * 100)));
-            return `0 (${percentage}%)`;
         }
 
         return String(endurance.safeAttacks);
