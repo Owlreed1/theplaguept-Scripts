@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.113
+// @version      0.1.114
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.113',
+        version: '0.1.114',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -92,6 +92,9 @@
         },
         supportPopupTroopsByCommand: {},
         supportPopupCaptureInstalled: false,
+        supportPopupObserver: null,
+        supportPopupCaptureTimer: null,
+        activeSupportCommandKey: '',
         nightBonusCache: {
             loadedAt: 0,
             value: false
@@ -879,15 +882,15 @@
                 }
 
                 #tpdefIncomingSupportPanel td {
-                    padding: 5px 6px;
+                    padding: 4px 6px;
                 }
 
                 .tpdef-support-panel-row {
                     display: flex;
                     flex-wrap: wrap;
                     align-items: center;
-                    justify-content: space-between;
-                    gap: 5px 10px;
+                    justify-content: flex-start;
+                    gap: 4px 8px;
                     min-width: 0;
                 }
 
@@ -907,6 +910,12 @@
                     color: #8f2b25;
                     font-weight: bold;
                     white-space: nowrap;
+                }
+
+                .tpdef-support-panel-loading {
+                    color: #6f4b16;
+                    font-size: 11px;
+                    font-style: italic;
                 }
 
                 @media (max-width: 720px) {
@@ -2688,18 +2697,26 @@
             });
         });
 
-        root.find('img[src*="/unit/unit_"], img[src*="unit/unit_"]')
+        root.find(
+            'img[src*="/unit/unit_"], img[src*="unit/unit_"], ' +
+            '[data-unit], [class*="unit-item-"], [class*="unit_"]'
+        )
             .not('#tpdefMapDefenseInfo img, #tpdefWallResistance img')
             .each(function () {
-                const image = $(this);
-                const match = String(image.attr('src') || '').match(/unit_([a-z_]+)\.png/);
-                if (!match || !APP.unitStats[match[1]]) return;
+                const marker = $(this);
+                const unit = getUnitFromElement(marker);
+                if (!unit) return;
 
-                const unit = match[1];
-                const cell = image.closest('td,th');
-                const row = image.closest('tr');
+                const cell = marker.closest('td,th');
+                const row = marker.closest('tr');
                 const index = cell.index();
                 const candidates = [
+                    marker.attr('data-count'),
+                    marker.attr('data-amount'),
+                    marker.attr('value'),
+                    marker.text(),
+                    marker.next().text(),
+                    marker.parent().next().text(),
                     cell.text(),
                     cell.next('td,th').text(),
                     row.next('tr').children('td,th').eq(index).text(),
@@ -2716,6 +2733,27 @@
             });
 
         return troops;
+    }
+
+    function getUnitFromElement(element) {
+        const direct = String(element.attr('data-unit') || '').toLowerCase();
+        if (APP.unitStats[direct]) return direct;
+
+        const haystack = [
+            element.attr('src'),
+            element.attr('class'),
+            element.attr('style'),
+            element.attr('id'),
+            element.attr('title'),
+            element.attr('alt')
+        ].filter(Boolean).join(' ').toLowerCase();
+
+        const imageMatch = haystack.match(/unit[_-]([a-z_]+)(?:\.png|\b)/);
+        if (imageMatch && APP.unitStats[imageMatch[1]]) return imageMatch[1];
+
+        return Object.keys(APP.unitStats).find(function (unit) {
+            return new RegExp(`(?:^|[_\\s-])${unit}(?:$|[_\\s.-])`).test(haystack);
+        }) || '';
     }
 
     function readMapPopupBuildingLevel(popup, building) {
@@ -3132,17 +3170,12 @@
                     </span>
                 `;
             }).join('')
-            : `<span class="tpdef-support-unit">${escapeHtml(forecast.status || 'A carregar tropas...')}</span>`;
+            : '<span class="tpdef-support-panel-loading">A recolher apoios...</span>';
         const count = parseAmount(forecast.count);
-        const totalUnits = Object.keys(troops).reduce(function (sum, unit) {
-            return sum + parseAmount(troops[unit]);
-        }, 0);
-        const totalPopulation = calculateTroopPopulation(troops);
-        const totals = hasTroops(troops)
-            ? `${formatNumber(totalUnits)} unidades | Pop: ${formatNumber(totalPopulation)}`
-            : escapeHtml(forecast.status || 'A carregar tropas...');
 
-        target.before(`
+        const incomingWidget = target.closest('.widget').first();
+        const insertionAnchor = incomingWidget.length ? incomingWidget : target;
+        const panel = `
             <table id="tpdefIncomingSupportPanel" class="vis">
                 <tr>
                     <th>
@@ -3154,17 +3187,18 @@
                     <td>
                         <div class="tpdef-support-panel-row">
                             <div class="tpdef-support-panel-units">${unitsHtml}</div>
-                            <div class="tpdef-support-summary">
-                                <span>${totals}</span>
+                            ${hasTroops(troops) ? `
                                 <span class="tpdef-support-panel-result">
-                                    Depois dos apoios: ${escapeHtml(forecast.capacity)}
+                                    Aguenta depois: ${escapeHtml(forecast.capacity)}
                                 </span>
-                            </div>
+                            ` : ''}
                         </div>
                     </td>
                 </tr>
             </table>
-        `);
+        `;
+
+        insertionAnchor.before(panel);
     }
 
     function getCurrentWallLevel() {
@@ -3337,18 +3371,6 @@
             addTroops(totals, rowTroops);
         });
 
-        $('.popup_box:visible, .popup_box_content:visible, .tooltip:visible, #command_popup:visible')
-            .not('#tpdefWallResistance, #tpdefWallResistance *')
-            .each(function () {
-                const root = $(this);
-                const text = clean(root.text());
-                const hasUnits = root.find('img[src*="/unit/unit_"], img[src*="unit/unit_"]').length > 0;
-
-                if (hasUnits && (text.includes('apoio') || text.includes('suporte'))) {
-                    addTroops(totals, readUnitAmountsFromRoot(root));
-                }
-            });
-
         return totals;
     }
 
@@ -3443,6 +3465,9 @@
             .off('mouseover.tpdefSupportPopup', '#commands_incomings tr, #commands_incomings .command-row')
             .on('mouseover.tpdefSupportPopup', '#commands_incomings tr, #commands_incomings .command-row', function () {
                 const row = $(this);
+                const rows = getIncomingSupportRows();
+                const index = Math.max(0, rows.index(row));
+                state.activeSupportCommandKey = getSupportCommandKey(row, index);
 
                 setTimeout(function () {
                     captureSupportPopupTroops(row);
@@ -3452,7 +3477,33 @@
                 }, 350);
             });
 
+        if (window.MutationObserver) {
+            state.supportPopupObserver = new MutationObserver(scheduleSupportPopupCapture);
+            state.supportPopupObserver.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+        }
+
         setTimeout(probeIncomingSupportPopups, 1200);
+    }
+
+    function scheduleSupportPopupCapture() {
+        if (!state.activeSupportCommandKey) return;
+
+        clearTimeout(state.supportPopupCaptureTimer);
+        state.supportPopupCaptureTimer = setTimeout(function () {
+            const troops = readVisibleSupportPopupTroops();
+            if (!hasTroops(troops)) return;
+
+            const previous = state.supportPopupTroopsByCommand[state.activeSupportCommandKey] || {};
+            if (getTroopsSignature(previous) === getTroopsSignature(troops)) return;
+
+            state.supportPopupTroopsByCommand[state.activeSupportCommandKey] = cloneTroops(troops);
+            state.supportTroopsCache.loadedAt = 0;
+
+            if (String(game_data.screen || '') === 'overview') addWallResistanceWidget();
+        }, 60);
     }
 
     function probeIncomingSupportPopups() {
@@ -3467,7 +3518,16 @@
             if (!trigger.length) return;
 
             setTimeout(function () {
+                state.activeSupportCommandKey = getSupportCommandKey(row, index);
                 trigger.trigger('mouseenter').trigger('mouseover');
+
+                if (trigger[0] && window.MouseEvent) {
+                    trigger[0].dispatchEvent(new MouseEvent('mouseover', {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    }));
+                }
 
                 setTimeout(function () {
                     captureSupportPopupTroops(row);
@@ -3484,6 +3544,10 @@
         const rows = getIncomingSupportRows();
         const index = Math.max(0, rows.index(row));
         const key = getSupportCommandKey(row, index);
+        state.activeSupportCommandKey = key;
+        const previous = state.supportPopupTroopsByCommand[key] || {};
+        if (getTroopsSignature(previous) === getTroopsSignature(troops)) return;
+
         state.supportPopupTroopsByCommand[key] = cloneTroops(troops);
         state.supportTroopsCache.loadedAt = 0;
 
@@ -3503,8 +3567,14 @@
             if (text.includes('apoio') || text.includes('suporte')) roots.add(this);
         });
 
-        $('img[src*="/unit/unit_"]:visible, img[src*="unit/unit_"]:visible')
-            .not('#show_units img, #unit_overview_table img, #commands_incomings img, #tpdefWallResistance img, #tpdefIncomingSupportPanel img')
+        $(
+            'img[src*="/unit/unit_"]:visible, img[src*="unit/unit_"]:visible, ' +
+            '[data-unit]:visible, [class*="unit-item-"]:visible, [class*="unit_"]:visible'
+        )
+            .not(
+                '#show_units *, #unit_overview_table *, #commands_incomings *, ' +
+                '#tpdefWallResistance *, #tpdefIncomingSupportPanel *'
+            )
             .each(function () {
                 let candidate = $(this).closest('table, .popup_box, .popup_box_content, .tooltip, div');
 
@@ -3524,6 +3594,15 @@
         });
 
         return troops;
+    }
+
+    function getTroopsSignature(troops) {
+        return Object.keys(troops || {})
+            .sort()
+            .map(function (unit) {
+                return `${unit}:${parseAmount(troops[unit])}`;
+            })
+            .join('|');
     }
 
     function refreshCurrentVillageSupportTroopsCache(seedTroops, commandLinks, commandLinksKey) {
