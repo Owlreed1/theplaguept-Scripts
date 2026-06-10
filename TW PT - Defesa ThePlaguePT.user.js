@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.108
+// @version      0.1.111
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.108',
+        version: '0.1.111',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -778,7 +778,7 @@
 
                 .tpdef-support-forecast {
                     display: grid;
-                    grid-template-columns: auto minmax(0, 1fr) auto;
+                    grid-template-columns: minmax(0, 1fr) auto;
                     grid-column: 1 / -1;
                     flex: 1 1 100%;
                     gap: 4px 7px;
@@ -801,6 +801,24 @@
                     white-space: nowrap;
                 }
 
+                .tpdef-support-forecast-title {
+                    grid-column: 1 / -1;
+                    justify-content: space-between;
+                    padding-bottom: 2px;
+                    border-bottom: 1px solid #dec58c;
+                }
+
+                .tpdef-support-title-label {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+
+                .tpdef-support-title-meta {
+                    color: #6f4b16;
+                    font-weight: normal;
+                }
+
                 .tpdef-support-forecast-title img,
                 .tpdef-support-unit img {
                     width: 16px;
@@ -811,17 +829,33 @@
                 .tpdef-support-units {
                     display: flex;
                     flex-wrap: wrap;
-                    gap: 3px 6px;
+                    gap: 4px;
                     min-width: 0;
                 }
 
                 .tpdef-support-unit {
                     display: inline-flex;
                     align-items: center;
-                    gap: 2px;
+                    gap: 3px;
+                    min-height: 20px;
+                    padding: 1px 5px 1px 3px;
+                    border: 1px solid #dec58c;
+                    background: #f8e8bd;
                     color: #3b2508;
                     font-size: 11px;
                     font-weight: bold;
+                    white-space: nowrap;
+                }
+
+                .tpdef-support-summary {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: flex-end;
+                    justify-content: center;
+                    gap: 2px;
+                    color: #6f4b16;
+                    font-size: 10.5px;
+                    line-height: 12px;
                     white-space: nowrap;
                 }
 
@@ -831,6 +865,11 @@
                     }
 
                     .tpdef-support-forecast-capacity {
+                        white-space: normal;
+                    }
+
+                    .tpdef-support-summary {
+                        align-items: flex-start;
                         white-space: normal;
                     }
                 }
@@ -2472,16 +2511,29 @@
         const content = unitHtml || `<span class="tpdef-support-unit">${escapeHtml(forecast.status || 'A carregar tropas...')}</span>`;
         const count = parseAmount(forecast.count);
         const countText = count > 0 ? ` (${formatNumber(count)})` : '';
+        const totalUnits = Object.keys(troops).reduce(function (sum, unit) {
+            return sum + parseAmount(troops[unit]);
+        }, 0);
+        const totalPopulation = calculateTroopPopulation(troops);
+        const totalsText = hasTroops(troops)
+            ? `Total: ${formatNumber(totalUnits)} unidades | Pop: ${formatNumber(totalPopulation)}`
+            : escapeHtml(forecast.status || 'A carregar tropas...');
 
         return `
             <div class="tpdef-support-forecast">
                 <span class="tpdef-support-forecast-title">
-                    <img src="/graphic/command/support.png" alt="">
-                    Apoios a chegar${countText}
+                    <span class="tpdef-support-title-label">
+                        <img src="/graphic/command/support.png" alt="">
+                        Total de apoios por unidade${countText}
+                    </span>
+                    <span class="tpdef-support-title-meta">Todos os apoios a chegar somados</span>
                 </span>
                 <span class="tpdef-support-units">${content}</span>
-                <span class="tpdef-support-forecast-capacity">
-                    Depois dos apoios: ${escapeHtml(forecast.capacity)}
+                <span class="tpdef-support-summary">
+                    <span>${totalsText}</span>
+                    <span class="tpdef-support-forecast-capacity">
+                        Depois dos apoios: ${escapeHtml(forecast.capacity)}
+                    </span>
                 </span>
             </div>
         `;
@@ -2582,9 +2634,36 @@
                 if (!match || !APP.unitStats[match[1]]) return;
 
                 const amount = parseMapPopupTroopAmount(valueRow.children('td,th').eq(image.closest('td,th').index()).text());
-                if (amount > 0) troops[match[1]] = (troops[match[1]] || 0) + amount;
+                if (amount > 0) troops[match[1]] = Math.max(troops[match[1]] || 0, amount);
             });
         });
+
+        root.find('img[src*="/unit/unit_"], img[src*="unit/unit_"]')
+            .not('#tpdefMapDefenseInfo img, #tpdefWallResistance img')
+            .each(function () {
+                const image = $(this);
+                const match = String(image.attr('src') || '').match(/unit_([a-z_]+)\.png/);
+                if (!match || !APP.unitStats[match[1]]) return;
+
+                const unit = match[1];
+                const cell = image.closest('td,th');
+                const row = image.closest('tr');
+                const index = cell.index();
+                const candidates = [
+                    cell.text(),
+                    cell.next('td,th').text(),
+                    row.next('tr').children('td,th').eq(index).text(),
+                    row.nextAll('tr').slice(0, 4).children('td,th').eq(index).text()
+                ];
+
+                for (let i = 0; i < candidates.length; i += 1) {
+                    const amount = parseMapPopupTroopAmount(candidates[i]);
+                    if (amount <= 0) continue;
+
+                    troops[unit] = Math.max(troops[unit] || 0, amount);
+                    break;
+                }
+            });
 
         return troops;
     }
@@ -3002,6 +3081,8 @@
         const selectors = [
             `.all_unit [data-count="${unit}"]:visible`,
             `[data-count="${unit}"]:visible`,
+            `#show_units .unit-item-${unit}:visible`,
+            `#show_units [data-unit="${unit}"]:visible`,
             `#unit_overview_table .unit-item-${unit}:visible`,
             `#unit_overview_table [data-unit="${unit}"]:visible`
         ];
@@ -3012,6 +3093,21 @@
                 const value = parseAmount(element.text());
                 if (value > 0) return value;
             }
+        }
+
+        const unitImage = $(
+            `#show_units img[src*="unit_${unit}.png"]:visible, ` +
+            `#unit_overview_table img[src*="unit_${unit}.png"]:visible, ` +
+            `.all_unit img[src*="unit_${unit}.png"]:visible`
+        ).not('#tpdefWallResistance img').first();
+
+        if (unitImage.length) {
+            const row = unitImage.closest('tr');
+            const rowAmount = parseFirstAmount(row.text());
+            if (rowAmount > 0) return rowAmount;
+
+            const cellAmount = parseFirstAmount(unitImage.closest('td,th').text());
+            if (cellAmount > 0) return cellAmount;
         }
 
         return 0;
@@ -3123,6 +3219,18 @@
             addTroops(totals, readUnitAmountsFromRoot($(this)));
         });
 
+        $('.popup_box:visible, .popup_box_content:visible, .tooltip:visible, #command_popup:visible')
+            .not('#tpdefWallResistance, #tpdefWallResistance *')
+            .each(function () {
+                const root = $(this);
+                const text = clean(root.text());
+                const hasUnits = root.find('img[src*="/unit/unit_"], img[src*="unit/unit_"]').length > 0;
+
+                if (hasUnits && (text.includes('apoio') || text.includes('suporte'))) {
+                    addTroops(totals, readUnitAmountsFromRoot(root));
+                }
+            });
+
         return totals;
     }
 
@@ -3133,7 +3241,7 @@
                 const text = clean(row.text());
                 const hasSupportIcon = row.find('img[src*="support"]').length > 0;
                 const looksLikeCommand = row.find(
-                    '.quickedit, .timer, span[data-endtime], a[href*="screen=info_command"]'
+                    '.quickedit, .timer, span[data-endtime], a[href*="info_command"]'
                 ).length > 0;
 
                 return looksLikeCommand && (hasSupportIcon || text.includes('apoio') || text.includes('suporte'));
@@ -3192,7 +3300,7 @@
         const links = new Set();
 
         getIncomingSupportRows().each(function () {
-            $(this).find('a[href*="screen=info_command"][href*="id="]').each(function () {
+            $(this).find('a[href*="info_command"][href*="id="]').each(function () {
                 const href = String($(this).attr('href') || '');
                 if (!href || !/[?&]id=\d+/.test(href)) return;
 
@@ -4313,9 +4421,12 @@
             return {
                 safeAttacks: 0,
                 finalWall: Math.round(currentWall),
-                wallAfterSafeAttacks
+                wallAfterSafeAttacks,
+                initialDefenseRatio: 0
             };
         }
+
+        const initialDefenseRatio = calculateDefensePower(currentTroops, attack.weights, currentWall) / attack.total;
 
         for (let i = 0; i < incomingCount; i += 1) {
             const defensePower = calculateDefensePower(currentTroops, attack.weights, currentWall);
@@ -4353,7 +4464,8 @@
         return {
             safeAttacks,
             finalWall: Math.round(currentWall),
-            wallAfterSafeAttacks
+            wallAfterSafeAttacks,
+            initialDefenseRatio
         };
     }
 
@@ -4581,9 +4693,16 @@
     }
 
     function formatFullCapacity(endurance, targetCount) {
-        return endurance.safeAttacks >= targetCount && endurance.finalWall > 0
-            ? `${targetCount}+`
-            : String(endurance.safeAttacks);
+        if (endurance.safeAttacks >= targetCount && endurance.finalWall > 0) {
+            return `${targetCount}+`;
+        }
+
+        if (endurance.safeAttacks <= 0 && endurance.initialDefenseRatio > 0) {
+            const percentage = Math.max(1, Math.min(99, Math.round(endurance.initialDefenseRatio * 100)));
+            return `0 (${percentage}%)`;
+        }
+
+        return String(endurance.safeAttacks);
     }
 
     function hasTroops(troops) {
