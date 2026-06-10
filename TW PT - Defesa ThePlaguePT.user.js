@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.105
+// @version      0.1.106
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.105',
+        version: '0.1.106',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -85,7 +85,9 @@
             villageId: null,
             loadedAt: 0,
             loading: false,
-            troops: {}
+            troops: {},
+            linksKey: '',
+            requestId: 0
         },
         nightBonusCache: {
             loadedAt: 0,
@@ -771,6 +773,64 @@
                     line-height: 13px;
                 }
 
+                .tpdef-support-forecast {
+                    display: grid;
+                    grid-template-columns: auto minmax(0, 1fr) auto;
+                    flex: 1 1 100%;
+                    gap: 4px 7px;
+                    align-items: center;
+                    min-width: 0;
+                    padding: 4px 6px;
+                    border: 1px solid #d5b579;
+                    background: #fff3cf;
+                    box-sizing: border-box;
+                }
+
+                .tpdef-support-forecast-title,
+                .tpdef-support-forecast-capacity {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    color: #8f2b25;
+                    font-size: 11px;
+                    font-weight: bold;
+                    white-space: nowrap;
+                }
+
+                .tpdef-support-forecast-title img,
+                .tpdef-support-unit img {
+                    width: 16px;
+                    height: 16px;
+                    object-fit: contain;
+                }
+
+                .tpdef-support-units {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 3px 6px;
+                    min-width: 0;
+                }
+
+                .tpdef-support-unit {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 2px;
+                    color: #3b2508;
+                    font-size: 11px;
+                    font-weight: bold;
+                    white-space: nowrap;
+                }
+
+                @media (max-width: 720px) {
+                    .tpdef-support-forecast {
+                        grid-template-columns: 1fr;
+                    }
+
+                    .tpdef-support-forecast-capacity {
+                        white-space: normal;
+                    }
+                }
+
                 .tpdef-shortage-units {
                     display: flex;
                     flex-wrap: wrap;
@@ -864,6 +924,10 @@
 
                     #tpdefWallResistance .tpdef-defense-shortage {
                         flex: 1 1 190px;
+                    }
+
+                    #tpdefWallResistance .tpdef-support-forecast {
+                        grid-template-columns: 1fr;
                     }
 
                     #tpdefWallResistance .tpdef-defense-action {
@@ -1537,6 +1601,11 @@
                     padding: 2px 4px;
                     font-size: 10.5px;
                     line-height: 12px;
+                }
+
+                #tpdefMapDefenseInfo .tpdef-support-forecast {
+                    grid-column: 1 / -1;
+                    grid-template-columns: 1fr;
                 }
 
                 @media (max-width: 560px) {
@@ -2368,9 +2437,43 @@
                             ${level.defenseCounter ? renderFullCounter(level, 'defense') : ''}
                         </div>
                         ${level.shortage ? `<div class="tpdef-defense-extra tpdef-defense-shortage">${level.shortage}</div>` : ''}
+                        ${renderIncomingSupportForecast(level)}
                     </div>
                 </div>
             `;
+    }
+
+    function renderIncomingSupportForecast(level) {
+        const forecast = level && level.supportForecast;
+        const troops = forecast && forecast.troops;
+
+        if (!hasTroops(troops)) return '';
+
+        const preferredOrder = (game_data.units || []).concat(Object.keys(APP.troopPop));
+        const units = Array.from(new Set(preferredOrder)).filter(function (unit) {
+            return parseAmount(troops[unit]) > 0;
+        });
+        const unitHtml = units.map(function (unit) {
+            return `
+                <span class="tpdef-support-unit">
+                    <img src="/graphic/unit/unit_${escapeAttr(unit)}.png" title="${escapeAttr(getUnitName(unit))}" alt="">
+                    ${formatNumber(troops[unit])}
+                </span>
+            `;
+        }).join('');
+
+        return `
+            <div class="tpdef-support-forecast">
+                <span class="tpdef-support-forecast-title">
+                    <img src="/graphic/command/support.png" alt="">
+                    Apoios a chegar
+                </span>
+                <span class="tpdef-support-units">${unitHtml}</span>
+                <span class="tpdef-support-forecast-capacity">
+                    Depois dos apoios: ${escapeHtml(forecast.capacity)}
+                </span>
+            </div>
+        `;
     }
 
     function renderFullCounter(level, type) {
@@ -2949,15 +3052,21 @@
         const villageId = String(game_data.village && game_data.village.id || '');
         const now = Date.now();
         const cache = state.supportTroopsCache;
+        const links = getIncomingSupportCommandLinks();
+        const linksKey = links.slice().sort().join('|');
 
-        if (cache.villageId === villageId && now - cache.loadedAt < 60000) {
+        if (
+            cache.villageId === villageId &&
+            cache.linksKey === linksKey &&
+            now - cache.loadedAt < 60000
+        ) {
             return cache.troops || {};
         }
 
         const visibleTroops = readVisibleIncomingSupportTroops();
 
-        if (!cache.loading) {
-            refreshCurrentVillageSupportTroopsCache(visibleTroops);
+        if (!cache.loading || cache.linksKey !== linksKey || cache.villageId !== villageId) {
+            refreshCurrentVillageSupportTroopsCache(visibleTroops, links, linksKey);
         }
 
         return visibleTroops;
@@ -2984,12 +3093,18 @@
             });
     }
 
-    function refreshCurrentVillageSupportTroopsCache(seedTroops) {
+    function refreshCurrentVillageSupportTroopsCache(seedTroops, commandLinks, commandLinksKey) {
         const villageId = String(game_data.village && game_data.village.id || '');
         const cache = state.supportTroopsCache;
-        const links = getIncomingSupportCommandLinks();
+        const links = commandLinks || getIncomingSupportCommandLinks();
+        const linksKey = commandLinksKey !== undefined
+            ? commandLinksKey
+            : links.slice().sort().join('|');
+        const requestId = cache.requestId + 1;
 
         cache.villageId = villageId;
+        cache.linksKey = linksKey;
+        cache.requestId = requestId;
         cache.loading = true;
 
         if (!links.length) {
@@ -2999,20 +3114,23 @@
             return;
         }
 
-        const totals = cloneTroops(seedTroops || {});
+        const fetchedTotals = {};
         let remaining = links.length;
 
         links.forEach(function (url) {
             $.get(url)
                 .done(function (html) {
-                    addTroops(totals, readUnitAmountsFromRoot($('<div>').append($.parseHTML(html, document, true))));
+                    addTroops(fetchedTotals, readUnitAmountsFromRoot($('<div>').append($.parseHTML(html, document, true))));
                 })
                 .always(function () {
                     remaining -= 1;
 
                     if (remaining > 0) return;
+                    if (requestId !== cache.requestId) return;
 
-                    cache.troops = totals;
+                    cache.troops = hasTroops(fetchedTotals)
+                        ? fetchedTotals
+                        : cloneTroops(seedTroops || {});
                     cache.loadedAt = Date.now();
                     cache.loading = false;
 
@@ -3026,7 +3144,7 @@
         const links = new Set();
 
         getIncomingSupportRows().each(function () {
-            $(this).find('a[href*="screen=info_command"], a[href*="id="]').each(function () {
+            $(this).find('a[href*="screen=info_command"][href*="id="]').each(function () {
                 const href = String($(this).attr('href') || '');
                 if (!href || !/[?&]id=\d+/.test(href)) return;
 
@@ -3914,6 +4032,13 @@
 
     function getDefenseAgainstAttackModel(troops, wall, model, incomingInfo, supportTroops) {
         if (!hasAttackModel(model)) {
+            const supportForecast = hasTroops(supportTroops)
+                ? {
+                    troops: cloneTroops(supportTroops),
+                    capacity: 'define o modelo de ataque'
+                }
+                : null;
+
             return {
                 text: 'Sem modelo',
                 color: '#a66a00',
@@ -3928,6 +4053,7 @@
                 subnote: 'Usa Modelo ataque para guardar o ataque base.',
                 extra: '',
                 shortage: '',
+                supportForecast,
                 icon: '/graphic/command/attack.png'
             };
         }
@@ -3949,16 +4075,20 @@
         const countedEndurance = supportEndurance || endurance;
         const countedFullEndurance = supportFullEndurance || fullEndurance;
         const safeCount = countedEndurance.safeAttacks;
-        const fullsText = formatFullCapacity(countedFullEndurance, fullTarget);
+        const currentFullsText = formatFullCapacity(fullEndurance, fullTarget);
+        const supportFullsText = supportFullEndurance
+            ? formatFullCapacity(supportFullEndurance, fullTarget)
+            : '';
         const incomingDetail = incoming.ariete > 0
             ? `Arietes nomeados: ${incoming.ariete}/${incoming.total}.`
             : incoming.total > 0
                 ? `Ataques a chegar: ${incoming.total}; nenhum com "ariete" no nome.`
                 : '';
         const subnote = '';
-        const shortage = getDefenseRequirementSuggestion(troops, wall, model, incoming);
+        const projectedTroops = supportFullEndurance ? mergeTroops(troops, supportTroops) : troops;
+        const shortage = getDefenseRequirementSuggestion(projectedTroops, wall, model, incoming);
         const attackCounterValue = hasIncoming ? incoming.count : 0;
-        const defenseCounterValue = fullsText;
+        const defenseCounterValue = currentFullsText;
         const attackCounter = `Fulls a Chegar: ${attackCounterValue}`;
         const defenseCounter = `Fulls que a aldeia aguenta: ${defenseCounterValue}`;
         const highlight = hasIncoming
@@ -3966,9 +4096,14 @@
             : defenseCounter;
         const extraParts = [];
         if (incomingDetail) extraParts.push(incomingDetail);
-        if (supportFullEndurance) extraParts.push('Apoios a caminho contabilizados.');
         if (isNightBonusApplied()) extraParts.push('Bonus nocturno ativo: defesa x2.');
         const extra = extraParts.join(' ');
+        const supportForecast = supportFullEndurance
+            ? {
+                troops: cloneTroops(supportTroops),
+                capacity: `${supportFullsText} fulls`
+            }
+            : null;
 
         if ((hasIncoming && safeCount >= incoming.count) || (!hasIncoming && countedFullEndurance.safeAttacks >= 10)) {
             return {
@@ -3985,6 +4120,7 @@
                 subnote,
                 extra,
                 shortage,
+                supportForecast,
                 icon: '/graphic/command/support.png'
             };
         }
@@ -4004,6 +4140,7 @@
                 subnote,
                 extra,
                 shortage,
+                supportForecast,
                 icon: '/graphic/unit/unit_heavy.png'
             };
         }
@@ -4022,6 +4159,7 @@
             subnote,
             extra,
             shortage,
+            supportForecast,
             icon: '/graphic/command/attack.png'
         };
     }
