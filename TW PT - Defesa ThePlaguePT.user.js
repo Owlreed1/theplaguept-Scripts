@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.107
+// @version      0.1.108
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.107',
+        version: '0.1.108',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -87,7 +87,8 @@
             loading: false,
             troops: {},
             linksKey: '',
-            requestId: 0
+            requestId: 0,
+            commandCount: 0
         },
         nightBonusCache: {
             loadedAt: 0,
@@ -123,6 +124,8 @@
 
         if (screen === 'overview' && settings.features.wallResistance) {
             addWallResistanceWidget();
+            setTimeout(refreshCurrentVillageDefenseWidget, 750);
+            setTimeout(refreshCurrentVillageDefenseWidget, 2000);
         }
 
         if (screen === 'place' && settings.features.massSupport) {
@@ -2365,7 +2368,8 @@
             villageData.wall,
             attackModel,
             villageData.incomingInfo,
-            villageData.supportTroops
+            villageData.supportTroops,
+            villageData.supportData
         );
         const signature = JSON.stringify({
             coords: villageData.coords,
@@ -2417,11 +2421,14 @@
         const troops = readMapPopupTroops(popup);
         const wall = readMapPopupBuildingLevel(popup, 'wall');
         const incomingInfo = getMapPopupIncomingInfo(popup, coords);
-        const supportTroops = isCurrentVillageMapPopup(popup, coords) ? getCurrentVillageIncomingSupportTroops() : {};
+        const supportData = isCurrentVillageMapPopup(popup, coords)
+            ? getCurrentVillageIncomingSupportData()
+            : {troops: {}, count: 0, loading: false};
+        const supportTroops = supportData.troops;
 
         if (!Object.keys(troops).length) return null;
 
-        return {coords, troops, wall, incomingInfo, supportTroops};
+        return {coords, troops, wall, incomingInfo, supportTroops, supportData};
     }
 
     function renderDefenseSummary(level) {
@@ -2446,9 +2453,9 @@
 
     function renderIncomingSupportForecast(level) {
         const forecast = level && level.supportForecast;
-        const troops = forecast && forecast.troops;
+        const troops = forecast && forecast.troops || {};
 
-        if (!hasTroops(troops)) return '';
+        if (!forecast) return '';
 
         const preferredOrder = (game_data.units || []).concat(Object.keys(APP.troopPop));
         const units = Array.from(new Set(preferredOrder)).filter(function (unit) {
@@ -2462,14 +2469,17 @@
                 </span>
             `;
         }).join('');
+        const content = unitHtml || `<span class="tpdef-support-unit">${escapeHtml(forecast.status || 'A carregar tropas...')}</span>`;
+        const count = parseAmount(forecast.count);
+        const countText = count > 0 ? ` (${formatNumber(count)})` : '';
 
         return `
             <div class="tpdef-support-forecast">
                 <span class="tpdef-support-forecast-title">
                     <img src="/graphic/command/support.png" alt="">
-                    Apoios a chegar
+                    Apoios a chegar${countText}
                 </span>
-                <span class="tpdef-support-units">${unitHtml}</span>
+                <span class="tpdef-support-units">${content}</span>
                 <span class="tpdef-support-forecast-capacity">
                     Depois dos apoios: ${escapeHtml(forecast.capacity)}
                 </span>
@@ -2560,9 +2570,11 @@
             const icons = iconRow.find('img[src*="/unit/unit_"], img[src*="unit/unit_"]').not('#tpdefMapDefenseInfo img');
             if (!icons.length) return;
 
-            const valueRow = iconRow.next('tr');
+            const valueRow = iconRow.nextAll('tr').slice(0, 4).filter(function () {
+                return isMapPopupTroopValueRow($(this));
+            }).first();
 
-            if (!valueRow.length || !isMapPopupTroopValueRow(valueRow)) return;
+            if (!valueRow.length) return;
 
             icons.each(function () {
                 const image = $(this);
@@ -2863,8 +2875,16 @@
 
         const attackModel = loadAttackModel();
         const incomingInfo = getCurrentVillageIncomingCount();
-        const supportTroops = getCurrentVillageIncomingSupportTroops();
-        const level = getDefenseAgainstAttackModel(troops, wall, attackModel, incomingInfo, supportTroops);
+        const supportData = getCurrentVillageIncomingSupportData();
+        const supportTroops = supportData.troops;
+        const level = getDefenseAgainstAttackModel(
+            troops,
+            wall,
+            attackModel,
+            incomingInfo,
+            supportTroops,
+            supportData
+        );
         const wallPercent = Math.min(100, Math.max(0, wall * 5));
         const wallColor = getWallColor(wall);
 
@@ -3049,28 +3069,51 @@
         return /\barietes?\b/.test(clean(row.text()));
     }
 
-    function getCurrentVillageIncomingSupportTroops() {
+    function refreshCurrentVillageDefenseWidget() {
+        if (String(game_data.screen || '') !== 'overview') return;
+
+        state.supportTroopsCache.loadedAt = 0;
+        addWallResistanceWidget();
+    }
+
+    function getCurrentVillageIncomingSupportData() {
         const villageId = String(game_data.village && game_data.village.id || '');
         const now = Date.now();
         const cache = state.supportTroopsCache;
+        const rows = getIncomingSupportRows();
         const links = getIncomingSupportCommandLinks();
         const linksKey = links.slice().sort().join('|');
+        const commandCount = Math.max(rows.length, links.length);
 
         if (
             cache.villageId === villageId &&
             cache.linksKey === linksKey &&
+            !cache.loading &&
             now - cache.loadedAt < 60000
         ) {
-            return cache.troops || {};
+            return {
+                troops: cache.troops || {},
+                count: cache.commandCount || commandCount,
+                loading: cache.loading
+            };
         }
 
         const visibleTroops = readVisibleIncomingSupportTroops();
+        cache.commandCount = commandCount;
 
         if (!cache.loading || cache.linksKey !== linksKey || cache.villageId !== villageId) {
             refreshCurrentVillageSupportTroopsCache(visibleTroops, links, linksKey);
         }
 
-        return visibleTroops;
+        return {
+            troops: visibleTroops,
+            count: commandCount,
+            loading: links.length > 0
+        };
+    }
+
+    function getCurrentVillageIncomingSupportTroops() {
+        return getCurrentVillageIncomingSupportData().troops;
     }
 
     function readVisibleIncomingSupportTroops() {
@@ -3089,8 +3132,11 @@
                 const row = $(this);
                 const text = clean(row.text());
                 const hasSupportIcon = row.find('img[src*="support"]').length > 0;
+                const looksLikeCommand = row.find(
+                    '.quickedit, .timer, span[data-endtime], a[href*="screen=info_command"]'
+                ).length > 0;
 
-                return hasSupportIcon || text.includes('apoio') || text.includes('suporte');
+                return looksLikeCommand && (hasSupportIcon || text.includes('apoio') || text.includes('suporte'));
             });
     }
 
@@ -3106,6 +3152,7 @@
         cache.villageId = villageId;
         cache.linksKey = linksKey;
         cache.requestId = requestId;
+        cache.commandCount = Math.max(getIncomingSupportRows().length, links.length);
         cache.loading = true;
 
         if (!links.length) {
@@ -4031,11 +4078,20 @@
         return names[unit] || unit;
     }
 
-    function getDefenseAgainstAttackModel(troops, wall, model, incomingInfo, supportTroops) {
+    function getDefenseAgainstAttackModel(troops, wall, model, incomingInfo, supportTroops, supportData) {
+        const supportCount = parseAmount(supportData && supportData.count);
+        const supportLoading = !!(supportData && supportData.loading);
+
         if (!hasAttackModel(model)) {
-            const supportForecast = hasTroops(supportTroops)
+            const supportForecast = hasTroops(supportTroops) || supportCount > 0
                 ? {
-                    troops: cloneTroops(supportTroops),
+                    troops: cloneTroops(supportTroops || {}),
+                    count: supportCount,
+                    status: hasTroops(supportTroops)
+                        ? ''
+                        : supportLoading
+                            ? 'A carregar tropas...'
+                            : 'Quantidades não disponibilizadas pelo jogo.',
                     capacity: 'define o modelo de ataque'
                 }
                 : null;
@@ -4099,10 +4155,18 @@
         if (incomingDetail) extraParts.push(incomingDetail);
         if (isNightBonusApplied()) extraParts.push('Bonus nocturno ativo: defesa x2.');
         const extra = extraParts.join(' ');
-        const supportForecast = supportFullEndurance
+        const supportForecast = supportFullEndurance || supportCount > 0
             ? {
-                troops: cloneTroops(supportTroops),
-                capacity: `${supportFullsText} fulls`
+                troops: cloneTroops(supportTroops || {}),
+                count: supportCount,
+                status: supportFullEndurance
+                    ? ''
+                    : supportLoading
+                        ? 'A carregar tropas...'
+                        : 'Quantidades não disponibilizadas pelo jogo.',
+                capacity: supportFullEndurance
+                    ? `${supportFullsText} fulls`
+                    : 'por calcular'
             }
             : null;
 
