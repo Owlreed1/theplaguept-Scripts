@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.117
+// @version      0.1.118
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.117',
+        version: '0.1.118',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -3589,10 +3589,19 @@
                 let remaining = commands.length;
 
                 commands.forEach(function (command) {
+                    if (hasTroops(command.troops)) {
+                        addTroops(totals, command.troops);
+                        remaining -= 1;
+
+                        if (remaining === 0) {
+                            finishCurrentVillageSupportTroopsRefresh(cache, requestId, totals);
+                        }
+                        return;
+                    }
+
                     fetchIncomingSupportCommandTroops(command.url)
                         .done(function (troops) {
-                            const commandTroops = hasTroops(troops) ? troops : command.troops;
-                            addTroops(totals, commandTroops);
+                            addTroops(totals, troops);
                         })
                         .always(function () {
                             remaining -= 1;
@@ -3667,6 +3676,8 @@
 
         rows.each(function (index) {
             const row = $(this);
+            const unitColumns = getCommandTableUnitColumns(row.closest('table'));
+            const troops = readCommandTableRowTroops(row, unitColumns);
             const id = extractSupportCommandId(row);
             const directLink = row.find('a[href*="info_command"][href*="id="]').first().attr('href');
             const url = directLink
@@ -3675,12 +3686,9 @@
                     ? buildInfoCommandUrl(id)
                     : '';
 
-            if (!url) return;
+            if (!url && !hasTroops(troops)) return;
 
-            const key = id || url;
-            const troops = {};
-            mergeTroopsByMaximum(troops, readUnitAmountsFromRoot(row));
-            mergeTroopsByMaximum(troops, readUnitAmountsFromMetadata(row));
+            const key = id || url || `support_${index}_${getTroopsSignature(troops)}`;
 
             commands.set(key, {
                 id: id || `support_${index}`,
@@ -3690,6 +3698,55 @@
         });
 
         return Array.from(commands.values());
+    }
+
+    function getCommandTableUnitColumns(table) {
+        const columns = {};
+        let bestCount = 0;
+
+        table.find('tr').each(function () {
+            const rowColumns = {};
+
+            $(this).children('th,td').each(function (index) {
+                const cell = $(this);
+                const marker = cell.find(
+                    'img[src*="/unit/unit_"], img[src*="unit/unit_"], ' +
+                    '[data-unit], [class*="unit-item-"]'
+                ).first();
+                const unit = getUnitFromElement(marker);
+
+                if (unit) rowColumns[unit] = index;
+            });
+
+            const count = Object.keys(rowColumns).length;
+            if (count > bestCount) {
+                bestCount = count;
+                Object.keys(columns).forEach(function (unit) {
+                    delete columns[unit];
+                });
+                Object.assign(columns, rowColumns);
+            }
+        });
+
+        return columns;
+    }
+
+    function readCommandTableRowTroops(row, unitColumns) {
+        const troops = {};
+        const cells = row.children('th,td');
+
+        Object.keys(unitColumns || {}).forEach(function (unit) {
+            const index = unitColumns[unit];
+            const amount = parseCommandTableAmount(cells.eq(index).text());
+            if (amount > 0) troops[unit] = amount;
+        });
+
+        return troops;
+    }
+
+    function parseCommandTableAmount(value) {
+        const text = $.trim(String(value || '')).replace(/\./g, '');
+        return /^\d+$/.test(text) ? parseAmount(text) : 0;
     }
 
     function findReceivedSupportCommandRows(root) {
@@ -3706,11 +3763,14 @@
             const row = $(this);
             const table = row.closest('table');
             const headingText = clean(table.find('th').slice(0, 3).text());
-            const isReceivingSection = /\b(a receber|a chegar|receber|incoming)\b/.test(headingText);
+            const isReceivingSection = /\b(a receber|a chegar|receber|incoming|aldeia de origem|origem|source)\b/.test(headingText);
 
             return isIncomingSupportCommandRow(row) &&
                 isReceivingSection &&
-                row.find('a[href*="info_command"][href*="id="]').length > 0;
+                (
+                    row.find('a[href*="info_command"][href*="id="]').length > 0 ||
+                    Object.keys(getCommandTableUnitColumns(table)).length > 0
+                );
         });
     }
 
