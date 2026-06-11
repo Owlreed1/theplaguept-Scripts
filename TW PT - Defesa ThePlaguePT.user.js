@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.114
+// @version      0.1.115
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.114',
+        version: '0.1.115',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -887,26 +887,56 @@
 
                 .tpdef-support-panel-row {
                     display: flex;
-                    flex-wrap: wrap;
-                    align-items: center;
-                    justify-content: flex-start;
-                    gap: 4px 8px;
+                    align-items: stretch;
+                    justify-content: space-between;
+                    gap: 5px;
                     min-width: 0;
                 }
 
                 .tpdef-support-panel-units {
-                    display: flex;
+                    display: grid;
+                    grid-auto-flow: column;
+                    grid-auto-columns: minmax(48px, auto);
                     flex: 1 1 280px;
-                    flex-wrap: wrap;
-                    gap: 4px;
+                    justify-content: start;
+                    gap: 0;
                     min-width: 0;
+                    overflow-x: auto;
+                }
+
+                .tpdef-support-panel-unit {
+                    display: grid;
+                    grid-template-rows: 18px auto;
+                    align-items: center;
+                    justify-items: center;
+                    min-width: 48px;
+                    padding: 2px 6px;
+                    border-right: 1px solid #dec58c;
+                    background: #f8e8bd;
+                    box-sizing: border-box;
+                    color: #3b2508;
+                    font-size: 11px;
+                    font-weight: bold;
+                    white-space: nowrap;
+                }
+
+                .tpdef-support-panel-unit:first-child {
+                    border-left: 1px solid #dec58c;
+                }
+
+                .tpdef-support-panel-unit img {
+                    width: 16px;
+                    height: 16px;
                 }
 
                 .tpdef-support-panel-result {
                     display: inline-flex;
-                    flex: 0 1 auto;
+                    flex: 0 0 auto;
                     align-items: center;
                     gap: 4px;
+                    padding: 3px 8px;
+                    border: 1px solid #dec58c;
+                    background: #fff3cf;
                     color: #8f2b25;
                     font-weight: bold;
                     white-space: nowrap;
@@ -3164,9 +3194,9 @@
         const unitsHtml = units.length
             ? units.map(function (unit) {
                 return `
-                    <span class="tpdef-support-unit">
+                    <span class="tpdef-support-panel-unit">
                         <img src="/graphic/unit/unit_${escapeAttr(unit)}.png" title="${escapeAttr(getUnitName(unit))}" alt="">
-                        ${formatNumber(troops[unit])}
+                        <span>${formatNumber(troops[unit])}</span>
                     </span>
                 `;
             }).join('')
@@ -3189,7 +3219,7 @@
                             <div class="tpdef-support-panel-units">${unitsHtml}</div>
                             ${hasTroops(troops) ? `
                                 <span class="tpdef-support-panel-result">
-                                    Aguenta depois: ${escapeHtml(forecast.capacity)}
+                                    Aguenta após chegada: ${escapeHtml(forecast.capacity)}
                                 </span>
                             ` : ''}
                         </div>
@@ -3485,7 +3515,6 @@
             });
         }
 
-        setTimeout(probeIncomingSupportPopups, 1200);
     }
 
     function scheduleSupportPopupCapture() {
@@ -3504,37 +3533,6 @@
 
             if (String(game_data.screen || '') === 'overview') addWallResistanceWidget();
         }, 60);
-    }
-
-    function probeIncomingSupportPopups() {
-        const rows = getIncomingSupportRows();
-
-        rows.each(function (index) {
-            const row = $(this);
-            const trigger = row.find(
-                '[onmouseover*="Popup"], [onmouseenter*="Popup"], a, .quickedit'
-            ).first();
-
-            if (!trigger.length) return;
-
-            setTimeout(function () {
-                state.activeSupportCommandKey = getSupportCommandKey(row, index);
-                trigger.trigger('mouseenter').trigger('mouseover');
-
-                if (trigger[0] && window.MouseEvent) {
-                    trigger[0].dispatchEvent(new MouseEvent('mouseover', {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window
-                    }));
-                }
-
-                setTimeout(function () {
-                    captureSupportPopupTroops(row);
-                    trigger.trigger('mouseout').trigger('mouseleave');
-                }, 280);
-            }, index * 380);
-        });
     }
 
     function captureSupportPopupTroops(row) {
@@ -3563,8 +3561,7 @@
             '.unit_popup:visible, .command_popup:visible, [id^="popup"]:visible'
         ).each(function () {
             const root = $(this);
-            const text = clean(root.text());
-            if (text.includes('apoio') || text.includes('suporte')) roots.add(this);
+            if (isSupportPopupRoot(root)) roots.add(this);
         });
 
         $(
@@ -3579,8 +3576,7 @@
                 let candidate = $(this).closest('table, .popup_box, .popup_box_content, .tooltip, div');
 
                 for (let depth = 0; candidate.length && depth < 6; depth += 1) {
-                    const text = clean(candidate.text());
-                    if (text.includes('apoio') || text.includes('suporte')) {
+                    if (isSupportPopupRoot(candidate)) {
                         roots.add(candidate[0]);
                         break;
                     }
@@ -3594,6 +3590,17 @@
         });
 
         return troops;
+    }
+
+    function isSupportPopupRoot(root) {
+        if (!root || !root.length || root.is('body, html')) return false;
+        if (root.closest('#show_units, #unit_overview_table, #commands_incomings').length) return false;
+
+        const text = clean(root.text());
+        if (!text.includes('apoio') && !text.includes('suporte')) return false;
+
+        const rect = root[0].getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && rect.width <= 520 && rect.height <= 420;
     }
 
     function getTroopsSignature(troops) {
@@ -4775,7 +4782,7 @@
                         ? 'A carregar tropas...'
                         : 'Quantidades não disponibilizadas pelo jogo.',
                 capacity: supportFullEndurance
-                    ? `${supportFullsText} fulls`
+                    ? formatFullCapacityLabel(supportFullsText)
                     : 'por calcular'
             }
             : null;
@@ -5200,6 +5207,10 @@
         }
 
         return String(endurance.safeAttacks);
+    }
+
+    function formatFullCapacityLabel(value) {
+        return String(value) === '1' ? '1 full' : `${value} fulls`;
     }
 
     function hasTroops(troops) {
