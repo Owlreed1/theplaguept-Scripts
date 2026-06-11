@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.115
+// @version      0.1.116
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.115',
+        version: '0.1.116',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -872,8 +872,8 @@
                 #tpdefIncomingSupportPanel {
                     width: 100%;
                     margin: 6px 0;
-                    border-left: 4px solid #1e87b8;
                     box-sizing: border-box;
+                    table-layout: fixed;
                 }
 
                 #tpdefIncomingSupportPanel th {
@@ -882,63 +882,28 @@
                 }
 
                 #tpdefIncomingSupportPanel td {
-                    padding: 4px 6px;
+                    padding: 2px 3px;
+                    text-align: center;
                 }
 
-                .tpdef-support-panel-row {
-                    display: flex;
-                    align-items: stretch;
-                    justify-content: space-between;
-                    gap: 5px;
-                    min-width: 0;
+                #tpdefIncomingSupportPanel .tpdef-support-icon-row td {
+                    height: 24px;
+                    padding: 1px 3px;
+                    background: linear-gradient(to bottom, #d7bd74 0%, #b98b3a 100%);
                 }
 
-                .tpdef-support-panel-units {
-                    display: grid;
-                    grid-auto-flow: column;
-                    grid-auto-columns: minmax(48px, auto);
-                    flex: 1 1 280px;
-                    justify-content: start;
-                    gap: 0;
-                    min-width: 0;
-                    overflow-x: auto;
+                #tpdefIncomingSupportPanel .tpdef-support-icon-row img {
+                    width: 18px;
+                    height: 18px;
+                    vertical-align: middle;
                 }
 
-                .tpdef-support-panel-unit {
-                    display: grid;
-                    grid-template-rows: 18px auto;
-                    align-items: center;
-                    justify-items: center;
-                    min-width: 48px;
-                    padding: 2px 6px;
-                    border-right: 1px solid #dec58c;
+                #tpdefIncomingSupportPanel .tpdef-support-value-row td {
+                    height: 18px;
                     background: #f8e8bd;
-                    box-sizing: border-box;
-                    color: #3b2508;
+                    color: #000;
                     font-size: 11px;
-                    font-weight: bold;
-                    white-space: nowrap;
-                }
-
-                .tpdef-support-panel-unit:first-child {
-                    border-left: 1px solid #dec58c;
-                }
-
-                .tpdef-support-panel-unit img {
-                    width: 16px;
-                    height: 16px;
-                }
-
-                .tpdef-support-panel-result {
-                    display: inline-flex;
-                    flex: 0 0 auto;
-                    align-items: center;
-                    gap: 4px;
-                    padding: 3px 8px;
-                    border: 1px solid #dec58c;
-                    background: #fff3cf;
-                    color: #8f2b25;
-                    font-weight: bold;
+                    font-weight: normal;
                     white-space: nowrap;
                 }
 
@@ -3187,44 +3152,32 @@
         if (!target.length) return;
 
         const troops = forecast.troops || {};
-        const preferredOrder = (game_data.units || []).concat(Object.keys(APP.troopPop));
-        const units = Array.from(new Set(preferredOrder)).filter(function (unit) {
-            return parseAmount(troops[unit]) > 0;
+        const units = (game_data.units && game_data.units.length
+            ? game_data.units
+            : Object.keys(APP.troopPop)
+        ).filter(function (unit) {
+            return unit !== 'militia' && APP.unitStats[unit];
         });
-        const unitsHtml = units.length
-            ? units.map(function (unit) {
-                return `
-                    <span class="tpdef-support-panel-unit">
-                        <img src="/graphic/unit/unit_${escapeAttr(unit)}.png" title="${escapeAttr(getUnitName(unit))}" alt="">
-                        <span>${formatNumber(troops[unit])}</span>
-                    </span>
-                `;
-            }).join('')
-            : '<span class="tpdef-support-panel-loading">A recolher apoios...</span>';
-        const count = parseAmount(forecast.count);
+        const iconCells = units.map(function (unit) {
+            return `
+                <td>
+                    <img src="/graphic/unit/unit_${escapeAttr(unit)}.png" title="${escapeAttr(getUnitName(unit))}" alt="">
+                </td>
+            `;
+        }).join('');
+        const valueCells = units.map(function (unit) {
+            return `<td>${formatNumber(parseAmount(troops[unit]))}</td>`;
+        }).join('');
 
         const incomingWidget = target.closest('.widget').first();
         const insertionAnchor = incomingWidget.length ? incomingWidget : target;
         const panel = `
             <table id="tpdefIncomingSupportPanel" class="vis">
                 <tr>
-                    <th>
-                        <img src="/graphic/command/support.png" style="width:16px;height:16px;vertical-align:middle" alt="">
-                        Tropas de apoio a chegar${count > 0 ? ` (${formatNumber(count)})` : ''}
-                    </th>
+                    <th colspan="${units.length}">Apoio a chegar</th>
                 </tr>
-                <tr>
-                    <td>
-                        <div class="tpdef-support-panel-row">
-                            <div class="tpdef-support-panel-units">${unitsHtml}</div>
-                            ${hasTroops(troops) ? `
-                                <span class="tpdef-support-panel-result">
-                                    Aguenta após chegada: ${escapeHtml(forecast.capacity)}
-                                </span>
-                            ` : ''}
-                        </div>
-                    </td>
-                </tr>
+                <tr class="tpdef-support-icon-row">${iconCells}</tr>
+                <tr class="tpdef-support-value-row">${valueCells}</tr>
             </table>
         `;
 
