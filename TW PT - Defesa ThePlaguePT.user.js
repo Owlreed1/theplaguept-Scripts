@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.116
+// @version      0.1.117
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.116',
+        version: '0.1.117',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -129,7 +129,6 @@
 
         if (screen === 'overview' && settings.features.wallResistance) {
             addWallResistanceWidget();
-            installSupportPopupCapture();
             setTimeout(refreshCurrentVillageDefenseWidget, 750);
             setTimeout(refreshCurrentVillageDefenseWidget, 2000);
         }
@@ -3304,13 +3303,10 @@
         const now = Date.now();
         const cache = state.supportTroopsCache;
         const rows = getIncomingSupportRows();
-        const links = getIncomingSupportCommandLinks();
-        const linksKey = links.slice().sort().join('|');
-        const commandCount = Math.max(rows.length, links.length);
+        const commandCount = rows.length;
 
         if (
             cache.villageId === villageId &&
-            cache.linksKey === linksKey &&
             !cache.loading &&
             now - cache.loadedAt < 60000
         ) {
@@ -3321,17 +3317,16 @@
             };
         }
 
-        const visibleTroops = readVisibleIncomingSupportTroops();
         cache.commandCount = commandCount;
 
-        if (!cache.loading || cache.linksKey !== linksKey || cache.villageId !== villageId) {
-            refreshCurrentVillageSupportTroopsCache(visibleTroops, links, linksKey);
+        if (!cache.loading || cache.villageId !== villageId) {
+            refreshCurrentVillageSupportTroopsCache();
         }
 
         return {
-            troops: visibleTroops,
+            troops: cache.villageId === villageId ? cache.troops || {} : {},
             count: commandCount,
-            loading: links.length > 0
+            loading: true
         };
     }
 
@@ -3565,52 +3560,174 @@
             .join('|');
     }
 
-    function refreshCurrentVillageSupportTroopsCache(seedTroops, commandLinks, commandLinksKey) {
+    function refreshCurrentVillageSupportTroopsCache() {
         const villageId = String(game_data.village && game_data.village.id || '');
         const cache = state.supportTroopsCache;
-        const links = commandLinks || getIncomingSupportCommandLinks();
-        const linksKey = commandLinksKey !== undefined
-            ? commandLinksKey
-            : links.slice().sort().join('|');
         const requestId = cache.requestId + 1;
 
         cache.villageId = villageId;
-        cache.linksKey = linksKey;
+        cache.linksKey = '';
         cache.requestId = requestId;
-        cache.commandCount = Math.max(getIncomingSupportRows().length, links.length);
+        cache.commandCount = getIncomingSupportRows().length;
         cache.loading = true;
 
-        if (!links.length) {
-            cache.troops = seedTroops || {};
-            cache.loadedAt = Date.now();
-            cache.loading = false;
-            return;
+        fetchReceivedSupportCommands()
+            .done(function (commands) {
+                if (requestId !== cache.requestId) return;
+
+                cache.commandCount = commands.length;
+                cache.linksKey = commands.map(function (command) {
+                    return command.id || command.url;
+                }).sort().join('|');
+
+                if (!commands.length) {
+                    finishCurrentVillageSupportTroopsRefresh(cache, requestId, {});
+                    return;
+                }
+
+                const totals = {};
+                let remaining = commands.length;
+
+                commands.forEach(function (command) {
+                    fetchIncomingSupportCommandTroops(command.url)
+                        .done(function (troops) {
+                            const commandTroops = hasTroops(troops) ? troops : command.troops;
+                            addTroops(totals, commandTroops);
+                        })
+                        .always(function () {
+                            remaining -= 1;
+                            if (remaining > 0) return;
+
+                            finishCurrentVillageSupportTroopsRefresh(cache, requestId, totals);
+                        });
+                });
+            })
+            .fail(function () {
+                finishCurrentVillageSupportTroopsRefresh(cache, requestId, {});
+            });
+    }
+
+    function finishCurrentVillageSupportTroopsRefresh(cache, requestId, troops) {
+        if (requestId !== cache.requestId) return;
+
+        cache.troops = cloneTroops(troops || {});
+        cache.loadedAt = Date.now();
+        cache.loading = false;
+
+        if (game_data.screen === 'overview') addWallResistanceWidget();
+        if (game_data.screen === 'map') scheduleMapPopupDefenseRender();
+    }
+
+    function fetchReceivedSupportCommands() {
+        const deferred = $.Deferred();
+        const urls = getReceivedSupportCommandsPageUrls();
+
+        function tryNext(index) {
+            if (index >= urls.length) {
+                deferred.resolve([]);
+                return;
+            }
+
+            $.get(urls[index])
+                .done(function (html) {
+                    const commands = parseReceivedSupportCommandsPage(html);
+
+                    if (commands.length || index === urls.length - 1) {
+                        deferred.resolve(commands);
+                    } else {
+                        tryNext(index + 1);
+                    }
+                })
+                .fail(function () {
+                    tryNext(index + 1);
+                });
         }
 
-        const fetchedTotals = {};
-        let remaining = links.length;
+        tryNext(0);
+        return deferred.promise();
+    }
 
-        links.forEach(function (url) {
-            fetchIncomingSupportCommandTroops(url)
-                .done(function (troops) {
-                    addTroops(fetchedTotals, troops);
-                })
-                .always(function () {
-                    remaining -= 1;
+    function getReceivedSupportCommandsPageUrls() {
+        const candidates = [
+            `${game_data.link_base_pure}place&mode=command&page=-1`,
+            `${game_data.link_base_pure}place&mode=command&type=incoming&page=-1`,
+            `${game_data.link_base_pure}place&mode=commands&page=-1`,
+            `${game_data.link_base_pure}overview_villages&mode=commands&page=-1`,
+            `${game_data.link_base_pure}overview_villages&mode=commands&type=incoming&page=-1`,
+            `${game_data.link_base_pure}overview_villages&mode=commands&type=support&page=-1`
+        ];
 
-                    if (remaining > 0) return;
-                    if (requestId !== cache.requestId) return;
+        return Array.from(new Set(candidates.map(resolveGameUrl)));
+    }
 
-                    cache.troops = hasTroops(fetchedTotals)
-                        ? fetchedTotals
-                        : cloneTroops(seedTroops || {});
-                    cache.loadedAt = Date.now();
-                    cache.loading = false;
+    function parseReceivedSupportCommandsPage(html) {
+        const root = $('<div>').append($.parseHTML(String(html || ''), document, true));
+        const rows = findReceivedSupportCommandRows(root);
+        const commands = new Map();
 
-                    if (game_data.screen === 'overview') addWallResistanceWidget();
-                    if (game_data.screen === 'map') scheduleMapPopupDefenseRender();
-                });
+        rows.each(function (index) {
+            const row = $(this);
+            const id = extractSupportCommandId(row);
+            const directLink = row.find('a[href*="info_command"][href*="id="]').first().attr('href');
+            const url = directLink
+                ? resolveGameUrl(directLink)
+                : id
+                    ? buildInfoCommandUrl(id)
+                    : '';
+
+            if (!url) return;
+
+            const key = id || url;
+            const troops = {};
+            mergeTroopsByMaximum(troops, readUnitAmountsFromRoot(row));
+            mergeTroopsByMaximum(troops, readUnitAmountsFromMetadata(row));
+
+            commands.set(key, {
+                id: id || `support_${index}`,
+                url,
+                troops
+            });
         });
+
+        return Array.from(commands.values());
+    }
+
+    function findReceivedSupportCommandRows(root) {
+        const preferred = root.find(
+            '#commands_incomings tr, #commands_incomings .command-row, ' +
+            '[id*="commands_incoming"] tr, [class*="commands_incoming"] tr'
+        ).filter(function () {
+            return isIncomingSupportCommandRow($(this));
+        });
+
+        if (preferred.length) return preferred;
+
+        return root.find('tr').filter(function () {
+            const row = $(this);
+            const table = row.closest('table');
+            const headingText = clean(table.find('th').slice(0, 3).text());
+            const isReceivingSection = /\b(a receber|a chegar|receber|incoming)\b/.test(headingText);
+
+            return isIncomingSupportCommandRow(row) &&
+                isReceivingSection &&
+                row.find('a[href*="info_command"][href*="id="]').length > 0;
+        });
+    }
+
+    function isIncomingSupportCommandRow(row) {
+        const text = clean(row.text());
+        const images = row.find('img');
+        const hasSupportIcon = images.filter(function () {
+            const image = $(this);
+            const value = [
+                image.attr('src'),
+                image.attr('title'),
+                image.attr('alt')
+            ].filter(Boolean).join(' ');
+            return /\b(support|apoio|suporte)\b/i.test(value);
+        }).length > 0;
+
+        return hasSupportIcon || /\b(apoio|suporte|support)\b/.test(text);
     }
 
     function fetchIncomingSupportCommandTroops(commandUrl) {
