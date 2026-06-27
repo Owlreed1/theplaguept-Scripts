@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.2.7
+// @version      1.2.8
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.2.7 carregada');
+    console.log('[TW Discord Alerts] Versao 1.2.8 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2732,20 +2732,21 @@
         return {
             title: '⚔️ ━━ CONTADOR DE FULLS DE ATAQUE ━━ ⚔️',
             color: 15158332,
-            description: [
-                `🏆 **FULLS:** **${formatTroopNumber(counter.completeFulls)}**`,
-                `⚔️ **MEIOS FULLS:** **${formatTroopNumber(counter.halfFulls)}**`,
-                `🔸 **PEQUENOS FULLS:** **${formatTroopNumber(counter.smallFulls)}**`,
-                '',
-                `Aldeias com tropas de ataque: **${formatTroopNumber(counter.attackVillages)}**`
-            ].join('\n'),
             fields: [
                 {
                     name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Jogador',
                     value: [
                         `**${getDefenderValue()}**`,
-                        `Tribo: ${formatTribe(summary.defenderTribe)}`,
-                        `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`
+                        `Tribo: ${formatTribe(summary.defenderTribe)}`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '🏆 Fulls de Ataque',
+                    value: [
+                        `🏆 **FULLS:** **${formatTroopNumber(counter.completeFulls)}**`,
+                        `⚔️ **MEIOS FULLS:** **${formatTroopNumber(counter.halfFulls)}**`,
+                        `🔸 **PEQUENOS FULLS:** **${formatTroopNumber(counter.smallFulls)}**`
                     ].join('\n'),
                     inline: false
                 },
