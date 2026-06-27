@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.2.0 carregada');
+    console.log('[TW Discord Alerts] Versao 1.2.1 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -72,13 +72,6 @@
     const DEFAULT_SUMMARY_DAILY_TIME = '00:00';
     const DEFAULT_TROOPS_DAILY_TIME = '00:00';
     const DEFAULT_NOBLE_COUNTER_DAILY_TIME = '00:00';
-
-    const DEFAULT_NOBLE_COST = {
-        wood: 40000,
-        clay: 50000,
-        iron: 50000,
-        population: 100
-    };
 
     const TROOP_UNIT_LABELS = {
         spear: '🔱 Lanceiros',
@@ -146,7 +139,6 @@
     let alreadySent = loadSet(SENT_KEY);
     let nobleAlreadySent = loadSet(NOBLE_SENT_KEY);
     let cachedUnitSpeed = null;
-    let cachedNobleCost = null;
     let errorBackoff = 0;
     let verificationPaused = false;
 
@@ -2022,6 +2014,33 @@
         return new DOMParser().parseFromString(html, 'text/html');
     }
 
+    function getAcademyUrl(villageId) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('screen', 'snob');
+
+        if (villageId) {
+            url.searchParams.set('village', String(villageId));
+        }
+
+        url.searchParams.delete('action');
+        url.searchParams.delete('ajax');
+        url.searchParams.delete('h');
+
+        return url.toString();
+    }
+
+    async function fetchAcademyDocument(villageId) {
+        const response = await fetch(getAcademyUrl(villageId), {
+            credentials: 'include',
+            cache: 'no-store'
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const html = await response.text();
+        return new DOMParser().parseFromString(html, 'text/html');
+    }
+
     function detectTroopUnitKey(cell) {
         const imgTexts = Array.from(cell.querySelectorAll('img'))
             .map(img => [
@@ -2180,73 +2199,9 @@
         return Number(text.replace(/[.\s]/g, '')) || 0;
     }
 
-    function parseFarmAvailable(value) {
-        const text = cleanText(value);
-        const match = text.match(/(\d[\d.\s]*)\s*\/\s*(\d[\d.\s]*)/);
-
-        if (!match) return null;
-
-        const used = parseResourceNumber(match[1]);
-        const total = parseResourceNumber(match[2]);
-
-        if (!total || total < used) return null;
-
-        return total - used;
-    }
-
     function getRowCoordsKey(row) {
         const coords = parseCoords(row ? row.innerText : '');
         return coords ? coords.text : '';
-    }
-
-    function parseProductionOverview(doc) {
-        const tables = Array.from(doc.querySelectorAll('table.vis, table'));
-        let bestTable = null;
-        let bestColumns = [];
-
-        tables.forEach(table => {
-            const columns = getOverviewColumns(table, ['wood', 'clay', 'iron', 'farm']);
-            const resourceCount = columns.filter(column => ['wood', 'clay', 'iron'].includes(column.key)).length;
-
-            if (resourceCount >= 3 && columns.length > bestColumns.length) {
-                bestTable = table;
-                bestColumns = columns;
-            }
-        });
-
-        if (!bestTable || !bestColumns.length) return null;
-
-        const villages = new Map();
-        const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'))
-            .filter(row => /\d{3}\|\d{3}/.test(cleanText(row.innerText)));
-
-        rows.forEach(row => {
-            const key = getRowCoordsKey(row);
-            if (!key) return;
-
-            const village = {
-                wood: 0,
-                clay: 0,
-                iron: 0,
-                farmAvailable: null
-            };
-
-            bestColumns.forEach(column => {
-                const cell = getCellAtColumn(row, column.index);
-                const text = cell ? cell.innerText : '';
-
-                if (column.key === 'farm') {
-                    village.farmAvailable = parseFarmAvailable(text);
-                    return;
-                }
-
-                village[column.key] = parseResourceNumber(text);
-            });
-
-            villages.set(key, village);
-        });
-
-        return villages;
     }
 
     function parseBuildingLevel(value) {
@@ -2255,6 +2210,24 @@
 
         const match = text.match(/\d+/);
         return match ? Number(match[0]) : 0;
+    }
+
+    function getRowVillageId(row) {
+        if (!row) return '';
+
+        const idMatch = String(row.id || '').match(/\d+/);
+        if (idMatch) return idMatch[0];
+
+        const links = Array.from(row.querySelectorAll('a[href*="village="]'));
+
+        for (const link of links) {
+            try {
+                const id = new URL(link.getAttribute('href'), window.location.origin).searchParams.get('village');
+                if (id) return id;
+            } catch (_) {}
+        }
+
+        return '';
     }
 
     function parseAcademyVillages(doc) {
@@ -2290,43 +2263,111 @@
         return villages;
     }
 
-    async function loadNobleCost() {
-        if (cachedNobleCost) return cachedNobleCost;
+    function parseAcademyVillageIds(doc) {
+        const tables = Array.from(doc.querySelectorAll('table.vis, table'));
+        let bestTable = null;
+        let academyColumn = null;
 
-        try {
-            const response = await fetch('/interface.php?func=get_unit_info', {
-                credentials: 'include',
-                cache: 'no-store'
-            });
+        tables.forEach(table => {
+            const columns = getOverviewColumns(table, ['academy']);
+            const column = columns.find(item => item.key === 'academy');
 
-            const xml = await response.text();
-            const doc = new DOMParser().parseFromString(xml, 'text/xml');
-            const snob = doc.querySelector('snob');
-
-            if (snob) {
-                cachedNobleCost = {
-                    wood: Number(snob.querySelector('wood')?.textContent || DEFAULT_NOBLE_COST.wood),
-                    clay: Number(
-                        snob.querySelector('stone')?.textContent ||
-                        snob.querySelector('clay')?.textContent ||
-                        DEFAULT_NOBLE_COST.clay
-                    ),
-                    iron: Number(snob.querySelector('iron')?.textContent || DEFAULT_NOBLE_COST.iron),
-                    population: Number(
-                        snob.querySelector('pop')?.textContent ||
-                        snob.querySelector('population')?.textContent ||
-                        DEFAULT_NOBLE_COST.population
-                    )
-                };
-
-                return cachedNobleCost;
+            if (column && !academyColumn) {
+                bestTable = table;
+                academyColumn = column;
             }
-        } catch (error) {
-            console.warn('[TW] Erro ao carregar custo do nobre:', error);
+        });
+
+        if (!bestTable || !academyColumn) return [];
+
+        return Array.from(bestTable.querySelectorAll('tbody tr, tr'))
+            .filter(row => /\d{3}\|\d{3}/.test(cleanText(row.innerText)))
+            .filter(row => {
+                const cell = getCellAtColumn(row, academyColumn.index);
+                return parseBuildingLevel(cell ? cell.innerText : '') > 0;
+            })
+            .map(getRowVillageId)
+            .filter(Boolean);
+    }
+
+    function normalizeSearchText(value) {
+        return cleanText(value)
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase();
+    }
+
+    function parseAcademyNoblesAvailable(doc) {
+        if (!doc || !doc.body) return null;
+
+        const text = normalizeSearchText(doc.body.innerText || '');
+        const patterns = [
+            /nobres?\s+que\s+ainda\s+podem\s+ser\s+feitos?\D+(\d[\d.\s]*)/i,
+            /nobres?\s+que\s+podem\s+ser\s+feitos?\D+(\d[\d.\s]*)/i,
+            /nobres?\s+que\s+ainda\s+podes?\s+fazer\D+(\d[\d.\s]*)/i,
+            /nobres?\s+disponiveis?\D+(\d[\d.\s]*)/i,
+            /ainda\s+podem\s+ser\s+feitos?\D+(\d[\d.\s]*)\s+nobres?/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match) return parseResourceNumber(match[1]);
         }
 
-        cachedNobleCost = Object.assign({}, DEFAULT_NOBLE_COST);
-        return cachedNobleCost;
+        return null;
+    }
+
+    async function getAcademyNoblesAvailable() {
+        try {
+            const currentAcademyDoc = await fetchAcademyDocument();
+            const currentValue = parseAcademyNoblesAvailable(currentAcademyDoc);
+
+            if (currentValue !== null) {
+                return {
+                    canMake: currentValue,
+                    academyVillageCount: null,
+                    source: 'Academia atual'
+                };
+            }
+        } catch (error) {
+            console.warn('[TW] Erro ao carregar academia atual:', error);
+        }
+
+        try {
+            const buildingsDoc = await fetchVillagesOverviewDocument('buildings');
+            const academyVillageIds = parseAcademyVillageIds(buildingsDoc);
+
+            for (const villageId of academyVillageIds.slice(0, 5)) {
+                try {
+                    const academyDoc = await fetchAcademyDocument(villageId);
+                    const value = parseAcademyNoblesAvailable(academyDoc);
+
+                    if (value !== null) {
+                        return {
+                            canMake: value,
+                            academyVillageCount: academyVillageIds.length,
+                            source: 'Academia'
+                        };
+                    }
+                } catch (error) {
+                    console.warn('[TW] Erro ao carregar academia da aldeia:', villageId, error);
+                }
+            }
+
+            return {
+                canMake: null,
+                academyVillageCount: academyVillageIds.length,
+                source: 'Academia'
+            };
+        } catch (error) {
+            console.warn('[TW] Erro ao procurar academias:', error);
+        }
+
+        return {
+            canMake: null,
+            academyVillageCount: null,
+            source: 'Academia'
+        };
     }
 
     function parseTroopsOverview(doc) {
@@ -2469,48 +2510,6 @@
         };
     }
 
-    function calculateNobleCapacity(productionVillages, academyVillages, nobleCost) {
-        if (!productionVillages || !productionVillages.size) {
-            return {
-                canMake: null,
-                academyVillageCount: academyVillages ? academyVillages.size : 0,
-                villagesWithResources: 0,
-                estimatedWithoutAcademyData: !academyVillages
-            };
-        }
-
-        let canMake = 0;
-        let villagesWithResources = 0;
-
-        productionVillages.forEach((village, key) => {
-            if (academyVillages && !academyVillages.has(key)) return;
-
-            let possible = Math.min(
-                Math.floor(Number(village.wood || 0) / nobleCost.wood),
-                Math.floor(Number(village.clay || 0) / nobleCost.clay),
-                Math.floor(Number(village.iron || 0) / nobleCost.iron)
-            );
-
-            if (village.farmAvailable !== null && nobleCost.population > 0) {
-                possible = Math.min(possible, Math.floor(village.farmAvailable / nobleCost.population));
-            }
-
-            possible = Math.max(0, possible);
-
-            if (possible > 0) {
-                villagesWithResources += 1;
-                canMake += possible;
-            }
-        });
-
-        return {
-            canMake,
-            academyVillageCount: academyVillages ? academyVillages.size : productionVillages.size,
-            villagesWithResources,
-            estimatedWithoutAcademyData: !academyVillages
-        };
-    }
-
     async function buildNobleCounterSummary() {
         const troopsDoc = await fetchTroopsOverviewDocument();
         const troopsSummary = parseTroopsOverview(troopsDoc);
@@ -2519,33 +2518,15 @@
             return null;
         }
 
-        const nobleCost = await loadNobleCost();
-        let productionVillages = null;
-        let academyVillages = null;
-
-        try {
-            productionVillages = parseProductionOverview(await fetchVillagesOverviewDocument('prod'));
-        } catch (error) {
-            console.warn('[TW] Erro ao carregar producao para contador de nobres:', error);
-        }
-
-        try {
-            academyVillages = parseAcademyVillages(await fetchVillagesOverviewDocument('buildings'));
-        } catch (error) {
-            console.warn('[TW] Erro ao carregar academias para contador de nobres:', error);
-        }
-
-        const capacity = calculateNobleCapacity(productionVillages, academyVillages, nobleCost);
+        const academyAvailability = await getAcademyNoblesAvailable();
 
         return {
             currentNobles: Number(troopsSummary.totals.snob || 0),
             villageCount: troopsSummary.villageCount,
-            nobleCost,
             defenderTribe: await getPlayerTribe(getDefenderProfileUrl()),
-            canMake: capacity.canMake,
-            academyVillageCount: capacity.academyVillageCount,
-            villagesWithResources: capacity.villagesWithResources,
-            estimatedWithoutAcademyData: capacity.estimatedWithoutAcademyData
+            canMake: academyAvailability.canMake,
+            academyVillageCount: academyAvailability.academyVillageCount,
+            academySource: academyAvailability.source
         };
     }
 
@@ -2571,17 +2552,16 @@
                     name: '👑 Nobres',
                     value: [
                         `Nobres atuais: **${formatTroopNumber(summary.currentNobles)}**`,
-                        `Nobres que consegues fazer: **${canMakeText}**`
+                        `Nobres que ainda podem ser feitos: **${canMakeText}**`
                     ].join('\n'),
                     inline: false
                 },
                 {
-                    name: '🏛️ Base do cálculo',
+                    name: '🏛️ Academia',
                     value: [
-                        `Academias consideradas: **${formatTroopNumber(summary.academyVillageCount)}**`,
-                        `Aldeias com recursos: **${formatTroopNumber(summary.villagesWithResources)}**`,
-                        `Custo usado: **${formatTroopNumber(summary.nobleCost.wood)}** madeira | **${formatTroopNumber(summary.nobleCost.clay)}** argila | **${formatTroopNumber(summary.nobleCost.iron)}** ferro`,
-                        summary.estimatedWithoutAcademyData ? 'Nota: academias nao detetadas; calculo feito por recursos disponiveis.' : ''
+                        `Fonte: **${summary.academySource || 'Academia'}**`,
+                        summary.academyVillageCount === null ? '' : `Academias detetadas: **${formatTroopNumber(summary.academyVillageCount)}**`,
+                        summary.canMake === null ? 'Valor "Nobres que ainda podem ser feitos" nao detetado.' : 'Valor lido diretamente da Academia.'
                     ].filter(Boolean).join('\n'),
                     inline: false
                 }
@@ -4008,7 +3988,7 @@
                                 <input id="tw-alerts-noble-counter" type="checkbox" ${settings.notifyNobleCounter ? 'checked' : ''}>
                                 <span>Contador de nobres</span>
                             </label>
-                            <div class="tw-alerts-mini-desc">Envia nobres existentes e nobres que consegues fazer.</div>
+                            <div class="tw-alerts-mini-desc">Envia nobres existentes e o valor indicado na Academia.</div>
                         </div>
                         <div class="tw-alerts-subblock-fields schedule-fields">
                             <div class="tw-alerts-field tw-alerts-webhook-field">
