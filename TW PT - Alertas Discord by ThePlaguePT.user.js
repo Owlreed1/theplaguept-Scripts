@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.2.8
+// @version      1.2.9
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.2.8 carregada');
+    console.log('[TW Discord Alerts] Versao 1.2.9 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2742,7 +2742,7 @@
                     inline: false
                 },
                 {
-                    name: '🏆 Fulls de Ataque',
+                    name: '\u200B',
                     value: [
                         `🏆 **FULLS:** **${formatTroopNumber(counter.completeFulls)}**`,
                         `⚔️ **MEIOS FULLS:** **${formatTroopNumber(counter.halfFulls)}**`,
