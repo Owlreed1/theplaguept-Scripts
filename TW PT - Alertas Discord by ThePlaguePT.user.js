@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
+// @version      1.2.2
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.2.1 carregada');
+    console.log('[TW Discord Alerts] Versao 1.2.2 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -1198,6 +1198,22 @@
         return name;
     }
 
+    function getPlayerVillageCount() {
+        try {
+            const player = typeof game_data !== 'undefined'
+                ? game_data.player
+                : (window.game_data && window.game_data.player ? window.game_data.player : null);
+
+            const count = Number(player && player.villages);
+
+            if (count > 0) {
+                return count;
+            }
+        } catch (_) {}
+
+        return null;
+    }
+
     function formatArrivalText(value) {
         return cleanText(value).replace(/^hoje\b/i, 'Hoje');
     }
@@ -2300,8 +2316,31 @@
     function parseAcademyNoblesAvailable(doc) {
         if (!doc || !doc.body) return null;
 
+        const rows = Array.from(doc.querySelectorAll('tr'));
+
+        for (const row of rows) {
+            const cells = Array.from(row.children);
+            if (cells.length < 2) continue;
+
+            const label = normalizeSearchText(cells[0].innerText || '');
+
+            if (
+                label.includes('ainda podem ser produzidos') ||
+                label.includes('ainda pode ser produzido')
+            ) {
+                const valueText = cleanText(cells[cells.length - 1].innerText || '');
+                const valueMatch = valueText.match(/\d[\d.\s]*/);
+
+                if (valueMatch) {
+                    return parseResourceNumber(valueMatch[0]);
+                }
+            }
+        }
+
         const text = normalizeSearchText(doc.body.innerText || '');
         const patterns = [
+            /ainda\s+podem\s+ser\s+produzidos?\D+(\d[\d.\s]*)/i,
+            /ainda\s+pode\s+ser\s+produzido\D+(\d[\d.\s]*)/i,
             /nobres?\s+que\s+ainda\s+podem\s+ser\s+feitos?\D+(\d[\d.\s]*)/i,
             /nobres?\s+que\s+podem\s+ser\s+feitos?\D+(\d[\d.\s]*)/i,
             /nobres?\s+que\s+ainda\s+podes?\s+fazer\D+(\d[\d.\s]*)/i,
@@ -2393,14 +2432,19 @@
         const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'))
             .filter(row => /\d{3}\|\d{3}/.test(cleanText(row.innerText)));
 
+        const villageKeys = new Set();
+
         rows.forEach(row => {
+            const villageKey = getRowCoordsKey(row);
+            if (villageKey) villageKeys.add(villageKey);
+
             bestColumns.forEach(column => {
                 const cell = getCellAtColumn(row, column.index);
                 totals[column.key] += parseTroopNumber(cell ? cell.innerText : '');
             });
         });
 
-        return { totals, villageCount: rows.length };
+        return { totals, villageCount: villageKeys.size || rows.length };
     }
 
     function formatTroopNumber(value) {
@@ -2522,7 +2566,7 @@
 
         return {
             currentNobles: Number(troopsSummary.totals.snob || 0),
-            villageCount: troopsSummary.villageCount,
+            villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
             defenderTribe: await getPlayerTribe(getDefenderProfileUrl()),
             canMake: academyAvailability.canMake,
             academyVillageCount: academyAvailability.academyVillageCount,
@@ -2544,7 +2588,7 @@
                     value: [
                         `**${getDefenderValue()}**`,
                         `Tribo: ${formatTribe(summary.defenderTribe)}`,
-                        `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`
+                        `Aldeias do jogador: **${formatTroopNumber(summary.villageCount)}**`
                     ].join('\n'),
                     inline: false
                 },
