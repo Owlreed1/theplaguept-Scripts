@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.2.5
+// @version      1.2.6
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,13 +19,14 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.2.5 carregada');
+    console.log('[TW Discord Alerts] Versao 1.2.6 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_NOBLES_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_SUMMARY_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_TROOPS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
+    const DEFAULT_ATTACK_FULLS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_NOBLE_COUNTER_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_VERIFICATION_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
 
@@ -50,6 +51,8 @@
     const SUMMARY_DAILY_SENT_KEY = `${STORAGE_PREFIX}_attack_summary_daily_sent`;
     const TROOPS_LAST_SENT_KEY = `${STORAGE_PREFIX}_troops_summary_last_sent`;
     const TROOPS_DAILY_SENT_KEY = `${STORAGE_PREFIX}_troops_summary_daily_sent`;
+    const ATTACK_FULLS_LAST_SENT_KEY = `${STORAGE_PREFIX}_attack_fulls_last_sent`;
+    const ATTACK_FULLS_DAILY_SENT_KEY = `${STORAGE_PREFIX}_attack_fulls_daily_sent`;
     const NOBLE_COUNTER_LAST_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_last_sent`;
     const NOBLE_COUNTER_DAILY_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_daily_sent`;
     const PLAYER_TRIBE_CACHE_KEY = `${STORAGE_PREFIX}_player_tribes`;
@@ -63,6 +66,7 @@
 
     const DEFAULT_SUMMARY_INTERVAL_HOURS = 8;
     const DEFAULT_TROOPS_INTERVAL_HOURS = 8;
+    const DEFAULT_ATTACK_FULLS_INTERVAL_HOURS = 8;
     const DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS = 8;
     const TROOPS_SUMMARY_MODE_COMPLETE = 'complete';
     const TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE = 'simple_defense';
@@ -71,6 +75,7 @@
     const VERIFICATION_SLOT_COUNT = 3;
     const DEFAULT_SUMMARY_DAILY_TIME = '00:00';
     const DEFAULT_TROOPS_DAILY_TIME = '00:00';
+    const DEFAULT_ATTACK_FULLS_DAILY_TIME = '00:00';
     const DEFAULT_NOBLE_COUNTER_DAILY_TIME = '00:00';
 
     const TROOP_UNIT_LABELS = {
@@ -102,6 +107,7 @@
         noblesWebhook: DEFAULT_NOBLES_WEBHOOK,
         summaryWebhook: DEFAULT_SUMMARY_WEBHOOK,
         troopsWebhook: DEFAULT_TROOPS_WEBHOOK,
+        attackFullsWebhook: DEFAULT_ATTACK_FULLS_WEBHOOK,
         nobleCounterWebhook: DEFAULT_NOBLE_COUNTER_WEBHOOK,
         verificationWebhook: DEFAULT_VERIFICATION_WEBHOOK,
         verificationMention: '',
@@ -114,6 +120,7 @@
         notifyNobleAttacks: false,
         notifyAttackSummary: false,
         notifyDefenseTroops: false,
+        notifyAttackFulls: false,
         notifyNobleCounter: false,
         notifyVerificationAlerts: false,
         summaryIntervalHours: DEFAULT_SUMMARY_INTERVAL_HOURS,
@@ -123,6 +130,9 @@
         troopsDailyTime: DEFAULT_TROOPS_DAILY_TIME,
         troopsIntervalHours: DEFAULT_TROOPS_INTERVAL_HOURS,
         troopsSummaryMode: TROOPS_SUMMARY_MODE_COMPLETE,
+        attackFullsScheduleMode: SCHEDULE_MODE_INTERVAL,
+        attackFullsDailyTime: DEFAULT_ATTACK_FULLS_DAILY_TIME,
+        attackFullsIntervalHours: DEFAULT_ATTACK_FULLS_INTERVAL_HOURS,
         nobleCounterScheduleMode: SCHEDULE_MODE_INTERVAL,
         nobleCounterDailyTime: DEFAULT_NOBLE_COUNTER_DAILY_TIME,
         nobleCounterIntervalHours: DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS,
@@ -264,6 +274,13 @@
         return normalizeIntervalHours(
             getSettings().troopsIntervalHours,
             DEFAULT_TROOPS_INTERVAL_HOURS
+        ) * HOUR_MS;
+    }
+
+    function getAttackFullsIntervalMs() {
+        return normalizeIntervalHours(
+            getSettings().attackFullsIntervalHours,
+            DEFAULT_ATTACK_FULLS_INTERVAL_HOURS
         ) * HOUR_MS;
     }
 
@@ -425,6 +442,15 @@
 
         return troopsWebhook && troopsWebhook !== DEFAULT_TROOPS_WEBHOOK
             ? troopsWebhook
+            : cleanText(settings.webhook);
+    }
+
+    function getAttackFullsWebhook() {
+        const settings = getSettings();
+        const attackFullsWebhook = cleanText(settings.attackFullsWebhook);
+
+        return attackFullsWebhook && attackFullsWebhook !== DEFAULT_ATTACK_FULLS_WEBHOOK
+            ? attackFullsWebhook
             : cleanText(settings.webhook);
     }
 
@@ -1093,6 +1119,7 @@
                 webhook === DEFAULT_NOBLES_WEBHOOK ||
                 webhook === DEFAULT_SUMMARY_WEBHOOK ||
                 webhook === DEFAULT_TROOPS_WEBHOOK ||
+                webhook === DEFAULT_ATTACK_FULLS_WEBHOOK ||
                 webhook === DEFAULT_NOBLE_COUNTER_WEBHOOK ||
                 webhook === DEFAULT_VERIFICATION_WEBHOOK
             ) {
@@ -1839,6 +1866,44 @@
         );
     }
 
+    function shouldSendAttackFullsSummary() {
+        const settings = getSettings();
+        const nowDate = new Date();
+        const now = nowDate.getTime();
+
+        if (now - SCRIPT_STARTED_AT < STARTUP_GRACE_MS) {
+            const mode = normalizeScheduleMode(settings.attackFullsScheduleMode);
+
+            if (mode === SCHEDULE_MODE_DAILY) {
+                const time = normalizeDailyTime(settings.attackFullsDailyTime, DEFAULT_ATTACK_FULLS_DAILY_TIME);
+                const parts = time.split(':');
+                const targetDate = new Date();
+                targetDate.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
+
+                if (now >= targetDate.getTime()) {
+                    localStorage.setItem(ATTACK_FULLS_DAILY_SENT_KEY, getLocalDateKey(nowDate));
+                    localStorage.setItem(ATTACK_FULLS_LAST_SENT_KEY, String(now));
+                }
+            } else {
+                const lastSent = Number(localStorage.getItem(ATTACK_FULLS_LAST_SENT_KEY) || 0);
+                if (!lastSent || now - lastSent >= getAttackFullsIntervalMs()) {
+                    localStorage.setItem(ATTACK_FULLS_LAST_SENT_KEY, String(now));
+                }
+            }
+
+            return false;
+        }
+
+        return shouldSendBySchedule(
+            ATTACK_FULLS_LAST_SENT_KEY,
+            ATTACK_FULLS_DAILY_SENT_KEY,
+            settings.attackFullsScheduleMode,
+            getAttackFullsIntervalMs(),
+            settings.attackFullsDailyTime,
+            DEFAULT_ATTACK_FULLS_DAILY_TIME
+        );
+    }
+
     async function checkIncomingAttacks() {
         if (checking) return;
         checking = true;
@@ -1873,6 +1938,15 @@
                         console.log('[TW] Resumo automatico de tropas enviado.');
                     } catch (error) {
                         console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
+                    }
+                }
+
+                if (getSettings().notifyAttackFulls && shouldSendAttackFullsSummary()) {
+                    try {
+                        await sendAttackFullsSummary();
+                        console.log('[TW] Contador automatico de fulls de ataque enviado.');
+                    } catch (error) {
+                        console.warn('[TW] Erro ao enviar contador automatico de fulls de ataque:', error);
                     }
                 }
 
@@ -1957,6 +2031,15 @@
                     console.log('[TW] Resumo automatico de tropas enviado.');
                 } catch (error) {
                     console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
+                }
+            }
+
+            if (getSettings().notifyAttackFulls && shouldSendAttackFullsSummary()) {
+                try {
+                    await sendAttackFullsSummary();
+                    console.log('[TW] Contador automatico de fulls de ataque enviado.');
+                } catch (error) {
+                    console.warn('[TW] Erro ao enviar contador automatico de fulls de ataque:', error);
                 }
             }
 
@@ -2531,19 +2614,6 @@
         return counter;
     }
 
-    function formatAttackFullCounterLines(summary) {
-        const counter = summary.attackFullCounter || calculateAttackFullCounter(summary.villages);
-
-        return [
-            `Full: **${formatTroopNumber(ATTACK_FULL_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_FULL_LIGHT)}+ Cavalaria Leve**`,
-            `Meio Full: **${formatTroopNumber(ATTACK_HALF_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)}+ Cavalaria Leve**`,
-            `Fulls: **${formatTroopNumber(counter.completeFulls)}**`,
-            `Meios fulls: **${formatTroopNumber(counter.halfFulls)}**`,
-            `Pequenos fulls: **${formatTroopNumber(counter.smallFulls)}**`,
-            `Aldeias com tropas de ataque: **${formatTroopNumber(counter.attackVillages)}**`
-        ].join('\n');
-    }
-
     function formatTroopLines(totals, units) {
         const lines = units
             .filter(unit => Number(totals[unit] || 0) > 0)
@@ -2583,10 +2653,7 @@
                 '🛡️ **Defesa**',
                 `Total: **${formatTroopNumber(defenseTotal)}**`,
                 '',
-                lines.join('\n'),
-                '',
-                '⚔️ **Fulls de Ataque**',
-                formatAttackFullCounterLines(summary)
+                lines.join('\n')
             ].join('\n'),
             footer: { text: 'Tribal Wars PT' },
             timestamp: new Date().toISOString()
@@ -2633,15 +2700,73 @@
                     inline: false
                 },
                 {
-                    name: '⚔️ Fulls de Ataque',
-                    value: formatAttackFullCounterLines(summary),
-                    inline: false
-                },
-                {
                     name: '🏘️ Geral',
                     value: [
                         `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`,
                         `Tropas totais: **${formatTroopNumber(totalTroops)}**`
+                    ].join('\n'),
+                    inline: false
+                }
+            ],
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    async function buildAttackFullsSummary() {
+        const troopsDoc = await fetchTroopsOverviewDocument();
+        const troopsSummary = parseTroopsOverview(troopsDoc);
+
+        if (!troopsSummary || !troopsSummary.villageCount) {
+            return null;
+        }
+
+        troopsSummary.defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
+
+        return troopsSummary;
+    }
+
+    function buildAttackFullsEmbed(summary) {
+        const totals = summary.totals || {};
+        const counter = summary.attackFullCounter || calculateAttackFullCounter(summary.villages);
+
+        return {
+            title: '⚔️ ━━ CONTADOR DE FULLS DE ATAQUE ━━ ⚔️',
+            color: 15158332,
+            fields: [
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Jogador',
+                    value: [
+                        `**${getDefenderValue()}**`,
+                        `Tribo: ${formatTribe(summary.defenderTribe)}`,
+                        `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '⚔️ Tropas de Ataque',
+                    value: [
+                        `Vikings: **${formatTroopNumber(totals.axe)}**`,
+                        `Cavalaria Leve: **${formatTroopNumber(totals.light)}**`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '📊 Fulls',
+                    value: [
+                        `Fulls: **${formatTroopNumber(counter.completeFulls)}**`,
+                        `Meios fulls: **${formatTroopNumber(counter.halfFulls)}**`,
+                        `Pequenos fulls: **${formatTroopNumber(counter.smallFulls)}**`,
+                        `Aldeias com tropas de ataque: **${formatTroopNumber(counter.attackVillages)}**`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '📏 Patamares',
+                    value: [
+                        `Full: **${formatTroopNumber(ATTACK_FULL_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_FULL_LIGHT)}+ Cavalaria Leve**`,
+                        `Meio Full: **${formatTroopNumber(ATTACK_HALF_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)}+ Cavalaria Leve**`,
+                        `Pequeno Full: abaixo de **${formatTroopNumber(ATTACK_HALF_AXE)} Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)} Cavalaria Leve**`
                     ].join('\n'),
                     inline: false
                 }
@@ -2718,6 +2843,24 @@
         );
 
         console.log('[TW] Contador de nobres enviado.');
+        return true;
+    }
+
+    async function sendAttackFullsSummary() {
+        const summary = await buildAttackFullsSummary();
+
+        if (!summary) {
+            console.log('[TW] Sem dados para contador de fulls de ataque.');
+            return false;
+        }
+
+        queueDiscordEmbed(
+            buildAttackFullsEmbed(summary),
+            'TW Attack Fulls',
+            getAttackFullsWebhook()
+        );
+
+        console.log('[TW] Contador de fulls de ataque enviado.');
         return true;
     }
 
@@ -3907,6 +4050,11 @@
     grid-row: 1 !important;
 }
 
+.tw-alerts-actions-section #tw-alerts-attack-fulls-send {
+    grid-column: 6 !important;
+    grid-row: 2 !important;
+}
+
 .tw-alerts-actions-section #tw-alerts-noble-counter-send {
     grid-column: 7 !important;
     grid-row: 2 !important;
@@ -3937,6 +4085,7 @@
     .tw-alerts-actions-section #tw-alerts-test-verification,
     .tw-alerts-actions-section #tw-alerts-test-summary,
     .tw-alerts-actions-section #tw-alerts-troops,
+    .tw-alerts-actions-section #tw-alerts-attack-fulls-send,
     .tw-alerts-actions-section #tw-alerts-noble-counter-send,
     .tw-alerts-actions-section #tw-alerts-reset,
     .tw-alerts-actions-section #tw-alerts-status {
@@ -4008,6 +4157,41 @@
                             <div class="tw-alerts-field tw-alerts-webhook-field">
                                 <label>Webhook - Ataques</label>
                                 <input id="tw-alerts-webhook" type="text" value="${escapeHtml(settings.webhook || '')}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tw-alerts-subblock">
+                        <div class="tw-alerts-subblock-main">
+                            <label class="tw-alerts-check-top">
+                                <input id="tw-alerts-attack-fulls" type="checkbox" ${settings.notifyAttackFulls ? 'checked' : ''}>
+                                <span>Contador de fulls de ataque</span>
+                            </label>
+                            <div class="tw-alerts-mini-desc">Envia Fulls, Meios Fulls e Pequenos Fulls por patamar.</div>
+                        </div>
+                        <div class="tw-alerts-subblock-fields schedule-fields">
+                            <div class="tw-alerts-field tw-alerts-webhook-field">
+                                <label>Webhook</label>
+                                <input id="tw-alerts-attack-fulls-webhook" type="text" value="${escapeHtml(settings.attackFullsWebhook || '')}">
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Modo</label>
+                                <select id="tw-alerts-attack-fulls-schedule-mode">
+                                    <option value="interval" ${settings.attackFullsScheduleMode !== 'daily' ? 'selected' : ''}>Intervalo</option>
+                                    <option value="daily" ${settings.attackFullsScheduleMode === 'daily' ? 'selected' : ''}>Hora fixa</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Intervalo</label>
+                                <select id="tw-alerts-attack-fulls-interval">
+                                    <option value="8" ${Number(settings.attackFullsIntervalHours) === 8 ? 'selected' : ''}>De 8 em 8 horas</option>
+                                    <option value="16" ${Number(settings.attackFullsIntervalHours) === 16 ? 'selected' : ''}>De 16 em 16 horas</option>
+                                    <option value="24" ${Number(settings.attackFullsIntervalHours) === 24 ? 'selected' : ''}>De 24 em 24 horas</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Hora</label>
+                                <input id="tw-alerts-attack-fulls-daily-time" type="time" value="${escapeHtml(settings.attackFullsDailyTime || DEFAULT_ATTACK_FULLS_DAILY_TIME)}">
                             </div>
                         </div>
                     </div>
@@ -4231,6 +4415,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                     </div>
                     <button id="tw-alerts-test-summary" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Ataques a Chegar</button>
                     <button id="tw-alerts-troops" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Tropas Móveis</button>
+                    <button id="tw-alerts-attack-fulls-send" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Fulls Ataque</button>
                     <button id="tw-alerts-noble-counter-send" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Nobres</button>
                     <button id="tw-alerts-test-verification" class="tw-alerts-button tw-alerts-button-wide" type="button">Teste Captcha</button>
                     <button id="tw-alerts-reset" class="tw-alerts-button tw-alerts-button-wide tw-alerts-button-secondary" type="button">Reset Configurações</button>
@@ -4396,6 +4581,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 summaryWebhook: container.querySelector('#tw-alerts-summary-webhook').value.trim(),
                 noblesWebhook: container.querySelector('#tw-alerts-nobles-webhook').value.trim(),
                 troopsWebhook: container.querySelector('#tw-alerts-troops-webhook').value.trim(),
+                attackFullsWebhook: container.querySelector('#tw-alerts-attack-fulls-webhook').value.trim(),
                 nobleCounterWebhook: container.querySelector('#tw-alerts-noble-counter-webhook').value.trim(),
                 verificationWebhook: container.querySelector('#tw-alerts-verification-webhook').value.trim(),
                 verificationMention: getSlotText(verificationUserSlots),
@@ -4408,10 +4594,12 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 notifyNobleAttacks: container.querySelector('#tw-alerts-nobles').checked,
                 notifyAttackSummary: container.querySelector('#tw-alerts-summary').checked,
                 notifyDefenseTroops: container.querySelector('#tw-alerts-defense-troops').checked,
+                notifyAttackFulls: container.querySelector('#tw-alerts-attack-fulls').checked,
                 notifyNobleCounter: container.querySelector('#tw-alerts-noble-counter').checked,
                 notifyVerificationAlerts: container.querySelector('#tw-alerts-verification').checked,
                 summaryIntervalHours: Number(container.querySelector('#tw-alerts-summary-interval').value || 8),
                 troopsIntervalHours: Number(container.querySelector('#tw-alerts-troops-interval').value || 8),
+                attackFullsIntervalHours: Number(container.querySelector('#tw-alerts-attack-fulls-interval').value || 8),
                 nobleCounterIntervalHours: Number(container.querySelector('#tw-alerts-noble-counter-interval').value || 8),
                 checkInterval: container.querySelector('#tw-alerts-interval').value || CHECK_INTERVAL,
                 troopsSummaryMode: container.querySelector('#tw-alerts-troops-mode').value || TROOPS_SUMMARY_MODE_COMPLETE,
@@ -4419,6 +4607,8 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 summaryDailyTime: container.querySelector('#tw-alerts-summary-daily-time').value || DEFAULT_SUMMARY_DAILY_TIME,
                 troopsScheduleMode: container.querySelector('#tw-alerts-troops-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
                 troopsDailyTime: container.querySelector('#tw-alerts-troops-daily-time').value || DEFAULT_TROOPS_DAILY_TIME,
+                attackFullsScheduleMode: container.querySelector('#tw-alerts-attack-fulls-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
+                attackFullsDailyTime: container.querySelector('#tw-alerts-attack-fulls-daily-time').value || DEFAULT_ATTACK_FULLS_DAILY_TIME,
                 nobleCounterScheduleMode: container.querySelector('#tw-alerts-noble-counter-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
                 nobleCounterDailyTime: container.querySelector('#tw-alerts-noble-counter-daily-time').value || DEFAULT_NOBLE_COUNTER_DAILY_TIME,
                 nobleTrainDelay: NOBLE_TRAIN_DELAY
@@ -4430,6 +4620,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-nobles-webhook').value = nextSettings.noblesWebhook || '';
             container.querySelector('#tw-alerts-summary-webhook').value = nextSettings.summaryWebhook || '';
             container.querySelector('#tw-alerts-troops-webhook').value = nextSettings.troopsWebhook || '';
+            container.querySelector('#tw-alerts-attack-fulls-webhook').value = nextSettings.attackFullsWebhook || '';
             container.querySelector('#tw-alerts-noble-counter-webhook').value = nextSettings.nobleCounterWebhook || '';
             container.querySelector('#tw-alerts-verification-webhook').value = nextSettings.verificationWebhook || '';
             applyVerificationSlots(
@@ -4446,17 +4637,21 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-nobles').checked = Boolean(nextSettings.notifyNobleAttacks);
             container.querySelector('#tw-alerts-summary').checked = Boolean(nextSettings.notifyAttackSummary);
             container.querySelector('#tw-alerts-defense-troops').checked = Boolean(nextSettings.notifyDefenseTroops);
+            container.querySelector('#tw-alerts-attack-fulls').checked = Boolean(nextSettings.notifyAttackFulls);
             container.querySelector('#tw-alerts-noble-counter').checked = Boolean(nextSettings.notifyNobleCounter);
             container.querySelector('#tw-alerts-verification').checked = Boolean(nextSettings.notifyVerificationAlerts);
             container.querySelector('#tw-alerts-interval').value = nextSettings.checkInterval || CHECK_INTERVAL;
             container.querySelector('#tw-alerts-summary-interval').value = String(normalizeIntervalHours(nextSettings.summaryIntervalHours, DEFAULT_SUMMARY_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-troops-interval').value = String(normalizeIntervalHours(nextSettings.troopsIntervalHours, DEFAULT_TROOPS_INTERVAL_HOURS));
+            container.querySelector('#tw-alerts-attack-fulls-interval').value = String(normalizeIntervalHours(nextSettings.attackFullsIntervalHours, DEFAULT_ATTACK_FULLS_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-noble-counter-interval').value = String(normalizeIntervalHours(nextSettings.nobleCounterIntervalHours, DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-troops-mode').value = normalizeTroopsSummaryMode(nextSettings.troopsSummaryMode);
             container.querySelector('#tw-alerts-summary-schedule-mode').value = normalizeScheduleMode(nextSettings.summaryScheduleMode);
             container.querySelector('#tw-alerts-summary-daily-time').value = normalizeDailyTime(nextSettings.summaryDailyTime, DEFAULT_SUMMARY_DAILY_TIME);
             container.querySelector('#tw-alerts-troops-schedule-mode').value = normalizeScheduleMode(nextSettings.troopsScheduleMode);
             container.querySelector('#tw-alerts-troops-daily-time').value = normalizeDailyTime(nextSettings.troopsDailyTime, DEFAULT_TROOPS_DAILY_TIME);
+            container.querySelector('#tw-alerts-attack-fulls-schedule-mode').value = normalizeScheduleMode(nextSettings.attackFullsScheduleMode);
+            container.querySelector('#tw-alerts-attack-fulls-daily-time').value = normalizeDailyTime(nextSettings.attackFullsDailyTime, DEFAULT_ATTACK_FULLS_DAILY_TIME);
             container.querySelector('#tw-alerts-noble-counter-schedule-mode').value = normalizeScheduleMode(nextSettings.nobleCounterScheduleMode);
             container.querySelector('#tw-alerts-noble-counter-daily-time').value = normalizeDailyTime(nextSettings.nobleCounterDailyTime, DEFAULT_NOBLE_COUNTER_DAILY_TIME);
         }
@@ -4517,6 +4712,19 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 } catch (error) {
                     console.warn('[TW] Erro ao enviar tropas:', error);
                     status.textContent = 'Erro ao enviar tropas.';
+                }
+            });
+
+            container.querySelector('#tw-alerts-attack-fulls-send').addEventListener('click', async () => {
+                saveSettings(readFormSettings(container));
+                status.textContent = 'A enviar fulls de ataque...';
+
+                try {
+                    const sent = await sendAttackFullsSummary();
+                    status.textContent = sent ? 'Fulls de ataque enviados.' : 'Sem dados de fulls para enviar.';
+                } catch (error) {
+                    console.warn('[TW] Erro ao enviar fulls de ataque:', error);
+                    status.textContent = 'Erro ao enviar fulls de ataque.';
                 }
             });
 
