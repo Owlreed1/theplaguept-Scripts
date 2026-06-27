@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.2.6
+// @version      1.2.7
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.2.6 carregada');
+    console.log('[TW Discord Alerts] Versao 1.2.7 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2727,12 +2727,18 @@
     }
 
     function buildAttackFullsEmbed(summary) {
-        const totals = summary.totals || {};
         const counter = summary.attackFullCounter || calculateAttackFullCounter(summary.villages);
 
         return {
             title: '⚔️ ━━ CONTADOR DE FULLS DE ATAQUE ━━ ⚔️',
             color: 15158332,
+            description: [
+                `🏆 **FULLS:** **${formatTroopNumber(counter.completeFulls)}**`,
+                `⚔️ **MEIOS FULLS:** **${formatTroopNumber(counter.halfFulls)}**`,
+                `🔸 **PEQUENOS FULLS:** **${formatTroopNumber(counter.smallFulls)}**`,
+                '',
+                `Aldeias com tropas de ataque: **${formatTroopNumber(counter.attackVillages)}**`
+            ].join('\n'),
             fields: [
                 {
                     name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Jogador',
@@ -2744,25 +2750,7 @@
                     inline: false
                 },
                 {
-                    name: '⚔️ Tropas de Ataque',
-                    value: [
-                        `Vikings: **${formatTroopNumber(totals.axe)}**`,
-                        `Cavalaria Leve: **${formatTroopNumber(totals.light)}**`
-                    ].join('\n'),
-                    inline: false
-                },
-                {
-                    name: '📊 Fulls',
-                    value: [
-                        `Fulls: **${formatTroopNumber(counter.completeFulls)}**`,
-                        `Meios fulls: **${formatTroopNumber(counter.halfFulls)}**`,
-                        `Pequenos fulls: **${formatTroopNumber(counter.smallFulls)}**`,
-                        `Aldeias com tropas de ataque: **${formatTroopNumber(counter.attackVillages)}**`
-                    ].join('\n'),
-                    inline: false
-                },
-                {
-                    name: '📏 Patamares',
+                    name: '📏 Patamares dos Fulls',
                     value: [
                         `Full: **${formatTroopNumber(ATTACK_FULL_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_FULL_LIGHT)}+ Cavalaria Leve**`,
                         `Meio Full: **${formatTroopNumber(ATTACK_HALF_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)}+ Cavalaria Leve**`,
@@ -4164,41 +4152,6 @@
                     <div class="tw-alerts-subblock">
                         <div class="tw-alerts-subblock-main">
                             <label class="tw-alerts-check-top">
-                                <input id="tw-alerts-attack-fulls" type="checkbox" ${settings.notifyAttackFulls ? 'checked' : ''}>
-                                <span>Contador de fulls de ataque</span>
-                            </label>
-                            <div class="tw-alerts-mini-desc">Envia Fulls, Meios Fulls e Pequenos Fulls por patamar.</div>
-                        </div>
-                        <div class="tw-alerts-subblock-fields schedule-fields">
-                            <div class="tw-alerts-field tw-alerts-webhook-field">
-                                <label>Webhook</label>
-                                <input id="tw-alerts-attack-fulls-webhook" type="text" value="${escapeHtml(settings.attackFullsWebhook || '')}">
-                            </div>
-                            <div class="tw-alerts-field">
-                                <label>Modo</label>
-                                <select id="tw-alerts-attack-fulls-schedule-mode">
-                                    <option value="interval" ${settings.attackFullsScheduleMode !== 'daily' ? 'selected' : ''}>Intervalo</option>
-                                    <option value="daily" ${settings.attackFullsScheduleMode === 'daily' ? 'selected' : ''}>Hora fixa</option>
-                                </select>
-                            </div>
-                            <div class="tw-alerts-field">
-                                <label>Intervalo</label>
-                                <select id="tw-alerts-attack-fulls-interval">
-                                    <option value="8" ${Number(settings.attackFullsIntervalHours) === 8 ? 'selected' : ''}>De 8 em 8 horas</option>
-                                    <option value="16" ${Number(settings.attackFullsIntervalHours) === 16 ? 'selected' : ''}>De 16 em 16 horas</option>
-                                    <option value="24" ${Number(settings.attackFullsIntervalHours) === 24 ? 'selected' : ''}>De 24 em 24 horas</option>
-                                </select>
-                            </div>
-                            <div class="tw-alerts-field">
-                                <label>Hora</label>
-                                <input id="tw-alerts-attack-fulls-daily-time" type="time" value="${escapeHtml(settings.attackFullsDailyTime || DEFAULT_ATTACK_FULLS_DAILY_TIME)}">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="tw-alerts-subblock">
-                        <div class="tw-alerts-subblock-main">
-                            <label class="tw-alerts-check-top">
                                 <input id="tw-alerts-nobles" type="checkbox" ${settings.notifyNobleAttacks ? 'checked' : ''}>
                                 <span>Notificar nobres e comboios</span>
                             </label>
@@ -4294,6 +4247,41 @@
                             <div class="tw-alerts-field">
                                 <label>Hora</label>
                                 <input id="tw-alerts-troops-daily-time" type="time" value="${escapeHtml(settings.troopsDailyTime || DEFAULT_TROOPS_DAILY_TIME)}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tw-alerts-subblock">
+                        <div class="tw-alerts-subblock-main">
+                            <label class="tw-alerts-check-top">
+                                <input id="tw-alerts-attack-fulls" type="checkbox" ${settings.notifyAttackFulls ? 'checked' : ''}>
+                                <span>Contador de fulls de ataque</span>
+                            </label>
+                            <div class="tw-alerts-mini-desc">Envia Fulls, Meios Fulls e Pequenos Fulls por patamar.</div>
+                        </div>
+                        <div class="tw-alerts-subblock-fields schedule-fields">
+                            <div class="tw-alerts-field tw-alerts-webhook-field">
+                                <label>Webhook</label>
+                                <input id="tw-alerts-attack-fulls-webhook" type="text" value="${escapeHtml(settings.attackFullsWebhook || '')}">
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Modo</label>
+                                <select id="tw-alerts-attack-fulls-schedule-mode">
+                                    <option value="interval" ${settings.attackFullsScheduleMode !== 'daily' ? 'selected' : ''}>Intervalo</option>
+                                    <option value="daily" ${settings.attackFullsScheduleMode === 'daily' ? 'selected' : ''}>Hora fixa</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Intervalo</label>
+                                <select id="tw-alerts-attack-fulls-interval">
+                                    <option value="8" ${Number(settings.attackFullsIntervalHours) === 8 ? 'selected' : ''}>De 8 em 8 horas</option>
+                                    <option value="16" ${Number(settings.attackFullsIntervalHours) === 16 ? 'selected' : ''}>De 16 em 16 horas</option>
+                                    <option value="24" ${Number(settings.attackFullsIntervalHours) === 24 ? 'selected' : ''}>De 24 em 24 horas</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Hora</label>
+                                <input id="tw-alerts-attack-fulls-daily-time" type="time" value="${escapeHtml(settings.attackFullsDailyTime || DEFAULT_ATTACK_FULLS_DAILY_TIME)}">
                             </div>
                         </div>
                     </div>
