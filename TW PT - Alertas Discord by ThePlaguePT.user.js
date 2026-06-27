@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.2.3
+// @version      1.2.5
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.2.3 carregada');
+    console.log('[TW Discord Alerts] Versao 1.2.5 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -76,7 +76,7 @@
     const TROOP_UNIT_LABELS = {
         spear: '🔱 Lanceiros',
         sword: '🗡️ Espadachins',
-        axe: '🪓 Barbaros',
+        axe: '🪓 Vikings',
         archer: '🏹 Arqueiros',
         spy: '🕵️ Batedores',
         light: '🐎 Cavalaria Leve',
@@ -91,6 +91,10 @@
 
     const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'spy', 'heavy', 'knight', 'militia'];
     const TROOP_ATTACK_UNITS = ['axe', 'light', 'marcher', 'ram', 'catapult', 'snob'];
+    const ATTACK_FULL_AXE = 5000;
+    const ATTACK_FULL_LIGHT = 2000;
+    const ATTACK_HALF_AXE = 2500;
+    const ATTACK_HALF_LIGHT = 1000;
     const SETTINGS_KEY = `${STORAGE_PREFIX}_settings`;
 
     const DEFAULT_SETTINGS = {
@@ -2077,7 +2081,7 @@
         const aliases = {
             spear: ['unit_spear', 'unit-spear', 'unit-item-spear', 'spear.png', 'lanceiro'],
             sword: ['unit_sword', 'unit-sword', 'unit-item-sword', 'sword.png', 'espadachim'],
-            axe: ['unit_axe', 'unit-axe', 'unit-item-axe', 'axe.png', 'barbaro', 'bárbaro'],
+            axe: ['unit_axe', 'unit-axe', 'unit-item-axe', 'axe.png', 'barbaro', 'bárbaro', 'viking', 'vikings', 'machado', 'machados'],
             archer: ['unit_archer', 'unit-archer', 'unit-item-archer', 'archer.png', 'arqueiro'],
             spy: ['unit_spy', 'unit-spy', 'unit-item-spy', 'spy.png', 'explorador', 'batedor'],
             light: ['unit_light', 'unit-light', 'unit-item-light', 'light.png', 'cavalaria leve'],
@@ -2155,6 +2159,16 @@
         if (!/^\d[\d.\s]*$/.test(text)) return 0;
 
         return Number(text.replace(/[.\s]/g, '')) || 0;
+    }
+
+    function createTroopTotals() {
+        const totals = {};
+
+        Object.keys(TROOP_UNIT_LABELS).forEach(key => {
+            totals[key] = 0;
+        });
+
+        return totals;
     }
 
     function detectOverviewColumnKey(cell) {
@@ -2424,27 +2438,50 @@
 
         if (!bestTable || !bestColumns.length) return null;
 
-        const totals = {};
-        Object.keys(TROOP_UNIT_LABELS).forEach(key => {
-            totals[key] = 0;
-        });
+        const totals = createTroopTotals();
 
         const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'))
             .filter(row => /\d{3}\|\d{3}/.test(cleanText(row.innerText)));
 
         const villageKeys = new Set();
+        const villagesByKey = new Map();
 
         rows.forEach(row => {
             const villageKey = getRowCoordsKey(row);
-            if (villageKey) villageKeys.add(villageKey);
+
+            if (villageKey) {
+                villageKeys.add(villageKey);
+
+                if (!villagesByKey.has(villageKey)) {
+                    villagesByKey.set(villageKey, {
+                        key: villageKey,
+                        totals: createTroopTotals()
+                    });
+                }
+            }
+
+            const village = villageKey ? villagesByKey.get(villageKey) : null;
 
             bestColumns.forEach(column => {
                 const cell = getCellAtColumn(row, column.index);
-                totals[column.key] += parseTroopNumber(cell ? cell.innerText : '');
+                const value = parseTroopNumber(cell ? cell.innerText : '');
+
+                totals[column.key] += value;
+
+                if (village) {
+                    village.totals[column.key] += value;
+                }
             });
         });
 
-        return { totals, villageCount: villageKeys.size || rows.length };
+        const villages = Array.from(villagesByKey.values());
+
+        return {
+            totals,
+            villages,
+            attackFullCounter: calculateAttackFullCounter(villages),
+            villageCount: villageKeys.size || rows.length
+        };
     }
 
     function formatTroopNumber(value) {
@@ -2453,6 +2490,58 @@
 
     function sumTroopUnits(totals, units) {
         return units.reduce((sum, unit) => sum + Number(totals[unit] || 0), 0);
+    }
+
+    function calculateAttackFullCounter(villages) {
+        const counter = {
+            completeFulls: 0,
+            halfFulls: 0,
+            smallFulls: 0,
+            attackVillages: 0,
+            completeVillages: 0,
+            halfVillages: 0,
+            smallVillages: 0
+        };
+
+        (villages || []).forEach(village => {
+            const totals = village.totals || {};
+            const vikings = Number(totals.axe || 0);
+            const light = Number(totals.light || 0);
+
+            if (!vikings && !light) return;
+
+            counter.attackVillages += 1;
+
+            if (vikings >= ATTACK_FULL_AXE && light >= ATTACK_FULL_LIGHT) {
+                counter.completeFulls += 1;
+                counter.completeVillages += 1;
+                return;
+            }
+
+            if (vikings >= ATTACK_HALF_AXE && light >= ATTACK_HALF_LIGHT) {
+                counter.halfFulls += 1;
+                counter.halfVillages += 1;
+                return;
+            }
+
+            counter.smallFulls += 1;
+            counter.smallVillages += 1;
+        });
+
+        return counter;
+    }
+
+    function formatAttackFullCounterLines(summary) {
+        const counter = summary.attackFullCounter || calculateAttackFullCounter(summary.villages);
+
+        return [
+            `Full: **${formatTroopNumber(ATTACK_FULL_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_FULL_LIGHT)}+ Cavalaria Leve**`,
+            `Meio Full: **${formatTroopNumber(ATTACK_HALF_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)}+ Cavalaria Leve**`,
+            `Fulls: **${formatTroopNumber(counter.completeFulls)}**`,
+            `Meios fulls: **${formatTroopNumber(counter.halfFulls)}**`,
+            `Pequenos fulls: **${formatTroopNumber(counter.smallFulls)}**`,
+            `Aldeias com tropas de ataque: **${formatTroopNumber(counter.attackVillages)}**`
+        ].join('\n');
     }
 
     function formatTroopLines(totals, units) {
@@ -2494,7 +2583,10 @@
                 '🛡️ **Defesa**',
                 `Total: **${formatTroopNumber(defenseTotal)}**`,
                 '',
-                lines.join('\n')
+                lines.join('\n'),
+                '',
+                '⚔️ **Fulls de Ataque**',
+                formatAttackFullCounterLines(summary)
             ].join('\n'),
             footer: { text: 'Tribal Wars PT' },
             timestamp: new Date().toISOString()
@@ -2538,6 +2630,11 @@
                         '',
                         '━━━━━━━━━━━━━━━━━━━━'
                     ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '⚔️ Fulls de Ataque',
+                    value: formatAttackFullCounterLines(summary),
                     inline: false
                 },
                 {
