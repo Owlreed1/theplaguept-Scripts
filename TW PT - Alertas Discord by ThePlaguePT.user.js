@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.1.21
+// @version      1.2.0
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,13 +19,14 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.1.21 carregada');
+    console.log('[TW Discord Alerts] Versao 1.2.0 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_NOBLES_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_SUMMARY_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_TROOPS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
+    const DEFAULT_NOBLE_COUNTER_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_VERIFICATION_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
 
     const CHECK_INTERVAL = 'normal';
@@ -49,6 +50,8 @@
     const SUMMARY_DAILY_SENT_KEY = `${STORAGE_PREFIX}_attack_summary_daily_sent`;
     const TROOPS_LAST_SENT_KEY = `${STORAGE_PREFIX}_troops_summary_last_sent`;
     const TROOPS_DAILY_SENT_KEY = `${STORAGE_PREFIX}_troops_summary_daily_sent`;
+    const NOBLE_COUNTER_LAST_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_last_sent`;
+    const NOBLE_COUNTER_DAILY_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_daily_sent`;
     const PLAYER_TRIBE_CACHE_KEY = `${STORAGE_PREFIX}_player_tribes`;
     const VERIFICATION_ALERT_KEY = `${STORAGE_PREFIX}_verification_alert_last_sent`;
 
@@ -60,6 +63,7 @@
 
     const DEFAULT_SUMMARY_INTERVAL_HOURS = 8;
     const DEFAULT_TROOPS_INTERVAL_HOURS = 8;
+    const DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS = 8;
     const TROOPS_SUMMARY_MODE_COMPLETE = 'complete';
     const TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE = 'simple_defense';
     const SCHEDULE_MODE_INTERVAL = 'interval';
@@ -67,6 +71,14 @@
     const VERIFICATION_SLOT_COUNT = 3;
     const DEFAULT_SUMMARY_DAILY_TIME = '00:00';
     const DEFAULT_TROOPS_DAILY_TIME = '00:00';
+    const DEFAULT_NOBLE_COUNTER_DAILY_TIME = '00:00';
+
+    const DEFAULT_NOBLE_COST = {
+        wood: 40000,
+        clay: 50000,
+        iron: 50000,
+        population: 100
+    };
 
     const TROOP_UNIT_LABELS = {
         spear: '🔱 Lanceiros',
@@ -93,6 +105,7 @@
         noblesWebhook: DEFAULT_NOBLES_WEBHOOK,
         summaryWebhook: DEFAULT_SUMMARY_WEBHOOK,
         troopsWebhook: DEFAULT_TROOPS_WEBHOOK,
+        nobleCounterWebhook: DEFAULT_NOBLE_COUNTER_WEBHOOK,
         verificationWebhook: DEFAULT_VERIFICATION_WEBHOOK,
         verificationMention: '',
         verificationMentionEnabled: false,
@@ -104,6 +117,7 @@
         notifyNobleAttacks: false,
         notifyAttackSummary: false,
         notifyDefenseTroops: false,
+        notifyNobleCounter: false,
         notifyVerificationAlerts: false,
         summaryIntervalHours: DEFAULT_SUMMARY_INTERVAL_HOURS,
         summaryScheduleMode: SCHEDULE_MODE_INTERVAL,
@@ -112,6 +126,9 @@
         troopsDailyTime: DEFAULT_TROOPS_DAILY_TIME,
         troopsIntervalHours: DEFAULT_TROOPS_INTERVAL_HOURS,
         troopsSummaryMode: TROOPS_SUMMARY_MODE_COMPLETE,
+        nobleCounterScheduleMode: SCHEDULE_MODE_INTERVAL,
+        nobleCounterDailyTime: DEFAULT_NOBLE_COUNTER_DAILY_TIME,
+        nobleCounterIntervalHours: DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS,
         checkInterval: CHECK_INTERVAL,
         nobleTrainDelay: NOBLE_TRAIN_DELAY
     };
@@ -129,6 +146,7 @@
     let alreadySent = loadSet(SENT_KEY);
     let nobleAlreadySent = loadSet(NOBLE_SENT_KEY);
     let cachedUnitSpeed = null;
+    let cachedNobleCost = null;
     let errorBackoff = 0;
     let verificationPaused = false;
 
@@ -250,6 +268,13 @@
         return normalizeIntervalHours(
             getSettings().troopsIntervalHours,
             DEFAULT_TROOPS_INTERVAL_HOURS
+        ) * HOUR_MS;
+    }
+
+    function getNobleCounterIntervalMs() {
+        return normalizeIntervalHours(
+            getSettings().nobleCounterIntervalHours,
+            DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS
         ) * HOUR_MS;
     }
 
@@ -404,6 +429,15 @@
 
         return troopsWebhook && troopsWebhook !== DEFAULT_TROOPS_WEBHOOK
             ? troopsWebhook
+            : cleanText(settings.webhook);
+    }
+
+    function getNobleCounterWebhook() {
+        const settings = getSettings();
+        const nobleCounterWebhook = cleanText(settings.nobleCounterWebhook);
+
+        return nobleCounterWebhook && nobleCounterWebhook !== DEFAULT_NOBLE_COUNTER_WEBHOOK
+            ? nobleCounterWebhook
             : cleanText(settings.webhook);
     }
 
@@ -1063,6 +1097,7 @@
                 webhook === DEFAULT_NOBLES_WEBHOOK ||
                 webhook === DEFAULT_SUMMARY_WEBHOOK ||
                 webhook === DEFAULT_TROOPS_WEBHOOK ||
+                webhook === DEFAULT_NOBLE_COUNTER_WEBHOOK ||
                 webhook === DEFAULT_VERIFICATION_WEBHOOK
             ) {
                 console.warn('[TW] Webhook Discord nao configurado.');
@@ -1754,6 +1789,44 @@
         );
     }
 
+    function shouldSendNobleCounterSummary() {
+        const settings = getSettings();
+        const nowDate = new Date();
+        const now = nowDate.getTime();
+
+        if (now - SCRIPT_STARTED_AT < STARTUP_GRACE_MS) {
+            const mode = normalizeScheduleMode(settings.nobleCounterScheduleMode);
+
+            if (mode === SCHEDULE_MODE_DAILY) {
+                const time = normalizeDailyTime(settings.nobleCounterDailyTime, DEFAULT_NOBLE_COUNTER_DAILY_TIME);
+                const parts = time.split(':');
+                const targetDate = new Date();
+                targetDate.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
+
+                if (now >= targetDate.getTime()) {
+                    localStorage.setItem(NOBLE_COUNTER_DAILY_SENT_KEY, getLocalDateKey(nowDate));
+                    localStorage.setItem(NOBLE_COUNTER_LAST_SENT_KEY, String(now));
+                }
+            } else {
+                const lastSent = Number(localStorage.getItem(NOBLE_COUNTER_LAST_SENT_KEY) || 0);
+                if (!lastSent || now - lastSent >= getNobleCounterIntervalMs()) {
+                    localStorage.setItem(NOBLE_COUNTER_LAST_SENT_KEY, String(now));
+                }
+            }
+
+            return false;
+        }
+
+        return shouldSendBySchedule(
+            NOBLE_COUNTER_LAST_SENT_KEY,
+            NOBLE_COUNTER_DAILY_SENT_KEY,
+            settings.nobleCounterScheduleMode,
+            getNobleCounterIntervalMs(),
+            settings.nobleCounterDailyTime,
+            DEFAULT_NOBLE_COUNTER_DAILY_TIME
+        );
+    }
+
     async function checkIncomingAttacks() {
         if (checking) return;
         checking = true;
@@ -1788,6 +1861,15 @@
                         console.log('[TW] Resumo automatico de tropas enviado.');
                     } catch (error) {
                         console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
+                    }
+                }
+
+                if (getSettings().notifyNobleCounter && shouldSendNobleCounterSummary()) {
+                    try {
+                        await sendNobleCounterSummary();
+                        console.log('[TW] Contador automatico de nobres enviado.');
+                    } catch (error) {
+                        console.warn('[TW] Erro ao enviar contador automatico de nobres:', error);
                     }
                 }
 
@@ -1865,6 +1947,15 @@
                     console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
                 }
             }
+
+            if (getSettings().notifyNobleCounter && shouldSendNobleCounterSummary()) {
+                try {
+                    await sendNobleCounterSummary();
+                    console.log('[TW] Contador automatico de nobres enviado.');
+                } catch (error) {
+                    console.warn('[TW] Erro ao enviar contador automatico de nobres:', error);
+                }
+            }
         } catch (error) {
             errorBackoff = Math.min(errorBackoff + 5000, 60000);
             console.warn('[TW] Erro ao verificar ataques:', error, 'Backoff:', errorBackoff);
@@ -1898,6 +1989,29 @@
 
     async function fetchTroopsOverviewDocument() {
         const response = await fetch(getTroopsOverviewUrl(), {
+            credentials: 'include',
+            cache: 'no-store'
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const html = await response.text();
+        return new DOMParser().parseFromString(html, 'text/html');
+    }
+
+    function getVillagesOverviewUrl(mode) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('screen', 'overview_villages');
+        url.searchParams.set('mode', mode);
+        url.searchParams.set('page', '-1');
+        url.searchParams.delete('action');
+        url.searchParams.delete('ajax');
+        url.searchParams.delete('h');
+        return url.toString();
+    }
+
+    async function fetchVillagesOverviewDocument(mode) {
+        const response = await fetch(getVillagesOverviewUrl(mode), {
             credentials: 'include',
             cache: 'no-store'
         });
@@ -2006,6 +2120,213 @@
         if (!/^\d[\d.\s]*$/.test(text)) return 0;
 
         return Number(text.replace(/[.\s]/g, '')) || 0;
+    }
+
+    function detectOverviewColumnKey(cell) {
+        const imgTexts = Array.from(cell.querySelectorAll('img'))
+            .map(img => [
+                img.getAttribute('src') || '',
+                img.getAttribute('title') || '',
+                img.getAttribute('alt') || '',
+                img.className || ''
+            ].join(' '))
+            .join(' ');
+
+        const haystack = [
+            cell.innerText || '',
+            cell.innerHTML || '',
+            cell.className || '',
+            imgTexts
+        ].join(' ').toLowerCase();
+
+        const aliases = {
+            wood: ['wood', 'resource_wood', 'madeira'],
+            clay: ['stone', 'clay', 'resource_stone', 'resource_clay', 'argila', 'barro'],
+            iron: ['iron', 'resource_iron', 'ferro'],
+            farm: ['farm', 'pop', 'population', 'quinta', 'fazenda'],
+            academy: ['academy', 'main_buildlink_academy', 'academia']
+        };
+
+        return Object.keys(aliases).find(key =>
+            aliases[key].some(alias => haystack.includes(alias))
+        ) || null;
+    }
+
+    function getOverviewColumns(table, allowedKeys) {
+        let bestColumns = [];
+
+        Array.from(table.querySelectorAll('tr')).forEach(row => {
+            const columns = [];
+            let columnIndex = 0;
+
+            Array.from(row.children).forEach(cell => {
+                const key = detectOverviewColumnKey(cell);
+
+                if (key && (!allowedKeys || allowedKeys.includes(key))) {
+                    columns.push({ index: columnIndex, key });
+                }
+
+                columnIndex += Number(cell.getAttribute('colspan') || 1);
+            });
+
+            if (columns.length > bestColumns.length) bestColumns = columns;
+        });
+
+        return bestColumns;
+    }
+
+    function parseResourceNumber(value) {
+        const text = cleanText(value).replace(/[^\d.\s]/g, '');
+        return Number(text.replace(/[.\s]/g, '')) || 0;
+    }
+
+    function parseFarmAvailable(value) {
+        const text = cleanText(value);
+        const match = text.match(/(\d[\d.\s]*)\s*\/\s*(\d[\d.\s]*)/);
+
+        if (!match) return null;
+
+        const used = parseResourceNumber(match[1]);
+        const total = parseResourceNumber(match[2]);
+
+        if (!total || total < used) return null;
+
+        return total - used;
+    }
+
+    function getRowCoordsKey(row) {
+        const coords = parseCoords(row ? row.innerText : '');
+        return coords ? coords.text : '';
+    }
+
+    function parseProductionOverview(doc) {
+        const tables = Array.from(doc.querySelectorAll('table.vis, table'));
+        let bestTable = null;
+        let bestColumns = [];
+
+        tables.forEach(table => {
+            const columns = getOverviewColumns(table, ['wood', 'clay', 'iron', 'farm']);
+            const resourceCount = columns.filter(column => ['wood', 'clay', 'iron'].includes(column.key)).length;
+
+            if (resourceCount >= 3 && columns.length > bestColumns.length) {
+                bestTable = table;
+                bestColumns = columns;
+            }
+        });
+
+        if (!bestTable || !bestColumns.length) return null;
+
+        const villages = new Map();
+        const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'))
+            .filter(row => /\d{3}\|\d{3}/.test(cleanText(row.innerText)));
+
+        rows.forEach(row => {
+            const key = getRowCoordsKey(row);
+            if (!key) return;
+
+            const village = {
+                wood: 0,
+                clay: 0,
+                iron: 0,
+                farmAvailable: null
+            };
+
+            bestColumns.forEach(column => {
+                const cell = getCellAtColumn(row, column.index);
+                const text = cell ? cell.innerText : '';
+
+                if (column.key === 'farm') {
+                    village.farmAvailable = parseFarmAvailable(text);
+                    return;
+                }
+
+                village[column.key] = parseResourceNumber(text);
+            });
+
+            villages.set(key, village);
+        });
+
+        return villages;
+    }
+
+    function parseBuildingLevel(value) {
+        const text = cleanText(value);
+        if (!text || text === '-' || text === '0') return 0;
+
+        const match = text.match(/\d+/);
+        return match ? Number(match[0]) : 0;
+    }
+
+    function parseAcademyVillages(doc) {
+        const tables = Array.from(doc.querySelectorAll('table.vis, table'));
+        let bestTable = null;
+        let academyColumn = null;
+
+        tables.forEach(table => {
+            const columns = getOverviewColumns(table, ['academy']);
+            const column = columns.find(item => item.key === 'academy');
+
+            if (column && !academyColumn) {
+                bestTable = table;
+                academyColumn = column;
+            }
+        });
+
+        if (!bestTable || !academyColumn) return null;
+
+        const villages = new Set();
+        const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'))
+            .filter(row => /\d{3}\|\d{3}/.test(cleanText(row.innerText)));
+
+        rows.forEach(row => {
+            const key = getRowCoordsKey(row);
+            const cell = getCellAtColumn(row, academyColumn.index);
+
+            if (key && parseBuildingLevel(cell ? cell.innerText : '') > 0) {
+                villages.add(key);
+            }
+        });
+
+        return villages;
+    }
+
+    async function loadNobleCost() {
+        if (cachedNobleCost) return cachedNobleCost;
+
+        try {
+            const response = await fetch('/interface.php?func=get_unit_info', {
+                credentials: 'include',
+                cache: 'no-store'
+            });
+
+            const xml = await response.text();
+            const doc = new DOMParser().parseFromString(xml, 'text/xml');
+            const snob = doc.querySelector('snob');
+
+            if (snob) {
+                cachedNobleCost = {
+                    wood: Number(snob.querySelector('wood')?.textContent || DEFAULT_NOBLE_COST.wood),
+                    clay: Number(
+                        snob.querySelector('stone')?.textContent ||
+                        snob.querySelector('clay')?.textContent ||
+                        DEFAULT_NOBLE_COST.clay
+                    ),
+                    iron: Number(snob.querySelector('iron')?.textContent || DEFAULT_NOBLE_COST.iron),
+                    population: Number(
+                        snob.querySelector('pop')?.textContent ||
+                        snob.querySelector('population')?.textContent ||
+                        DEFAULT_NOBLE_COST.population
+                    )
+                };
+
+                return cachedNobleCost;
+            }
+        } catch (error) {
+            console.warn('[TW] Erro ao carregar custo do nobre:', error);
+        }
+
+        cachedNobleCost = Object.assign({}, DEFAULT_NOBLE_COST);
+        return cachedNobleCost;
     }
 
     function parseTroopsOverview(doc) {
@@ -2146,6 +2467,146 @@
             footer: { text: 'Tribal Wars PT' },
             timestamp: new Date().toISOString()
         };
+    }
+
+    function calculateNobleCapacity(productionVillages, academyVillages, nobleCost) {
+        if (!productionVillages || !productionVillages.size) {
+            return {
+                canMake: null,
+                academyVillageCount: academyVillages ? academyVillages.size : 0,
+                villagesWithResources: 0,
+                estimatedWithoutAcademyData: !academyVillages
+            };
+        }
+
+        let canMake = 0;
+        let villagesWithResources = 0;
+
+        productionVillages.forEach((village, key) => {
+            if (academyVillages && !academyVillages.has(key)) return;
+
+            let possible = Math.min(
+                Math.floor(Number(village.wood || 0) / nobleCost.wood),
+                Math.floor(Number(village.clay || 0) / nobleCost.clay),
+                Math.floor(Number(village.iron || 0) / nobleCost.iron)
+            );
+
+            if (village.farmAvailable !== null && nobleCost.population > 0) {
+                possible = Math.min(possible, Math.floor(village.farmAvailable / nobleCost.population));
+            }
+
+            possible = Math.max(0, possible);
+
+            if (possible > 0) {
+                villagesWithResources += 1;
+                canMake += possible;
+            }
+        });
+
+        return {
+            canMake,
+            academyVillageCount: academyVillages ? academyVillages.size : productionVillages.size,
+            villagesWithResources,
+            estimatedWithoutAcademyData: !academyVillages
+        };
+    }
+
+    async function buildNobleCounterSummary() {
+        const troopsDoc = await fetchTroopsOverviewDocument();
+        const troopsSummary = parseTroopsOverview(troopsDoc);
+
+        if (!troopsSummary || !troopsSummary.villageCount) {
+            return null;
+        }
+
+        const nobleCost = await loadNobleCost();
+        let productionVillages = null;
+        let academyVillages = null;
+
+        try {
+            productionVillages = parseProductionOverview(await fetchVillagesOverviewDocument('prod'));
+        } catch (error) {
+            console.warn('[TW] Erro ao carregar producao para contador de nobres:', error);
+        }
+
+        try {
+            academyVillages = parseAcademyVillages(await fetchVillagesOverviewDocument('buildings'));
+        } catch (error) {
+            console.warn('[TW] Erro ao carregar academias para contador de nobres:', error);
+        }
+
+        const capacity = calculateNobleCapacity(productionVillages, academyVillages, nobleCost);
+
+        return {
+            currentNobles: Number(troopsSummary.totals.snob || 0),
+            villageCount: troopsSummary.villageCount,
+            nobleCost,
+            defenderTribe: await getPlayerTribe(getDefenderProfileUrl()),
+            canMake: capacity.canMake,
+            academyVillageCount: capacity.academyVillageCount,
+            villagesWithResources: capacity.villagesWithResources,
+            estimatedWithoutAcademyData: capacity.estimatedWithoutAcademyData
+        };
+    }
+
+    function buildNobleCounterEmbed(summary) {
+        const canMakeText = summary.canMake === null
+            ? 'N/A'
+            : formatTroopNumber(summary.canMake);
+
+        return {
+            title: '👑 ━━ CONTADOR DE NOBRES ━━ 👑',
+            color: 16753920,
+            fields: [
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Jogador',
+                    value: [
+                        `**${getDefenderValue()}**`,
+                        `Tribo: ${formatTribe(summary.defenderTribe)}`,
+                        `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '👑 Nobres',
+                    value: [
+                        `Nobres atuais: **${formatTroopNumber(summary.currentNobles)}**`,
+                        `Nobres que consegues fazer: **${canMakeText}**`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '🏛️ Base do cálculo',
+                    value: [
+                        `Academias consideradas: **${formatTroopNumber(summary.academyVillageCount)}**`,
+                        `Aldeias com recursos: **${formatTroopNumber(summary.villagesWithResources)}**`,
+                        `Custo usado: **${formatTroopNumber(summary.nobleCost.wood)}** madeira | **${formatTroopNumber(summary.nobleCost.clay)}** argila | **${formatTroopNumber(summary.nobleCost.iron)}** ferro`,
+                        summary.estimatedWithoutAcademyData ? 'Nota: academias nao detetadas; calculo feito por recursos disponiveis.' : ''
+                    ].filter(Boolean).join('\n'),
+                    inline: false
+                }
+            ],
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    async function sendNobleCounterSummary() {
+        const summary = await buildNobleCounterSummary();
+
+        if (!summary) {
+            console.log('[TW] Sem dados para contador de nobres.');
+            return false;
+        }
+
+        queueDiscordEmbed(
+            buildNobleCounterEmbed(summary),
+            'TW Noble Counter',
+            getNobleCounterWebhook()
+        );
+
+        console.log('[TW] Contador de nobres enviado.');
+        return true;
     }
 
     async function sendTroopSummary() {
@@ -3334,6 +3795,11 @@
     grid-row: 1 !important;
 }
 
+.tw-alerts-actions-section #tw-alerts-noble-counter-send {
+    grid-column: 7 !important;
+    grid-row: 2 !important;
+}
+
 .tw-alerts-actions-section #tw-alerts-reset {
     grid-column: 1 !important;
     grid-row: 2 !important;
@@ -3359,6 +3825,7 @@
     .tw-alerts-actions-section #tw-alerts-test-verification,
     .tw-alerts-actions-section #tw-alerts-test-summary,
     .tw-alerts-actions-section #tw-alerts-troops,
+    .tw-alerts-actions-section #tw-alerts-noble-counter-send,
     .tw-alerts-actions-section #tw-alerts-reset,
     .tw-alerts-actions-section #tw-alerts-status {
         grid-column: 1 !important;
@@ -3534,6 +4001,41 @@
                             </div>
                         </div>
                     </div>
+
+                    <div class="tw-alerts-subblock">
+                        <div class="tw-alerts-subblock-main">
+                            <label class="tw-alerts-check-top">
+                                <input id="tw-alerts-noble-counter" type="checkbox" ${settings.notifyNobleCounter ? 'checked' : ''}>
+                                <span>Contador de nobres</span>
+                            </label>
+                            <div class="tw-alerts-mini-desc">Envia nobres existentes e nobres que consegues fazer.</div>
+                        </div>
+                        <div class="tw-alerts-subblock-fields schedule-fields">
+                            <div class="tw-alerts-field tw-alerts-webhook-field">
+                                <label>Webhook</label>
+                                <input id="tw-alerts-noble-counter-webhook" type="text" value="${escapeHtml(settings.nobleCounterWebhook || '')}">
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Modo</label>
+                                <select id="tw-alerts-noble-counter-schedule-mode">
+                                    <option value="interval" ${settings.nobleCounterScheduleMode !== 'daily' ? 'selected' : ''}>Intervalo</option>
+                                    <option value="daily" ${settings.nobleCounterScheduleMode === 'daily' ? 'selected' : ''}>Hora fixa</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Intervalo</label>
+                                <select id="tw-alerts-noble-counter-interval">
+                                    <option value="8" ${Number(settings.nobleCounterIntervalHours) === 8 ? 'selected' : ''}>De 8 em 8 horas</option>
+                                    <option value="16" ${Number(settings.nobleCounterIntervalHours) === 16 ? 'selected' : ''}>De 16 em 16 horas</option>
+                                    <option value="24" ${Number(settings.nobleCounterIntervalHours) === 24 ? 'selected' : ''}>De 24 em 24 horas</option>
+                                </select>
+                            </div>
+                            <div class="tw-alerts-field">
+                                <label>Hora</label>
+                                <input id="tw-alerts-noble-counter-daily-time" type="time" value="${escapeHtml(settings.nobleCounterDailyTime || DEFAULT_NOBLE_COUNTER_DAILY_TIME)}">
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -3617,6 +4119,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                     </div>
                     <button id="tw-alerts-test-summary" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Ataques a Chegar</button>
                     <button id="tw-alerts-troops" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Tropas Móveis</button>
+                    <button id="tw-alerts-noble-counter-send" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Nobres</button>
                     <button id="tw-alerts-test-verification" class="tw-alerts-button tw-alerts-button-wide" type="button">Teste Captcha</button>
                     <button id="tw-alerts-reset" class="tw-alerts-button tw-alerts-button-wide tw-alerts-button-secondary" type="button">Reset Configurações</button>
                     <div id="tw-alerts-status"></div>
@@ -3781,6 +4284,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 summaryWebhook: container.querySelector('#tw-alerts-summary-webhook').value.trim(),
                 noblesWebhook: container.querySelector('#tw-alerts-nobles-webhook').value.trim(),
                 troopsWebhook: container.querySelector('#tw-alerts-troops-webhook').value.trim(),
+                nobleCounterWebhook: container.querySelector('#tw-alerts-noble-counter-webhook').value.trim(),
                 verificationWebhook: container.querySelector('#tw-alerts-verification-webhook').value.trim(),
                 verificationMention: getSlotText(verificationUserSlots),
                 verificationMentionEnabled: hasEnabledSlot(verificationUserSlots),
@@ -3792,15 +4296,19 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 notifyNobleAttacks: container.querySelector('#tw-alerts-nobles').checked,
                 notifyAttackSummary: container.querySelector('#tw-alerts-summary').checked,
                 notifyDefenseTroops: container.querySelector('#tw-alerts-defense-troops').checked,
+                notifyNobleCounter: container.querySelector('#tw-alerts-noble-counter').checked,
                 notifyVerificationAlerts: container.querySelector('#tw-alerts-verification').checked,
                 summaryIntervalHours: Number(container.querySelector('#tw-alerts-summary-interval').value || 8),
                 troopsIntervalHours: Number(container.querySelector('#tw-alerts-troops-interval').value || 8),
+                nobleCounterIntervalHours: Number(container.querySelector('#tw-alerts-noble-counter-interval').value || 8),
                 checkInterval: container.querySelector('#tw-alerts-interval').value || CHECK_INTERVAL,
                 troopsSummaryMode: container.querySelector('#tw-alerts-troops-mode').value || TROOPS_SUMMARY_MODE_COMPLETE,
                 summaryScheduleMode: container.querySelector('#tw-alerts-summary-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
                 summaryDailyTime: container.querySelector('#tw-alerts-summary-daily-time').value || DEFAULT_SUMMARY_DAILY_TIME,
                 troopsScheduleMode: container.querySelector('#tw-alerts-troops-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
                 troopsDailyTime: container.querySelector('#tw-alerts-troops-daily-time').value || DEFAULT_TROOPS_DAILY_TIME,
+                nobleCounterScheduleMode: container.querySelector('#tw-alerts-noble-counter-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
+                nobleCounterDailyTime: container.querySelector('#tw-alerts-noble-counter-daily-time').value || DEFAULT_NOBLE_COUNTER_DAILY_TIME,
                 nobleTrainDelay: NOBLE_TRAIN_DELAY
             };
         }
@@ -3810,6 +4318,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-nobles-webhook').value = nextSettings.noblesWebhook || '';
             container.querySelector('#tw-alerts-summary-webhook').value = nextSettings.summaryWebhook || '';
             container.querySelector('#tw-alerts-troops-webhook').value = nextSettings.troopsWebhook || '';
+            container.querySelector('#tw-alerts-noble-counter-webhook').value = nextSettings.nobleCounterWebhook || '';
             container.querySelector('#tw-alerts-verification-webhook').value = nextSettings.verificationWebhook || '';
             applyVerificationSlots(
                 container,
@@ -3825,15 +4334,19 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-nobles').checked = Boolean(nextSettings.notifyNobleAttacks);
             container.querySelector('#tw-alerts-summary').checked = Boolean(nextSettings.notifyAttackSummary);
             container.querySelector('#tw-alerts-defense-troops').checked = Boolean(nextSettings.notifyDefenseTroops);
+            container.querySelector('#tw-alerts-noble-counter').checked = Boolean(nextSettings.notifyNobleCounter);
             container.querySelector('#tw-alerts-verification').checked = Boolean(nextSettings.notifyVerificationAlerts);
             container.querySelector('#tw-alerts-interval').value = nextSettings.checkInterval || CHECK_INTERVAL;
             container.querySelector('#tw-alerts-summary-interval').value = String(normalizeIntervalHours(nextSettings.summaryIntervalHours, DEFAULT_SUMMARY_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-troops-interval').value = String(normalizeIntervalHours(nextSettings.troopsIntervalHours, DEFAULT_TROOPS_INTERVAL_HOURS));
+            container.querySelector('#tw-alerts-noble-counter-interval').value = String(normalizeIntervalHours(nextSettings.nobleCounterIntervalHours, DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-troops-mode').value = normalizeTroopsSummaryMode(nextSettings.troopsSummaryMode);
             container.querySelector('#tw-alerts-summary-schedule-mode').value = normalizeScheduleMode(nextSettings.summaryScheduleMode);
             container.querySelector('#tw-alerts-summary-daily-time').value = normalizeDailyTime(nextSettings.summaryDailyTime, DEFAULT_SUMMARY_DAILY_TIME);
             container.querySelector('#tw-alerts-troops-schedule-mode').value = normalizeScheduleMode(nextSettings.troopsScheduleMode);
             container.querySelector('#tw-alerts-troops-daily-time').value = normalizeDailyTime(nextSettings.troopsDailyTime, DEFAULT_TROOPS_DAILY_TIME);
+            container.querySelector('#tw-alerts-noble-counter-schedule-mode').value = normalizeScheduleMode(nextSettings.nobleCounterScheduleMode);
+            container.querySelector('#tw-alerts-noble-counter-daily-time').value = normalizeDailyTime(nextSettings.nobleCounterDailyTime, DEFAULT_NOBLE_COUNTER_DAILY_TIME);
         }
 
         function bindSettingsForm(container) {
@@ -3892,6 +4405,19 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 } catch (error) {
                     console.warn('[TW] Erro ao enviar tropas:', error);
                     status.textContent = 'Erro ao enviar tropas.';
+                }
+            });
+
+            container.querySelector('#tw-alerts-noble-counter-send').addEventListener('click', async () => {
+                saveSettings(readFormSettings(container));
+                status.textContent = 'A enviar contador de nobres...';
+
+                try {
+                    const sent = await sendNobleCounterSummary();
+                    status.textContent = sent ? 'Contador de nobres enviado.' : 'Sem dados de nobres para enviar.';
+                } catch (error) {
+                    console.warn('[TW] Erro ao enviar contador de nobres:', error);
+                    status.textContent = 'Erro ao enviar contador de nobres.';
                 }
             });
 
