@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.2.2
+// @version      1.2.3
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.2.2 carregada');
+    console.log('[TW Discord Alerts] Versao 1.2.3 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2598,15 +2598,6 @@
                         `Nobres atuais: **${formatTroopNumber(summary.currentNobles)}**`,
                         `Nobres que ainda podem ser feitos: **${canMakeText}**`
                     ].join('\n'),
-                    inline: false
-                },
-                {
-                    name: '🏛️ Academia',
-                    value: [
-                        `Fonte: **${summary.academySource || 'Academia'}**`,
-                        summary.academyVillageCount === null ? '' : `Academias detetadas: **${formatTroopNumber(summary.academyVillageCount)}**`,
-                        summary.canMake === null ? 'Valor "Nobres que ainda podem ser feitos" nao detetado.' : 'Valor lido diretamente da Academia.'
-                    ].filter(Boolean).join('\n'),
                     inline: false
                 }
             ],
