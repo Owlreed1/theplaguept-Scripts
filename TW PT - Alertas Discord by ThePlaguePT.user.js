@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.0 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.1 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2504,14 +2504,67 @@
         return null;
     }
 
+    function parseAcademyNobleCounts(doc) {
+        if (!doc || !doc.body) {
+            return {
+                existingNobles: null,
+                canMake: null
+            };
+        }
+
+        const counts = {
+            existingNobles: null,
+            canMake: parseAcademyNoblesAvailable(doc)
+        };
+
+        const rows = Array.from(doc.querySelectorAll('tr'));
+
+        for (const row of rows) {
+            const cells = Array.from(row.children);
+            if (cells.length < 2) continue;
+
+            const label = normalizeSearchText(cells[0].innerText || '');
+            const valueText = cleanText(cells[cells.length - 1].innerText || '');
+            const valueMatch = valueText.match(/\d[\d.\s]*/);
+
+            if (!valueMatch) continue;
+
+            if (
+                label.includes('nobres existentes') ||
+                label.includes('nobre existente')
+            ) {
+                counts.existingNobles = parseResourceNumber(valueMatch[0]);
+            }
+        }
+
+        const text = normalizeSearchText(doc.body.innerText || '');
+        const existingPatterns = [
+            /nobres?\s+existentes?\D+(\d[\d.\s]*)/i,
+            /nobres?\s+atuais?\D+(\d[\d.\s]*)/i
+        ];
+
+        if (counts.existingNobles === null) {
+            for (const pattern of existingPatterns) {
+                const match = text.match(pattern);
+                if (match) {
+                    counts.existingNobles = parseResourceNumber(match[1]);
+                    break;
+                }
+            }
+        }
+
+        return counts;
+    }
+
     async function getAcademyNoblesAvailable() {
         try {
             const currentAcademyDoc = await fetchAcademyDocument();
-            const currentValue = parseAcademyNoblesAvailable(currentAcademyDoc);
+            const currentCounts = parseAcademyNobleCounts(currentAcademyDoc);
 
-            if (currentValue !== null) {
+            if (currentCounts.canMake !== null || currentCounts.existingNobles !== null) {
                 return {
-                    canMake: currentValue,
+                    canMake: currentCounts.canMake,
+                    existingNobles: currentCounts.existingNobles,
                     academyVillageCount: null,
                     source: 'Academia atual'
                 };
@@ -2527,11 +2580,12 @@
             for (const villageId of academyVillageIds.slice(0, 5)) {
                 try {
                     const academyDoc = await fetchAcademyDocument(villageId);
-                    const value = parseAcademyNoblesAvailable(academyDoc);
+                    const counts = parseAcademyNobleCounts(academyDoc);
 
-                    if (value !== null) {
+                    if (counts.canMake !== null || counts.existingNobles !== null) {
                         return {
-                            canMake: value,
+                            canMake: counts.canMake,
+                            existingNobles: counts.existingNobles,
                             academyVillageCount: academyVillageIds.length,
                             source: 'Academia'
                         };
@@ -2543,6 +2597,7 @@
 
             return {
                 canMake: null,
+                existingNobles: null,
                 academyVillageCount: academyVillageIds.length,
                 source: 'Academia'
             };
@@ -2552,6 +2607,7 @@
 
         return {
             canMake: null,
+            existingNobles: null,
             academyVillageCount: null,
             source: 'Academia'
         };
@@ -2825,9 +2881,12 @@
         }
 
         const academyAvailability = await getAcademyNoblesAvailable();
+        const troopNobles = Number(troopsSummary.totals.snob || 0);
 
         return {
-            currentNobles: Number(troopsSummary.totals.snob || 0),
+            currentNobles: academyAvailability.existingNobles !== null
+                ? Math.max(Number(academyAvailability.existingNobles || 0), troopNobles)
+                : troopNobles,
             villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
             defenderTribe: await getPlayerTribe(getDefenderProfileUrl()),
             canMake: academyAvailability.canMake,
@@ -2882,11 +2941,14 @@
         ]);
 
         troopsSummary.defenderTribe = defenderTribe;
+        const troopNobles = Number(troopsSummary.totals.snob || 0);
 
         return {
             attackFulls: troopsSummary,
             nobleCounter: {
-                currentNobles: Number(troopsSummary.totals.snob || 0),
+                currentNobles: academyAvailability.existingNobles !== null
+                    ? Math.max(Number(academyAvailability.existingNobles || 0), troopNobles)
+                    : troopNobles,
                 villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
                 defenderTribe,
                 canMake: academyAvailability.canMake,
