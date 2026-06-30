@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.2.9
+// @version      1.3.0
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.2.9 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.0 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -122,6 +122,7 @@
         notifyDefenseTroops: false,
         notifyAttackFulls: false,
         notifyNobleCounter: false,
+        combineAttackFullsAndNobles: false,
         notifyVerificationAlerts: false,
         summaryIntervalHours: DEFAULT_SUMMARY_INTERVAL_HOURS,
         summaryScheduleMode: SCHEDULE_MODE_INTERVAL,
@@ -461,6 +462,22 @@
         return nobleCounterWebhook && nobleCounterWebhook !== DEFAULT_NOBLE_COUNTER_WEBHOOK
             ? nobleCounterWebhook
             : cleanText(settings.webhook);
+    }
+
+    function getCombinedCountersWebhook() {
+        const settings = getSettings();
+        const attackFullsWebhook = cleanText(settings.attackFullsWebhook);
+        const nobleCounterWebhook = cleanText(settings.nobleCounterWebhook);
+
+        if (attackFullsWebhook && attackFullsWebhook !== DEFAULT_ATTACK_FULLS_WEBHOOK) {
+            return attackFullsWebhook;
+        }
+
+        if (nobleCounterWebhook && nobleCounterWebhook !== DEFAULT_NOBLE_COUNTER_WEBHOOK) {
+            return nobleCounterWebhook;
+        }
+
+        return cleanText(settings.webhook);
     }
 
     function uniqueList(values) {
@@ -1904,6 +1921,72 @@
         );
     }
 
+    function shouldUseCombinedCounters(settings = getSettings()) {
+        return Boolean(
+            settings.combineAttackFullsAndNobles &&
+            settings.notifyAttackFulls &&
+            settings.notifyNobleCounter
+        );
+    }
+
+    function markNobleCounterScheduleSynced() {
+        const settings = getSettings();
+        const nowDate = new Date();
+        const now = nowDate.getTime();
+
+        localStorage.setItem(NOBLE_COUNTER_LAST_SENT_KEY, String(now));
+
+        if (normalizeScheduleMode(settings.nobleCounterScheduleMode) === SCHEDULE_MODE_DAILY) {
+            const time = normalizeDailyTime(settings.nobleCounterDailyTime, DEFAULT_NOBLE_COUNTER_DAILY_TIME);
+            const parts = time.split(':');
+            const targetDate = new Date();
+            targetDate.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
+
+            if (now >= targetDate.getTime()) {
+                localStorage.setItem(NOBLE_COUNTER_DAILY_SENT_KEY, getLocalDateKey(nowDate));
+            }
+        }
+    }
+
+    async function sendAutomaticCounterSummaries() {
+        const settings = getSettings();
+
+        if (shouldUseCombinedCounters(settings)) {
+            if (shouldSendAttackFullsSummary()) {
+                try {
+                    const sent = await sendCombinedCountersSummary();
+
+                    if (sent) {
+                        markNobleCounterScheduleSynced();
+                        console.log('[TW] Contador automatico combinado de fulls e nobres enviado.');
+                    }
+                } catch (error) {
+                    console.warn('[TW] Erro ao enviar contador automatico combinado de fulls e nobres:', error);
+                }
+            }
+
+            return;
+        }
+
+        if (settings.notifyAttackFulls && shouldSendAttackFullsSummary()) {
+            try {
+                await sendAttackFullsSummary();
+                console.log('[TW] Contador automatico de fulls de ataque enviado.');
+            } catch (error) {
+                console.warn('[TW] Erro ao enviar contador automatico de fulls de ataque:', error);
+            }
+        }
+
+        if (settings.notifyNobleCounter && shouldSendNobleCounterSummary()) {
+            try {
+                await sendNobleCounterSummary();
+                console.log('[TW] Contador automatico de nobres enviado.');
+            } catch (error) {
+                console.warn('[TW] Erro ao enviar contador automatico de nobres:', error);
+            }
+        }
+    }
+
     async function checkIncomingAttacks() {
         if (checking) return;
         checking = true;
@@ -1941,23 +2024,7 @@
                     }
                 }
 
-                if (getSettings().notifyAttackFulls && shouldSendAttackFullsSummary()) {
-                    try {
-                        await sendAttackFullsSummary();
-                        console.log('[TW] Contador automatico de fulls de ataque enviado.');
-                    } catch (error) {
-                        console.warn('[TW] Erro ao enviar contador automatico de fulls de ataque:', error);
-                    }
-                }
-
-                if (getSettings().notifyNobleCounter && shouldSendNobleCounterSummary()) {
-                    try {
-                        await sendNobleCounterSummary();
-                        console.log('[TW] Contador automatico de nobres enviado.');
-                    } catch (error) {
-                        console.warn('[TW] Erro ao enviar contador automatico de nobres:', error);
-                    }
-                }
+                await sendAutomaticCounterSummaries();
 
                 return;
             }
@@ -2034,23 +2101,7 @@
                 }
             }
 
-            if (getSettings().notifyAttackFulls && shouldSendAttackFullsSummary()) {
-                try {
-                    await sendAttackFullsSummary();
-                    console.log('[TW] Contador automatico de fulls de ataque enviado.');
-                } catch (error) {
-                    console.warn('[TW] Erro ao enviar contador automatico de fulls de ataque:', error);
-                }
-            }
-
-            if (getSettings().notifyNobleCounter && shouldSendNobleCounterSummary()) {
-                try {
-                    await sendNobleCounterSummary();
-                    console.log('[TW] Contador automatico de nobres enviado.');
-                } catch (error) {
-                    console.warn('[TW] Erro ao enviar contador automatico de nobres:', error);
-                }
-            }
+            await sendAutomaticCounterSummaries();
         } catch (error) {
             errorBackoff = Math.min(errorBackoff + 5000, 60000);
             console.warn('[TW] Erro ao verificar ataques:', error, 'Backoff:', errorBackoff);
@@ -2817,6 +2868,87 @@
         };
     }
 
+    async function buildCombinedCountersSummary() {
+        const troopsDoc = await fetchTroopsOverviewDocument();
+        const troopsSummary = parseTroopsOverview(troopsDoc);
+
+        if (!troopsSummary || !troopsSummary.villageCount) {
+            return null;
+        }
+
+        const [defenderTribe, academyAvailability] = await Promise.all([
+            getPlayerTribe(getDefenderProfileUrl()),
+            getAcademyNoblesAvailable()
+        ]);
+
+        troopsSummary.defenderTribe = defenderTribe;
+
+        return {
+            attackFulls: troopsSummary,
+            nobleCounter: {
+                currentNobles: Number(troopsSummary.totals.snob || 0),
+                villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
+                defenderTribe,
+                canMake: academyAvailability.canMake,
+                academyVillageCount: academyAvailability.academyVillageCount,
+                academySource: academyAvailability.source
+            }
+        };
+    }
+
+    function buildCombinedCountersEmbed(summary) {
+        const attackFulls = summary.attackFulls || {};
+        const nobleCounter = summary.nobleCounter || {};
+        const counter = attackFulls.attackFullCounter || calculateAttackFullCounter(attackFulls.villages);
+        const canMakeText = nobleCounter.canMake === null
+            ? 'N/A'
+            : formatTroopNumber(nobleCounter.canMake);
+
+        return {
+            title: '📊 ━━ CONTADOR DE FULLS E NOBRES ━━ 📊',
+            color: 16753920,
+            fields: [
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Jogador',
+                    value: [
+                        `**${getDefenderValue()}**`,
+                        `Tribo: ${formatTribe(nobleCounter.defenderTribe || attackFulls.defenderTribe)}`,
+                        `Aldeias do jogador: **${formatTroopNumber(nobleCounter.villageCount || attackFulls.villageCount)}**`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '⚔️ Fulls de Ataque',
+                    value: [
+                        `🏆 **FULLS:** **${formatTroopNumber(counter.completeFulls)}**`,
+                        `⚔️ **MEIOS FULLS:** **${formatTroopNumber(counter.halfFulls)}**`,
+                        `🔸 **PEQUENOS FULLS:** **${formatTroopNumber(counter.smallFulls)}**`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '👑 Nobres',
+                    value: [
+                        `Nobres atuais: **${formatTroopNumber(nobleCounter.currentNobles)}**`,
+                        `Nobres que ainda podem ser feitos: **${canMakeText}**`
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: '📏 Patamares dos Fulls',
+                    value: [
+                        `Full: **${formatTroopNumber(ATTACK_FULL_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_FULL_LIGHT)}+ Cavalaria Leve**`,
+                        `Meio Full: **${formatTroopNumber(ATTACK_HALF_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)}+ Cavalaria Leve**`,
+                        `Pequeno Full: abaixo de **${formatTroopNumber(ATTACK_HALF_AXE)} Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)} Cavalaria Leve**`
+                    ].join('\n'),
+                    inline: false
+                }
+            ],
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        };
+    }
+
     async function sendNobleCounterSummary() {
         const summary = await buildNobleCounterSummary();
 
@@ -2832,6 +2964,24 @@
         );
 
         console.log('[TW] Contador de nobres enviado.');
+        return true;
+    }
+
+    async function sendCombinedCountersSummary() {
+        const summary = await buildCombinedCountersSummary();
+
+        if (!summary) {
+            console.log('[TW] Sem dados para contador combinado de fulls e nobres.');
+            return false;
+        }
+
+        queueDiscordEmbed(
+            buildCombinedCountersEmbed(summary),
+            'TW Counters',
+            getCombinedCountersWebhook()
+        );
+
+        console.log('[TW] Contador combinado de fulls e nobres enviado.');
         return true;
     }
 
@@ -3916,6 +4066,13 @@
     gap: 6px 14px !important;
 }
 
+.tw-alerts-combine-counters-field {
+    grid-column: 1 / -1 !important;
+    min-height: 22px !important;
+    margin-top: -2px !important;
+    font-weight: bold !important;
+}
+
 .tw-alerts-slot-row {
     grid-template-columns: 16px minmax(0, 1fr) !important;
     gap: 6px !important;
@@ -4284,6 +4441,10 @@
                                 <label>Hora</label>
                                 <input id="tw-alerts-attack-fulls-daily-time" type="time" value="${escapeHtml(settings.attackFullsDailyTime || DEFAULT_ATTACK_FULLS_DAILY_TIME)}">
                             </div>
+                            <label class="tw-alerts-check tw-alerts-combine-counters-field">
+                                <input id="tw-alerts-combine-counters" type="checkbox" ${settings.combineAttackFullsAndNobles ? 'checked' : ''}>
+                                <span>Juntar Fulls + Nobres no mesmo embed</span>
+                            </label>
                         </div>
                     </div>
 
@@ -4585,6 +4746,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 notifyDefenseTroops: container.querySelector('#tw-alerts-defense-troops').checked,
                 notifyAttackFulls: container.querySelector('#tw-alerts-attack-fulls').checked,
                 notifyNobleCounter: container.querySelector('#tw-alerts-noble-counter').checked,
+                combineAttackFullsAndNobles: container.querySelector('#tw-alerts-combine-counters').checked,
                 notifyVerificationAlerts: container.querySelector('#tw-alerts-verification').checked,
                 summaryIntervalHours: Number(container.querySelector('#tw-alerts-summary-interval').value || 8),
                 troopsIntervalHours: Number(container.querySelector('#tw-alerts-troops-interval').value || 8),
@@ -4628,6 +4790,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-defense-troops').checked = Boolean(nextSettings.notifyDefenseTroops);
             container.querySelector('#tw-alerts-attack-fulls').checked = Boolean(nextSettings.notifyAttackFulls);
             container.querySelector('#tw-alerts-noble-counter').checked = Boolean(nextSettings.notifyNobleCounter);
+            container.querySelector('#tw-alerts-combine-counters').checked = Boolean(nextSettings.combineAttackFullsAndNobles);
             container.querySelector('#tw-alerts-verification').checked = Boolean(nextSettings.notifyVerificationAlerts);
             container.querySelector('#tw-alerts-interval').value = nextSettings.checkInterval || CHECK_INTERVAL;
             container.querySelector('#tw-alerts-summary-interval').value = String(normalizeIntervalHours(nextSettings.summaryIntervalHours, DEFAULT_SUMMARY_INTERVAL_HOURS));
@@ -4706,14 +4869,24 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
 
             container.querySelector('#tw-alerts-attack-fulls-send').addEventListener('click', async () => {
                 saveSettings(readFormSettings(container));
-                status.textContent = 'A enviar fulls de ataque...';
+                const combinedCounters = shouldUseCombinedCounters(getSettings());
+                status.textContent = combinedCounters
+                    ? 'A enviar fulls e nobres...'
+                    : 'A enviar fulls de ataque...';
 
                 try {
-                    const sent = await sendAttackFullsSummary();
-                    status.textContent = sent ? 'Fulls de ataque enviados.' : 'Sem dados de fulls para enviar.';
+                    const sent = combinedCounters
+                        ? await sendCombinedCountersSummary()
+                        : await sendAttackFullsSummary();
+
+                    status.textContent = sent
+                        ? (combinedCounters ? 'Fulls e nobres enviados.' : 'Fulls de ataque enviados.')
+                        : (combinedCounters ? 'Sem dados para enviar.' : 'Sem dados de fulls para enviar.');
                 } catch (error) {
                     console.warn('[TW] Erro ao enviar fulls de ataque:', error);
-                    status.textContent = 'Erro ao enviar fulls de ataque.';
+                    status.textContent = combinedCounters
+                        ? 'Erro ao enviar fulls e nobres.'
+                        : 'Erro ao enviar fulls de ataque.';
                 }
             });
 
