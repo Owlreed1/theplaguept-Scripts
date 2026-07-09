@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.3
+// @version      1.3.4
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.3 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.4 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2255,10 +2255,10 @@
             const columns = [];
             let columnIndex = 0;
 
-            Array.from(row.children).forEach(cell => {
+            Array.from(row.children).forEach((cell, cellIndex) => {
                 const unitKey = detectTroopUnitKey(cell);
                 if (unitKey) {
-                    columns.push({ index: columnIndex, key: unitKey });
+                    columns.push({ index: columnIndex, cellIndex, key: unitKey });
                 }
 
                 columnIndex += Number(cell.getAttribute('colspan') || 1);
@@ -2314,6 +2314,43 @@
             .filter(number => number > 0);
 
         return values.length ? Math.max(...values) : 0;
+    }
+
+    function parseTroopRowTotals(row, columns) {
+        const rowTotals = createTroopTotals();
+        const directUnitKeys = new Set();
+
+        Array.from(row.children).forEach(cell => {
+            const unitKey = detectTroopUnitKey(cell);
+            if (!unitKey) return;
+
+            const value = parseTroopCellNumber(cell.innerText || cell.textContent || '');
+            directUnitKeys.add(unitKey);
+
+            if (value > 0) {
+                rowTotals[unitKey] += value;
+            }
+        });
+
+        columns.forEach(column => {
+            if (directUnitKeys.has(column.key) && rowTotals[column.key] > 0) {
+                return;
+            }
+
+            const cell = getCellAtColumn(row, column.index);
+            let value = parseTroopCellNumber(cell ? (cell.innerText || cell.textContent || '') : '');
+
+            if (!value && typeof column.cellIndex === 'number') {
+                const physicalCell = row.children[column.cellIndex];
+                value = parseTroopCellNumber(physicalCell ? (physicalCell.innerText || physicalCell.textContent || '') : '');
+            }
+
+            if (value > 0) {
+                rowTotals[column.key] += value;
+            }
+        });
+
+        return rowTotals;
     }
 
     function createTroopTotals() {
@@ -2686,14 +2723,16 @@
 
             const village = villageKey ? villagesByKey.get(villageKey) : null;
 
-            bestColumns.forEach(column => {
-                const cell = getCellAtColumn(row, column.index);
-                const value = parseTroopCellNumber(cell ? cell.innerText : '');
+            const rowTotals = parseTroopRowTotals(row, bestColumns);
 
-                totals[column.key] += value;
+            Object.keys(rowTotals).forEach(unitKey => {
+                const value = Number(rowTotals[unitKey] || 0);
+                if (!value) return;
+
+                totals[unitKey] += value;
 
                 if (village) {
-                    village.totals[column.key] += value;
+                    village.totals[unitKey] += value;
                 }
             });
         });
