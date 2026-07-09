@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.2
+// @version      1.0.3
 // @description  Painel com resumo das ultimas 24h de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.2",
+        version: "1.0.3",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -1383,7 +1383,7 @@
             /* Layout inspirado no painel "Conquistas do Mundo". */
             #${APP.id}-launcher {
                 position: fixed !important;
-                top: 178px !important;
+                top: 400px !important;
                 right: auto !important;
                 left: 16px !important;
                 z-index: ${APP.zIndex} !important;
