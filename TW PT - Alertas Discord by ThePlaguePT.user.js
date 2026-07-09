@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.4
+// @version      1.3.5
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.4 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.5 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -670,6 +670,51 @@
         return null;
     }
 
+    function getElementCellIndex(cells, element) {
+        const cell = element ? element.closest('td') : null;
+        return cell ? cells.indexOf(cell) : -1;
+    }
+
+    function getLikelyAttackerLink(row, cells, villageCells) {
+        const links = Array.from(row.querySelectorAll('a[href*="screen=info_player"]'));
+        if (!links.length) return null;
+
+        const defenderName = normalizeSearchText(getDefenderName());
+        const hasKnownDefenderName = defenderName && defenderName !== 'desconhecido';
+        const commandCell = getCommandCell(row);
+        const commandCellIndex = commandCell ? cells.indexOf(commandCell) : -1;
+        const lastVillageCellIndex = villageCells.reduce((maxIndex, cell) => {
+            return Math.max(maxIndex, cells.indexOf(cell));
+        }, -1);
+
+        const candidates = links
+            .map(link => {
+                const name = cleanText(link.innerText);
+                return {
+                    link,
+                    name,
+                    normalizedName: normalizeSearchText(name),
+                    cellIndex: getElementCellIndex(cells, link)
+                };
+            })
+            .filter(candidate => candidate.name);
+
+        if (!candidates.length) return links[links.length - 1];
+
+        const outsideCommand = candidates.filter(candidate => candidate.cellIndex !== commandCellIndex);
+        const afterVillages = outsideCommand.filter(candidate => candidate.cellIndex > lastVillageCellIndex);
+        const isNotDefender = candidate => !hasKnownDefenderName || candidate.normalizedName !== defenderName;
+
+        return (
+            afterVillages.find(isNotDefender) ||
+            afterVillages[0] ||
+            outsideCommand.find(isNotDefender) ||
+            outsideCommand[outsideCommand.length - 1] ||
+            candidates.find(isNotDefender) ||
+            candidates[candidates.length - 1]
+        ).link;
+    }
+
     function getLinkedText(cell, screen) {
         const link = cell ? cell.querySelector(`a[href*="screen=${screen}"]`) : null;
         return link ? cleanText(link.innerText) : '';
@@ -909,14 +954,6 @@
         const cells = Array.from(row.querySelectorAll('td'));
         const commandLink = getCommandLink(row);
         const commandUrl = commandLink ? getAbsoluteUrl(commandLink.getAttribute('href')) : null;
-        const playerLinks = Array.from(row.querySelectorAll('a[href*="screen=info_player"]'));
-        const playerLink =
-            playerLinks.find(link => cleanText(link.innerText) !== getDefenderName()) ||
-            playerLinks[playerLinks.length - 1] ||
-            null;
-
-        const attacker = playerLink ? cleanText(playerLink.innerText) : 'Desconhecido';
-        const attackerUrl = playerLink ? getAbsoluteUrl(playerLink.getAttribute('href')) : null;
         const commandImg = row.querySelector('img[title], img[alt]');
         const commandName =
             cleanText(commandLink ? commandLink.innerText : '') ||
@@ -925,6 +962,9 @@
             'Ataque';
 
         const villageCells = cells.filter(cell => parseCoords(cell.innerText));
+        const playerLink = getLikelyAttackerLink(row, cells, villageCells);
+        const attacker = playerLink ? cleanText(playerLink.innerText) : 'Desconhecido';
+        const attackerUrl = playerLink ? getAbsoluteUrl(playerLink.getAttribute('href')) : null;
         const attackerCell = playerLink ? playerLink.closest('td') : null;
         const attackerCellIndex = attackerCell ? cells.indexOf(attackerCell) : -1;
         const villageCellsBeforeAttacker = attackerCellIndex >= 0
@@ -1210,35 +1250,43 @@
         return attack.commandUrl ? '[' + label + '](' + attack.commandUrl + ')' : label;
     }
 
-    function getDefenderName() {
+    function getGameDataPlayer() {
         try {
             if (typeof game_data !== 'undefined' && game_data.player && game_data.player.name) {
-                return cleanText(game_data.player.name);
+                return game_data.player;
+            }
+
+            if (typeof unsafeWindow !== 'undefined' && unsafeWindow.game_data && unsafeWindow.game_data.player) {
+                return unsafeWindow.game_data.player;
             }
 
             if (window.game_data && window.game_data.player && window.game_data.player.name) {
-                return cleanText(window.game_data.player.name);
+                return window.game_data.player;
             }
         } catch (_) {}
+
+        return null;
+    }
+
+    function getDefenderName() {
+        const player = getGameDataPlayer();
+
+        if (player && player.name) {
+            return cleanText(player.name);
+        }
 
         return 'Desconhecido';
     }
 
     function getDefenderValue() {
         const name = getDefenderName();
+        const player = getGameDataPlayer();
 
         try {
-            if (typeof game_data !== 'undefined' && game_data.player && game_data.player.id) {
+            if (player && player.id) {
                 const url = new URL(window.location.href);
                 url.searchParams.set('screen', 'info_player');
-                url.searchParams.set('id', String(game_data.player.id));
-                return '[' + name + '](' + url.toString() + ')';
-            }
-
-            if (window.game_data && window.game_data.player && window.game_data.player.id) {
-                const url = new URL(window.location.href);
-                url.searchParams.set('screen', 'info_player');
-                url.searchParams.set('id', String(window.game_data.player.id));
+                url.searchParams.set('id', String(player.id));
                 return '[' + name + '](' + url.toString() + ')';
             }
         } catch (_) {}
@@ -1248,10 +1296,7 @@
 
     function getPlayerVillageCount() {
         try {
-            const player = typeof game_data !== 'undefined'
-                ? game_data.player
-                : (window.game_data && window.game_data.player ? window.game_data.player : null);
-
+            const player = getGameDataPlayer();
             const count = Number(player && player.villages);
 
             if (count > 0) {
@@ -1268,9 +1313,7 @@
 
     function getDefenderProfileUrl() {
         try {
-            const player = typeof game_data !== 'undefined'
-                ? game_data.player
-                : (window.game_data && window.game_data.player ? window.game_data.player : null);
+            const player = getGameDataPlayer();
 
             if (player && player.id) {
                 return `https://${window.location.hostname}/game.php?screen=info_player&id=${player.id}`;
