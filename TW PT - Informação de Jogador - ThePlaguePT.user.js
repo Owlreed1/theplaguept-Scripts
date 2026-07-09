@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.4
+// @version      1.0.6
 // @description  Painel com resumo das ultimas 24h de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,13 +24,14 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.4",
+        version: "1.0.6",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
         launcherIcon: "https://dspt.innogamescdn.com/asset/f441272cc5/graphic/welcome/player_points.webp",
         mapCacheMs: 50 * 60 * 1000,
         conquerCacheMs: 90 * 1000,
+        conquerAllCacheMs: 5 * 60 * 1000,
         minSnapshotGapMs: 10 * 60 * 1000,
         snapshotRetentionMs: 10 * 24 * 60 * 60 * 1000,
         baselineTargetMs: 24 * 60 * 60 * 1000,
@@ -57,6 +58,7 @@
         memoryCache: new Map(),
         controls: {},
         lastResult: null,
+        profileButton: null,
         launcherPositionFrame: 0,
         launcherResizeObserver: null,
     };
@@ -68,6 +70,7 @@
     function init() {
         injectStyle();
         createLauncher();
+        ensureProfileStatsButton();
         registerHubShortcut();
 
         document.addEventListener("keydown", (event) => {
@@ -75,6 +78,8 @@
                 closePanel();
             }
         });
+
+        window.setInterval(ensureProfileStatsButton, 1500);
 
         window.TPResumo24hJogador = {
             open: openPanel,
@@ -99,6 +104,93 @@
         document.body.appendChild(button);
         state.launcher = button;
         setupLauncherPosition();
+    }
+
+    function ensureProfileStatsButton() {
+        const playerId = currentProfilePlayerId();
+        const existing = document.getElementById(`${APP.id}-profileStats`);
+
+        if (!playerId) {
+            if (existing) existing.remove();
+            state.profileButton = null;
+            return;
+        }
+
+        if (existing && existing.dataset.playerId === String(playerId)) return;
+        if (existing) existing.remove();
+
+        const holder = createProfileStatsHolder(playerId);
+        const archiveRow = findProfileArchiveRow();
+
+        if (archiveRow && archiveRow.parentNode) {
+            archiveRow.parentNode.insertBefore(holder, archiveRow.nextSibling);
+        } else {
+            const fallbackTarget = findVillageTable();
+            const content = document.querySelector("#content_value") || document.querySelector("#contentContainer") || document.body;
+            if (fallbackTarget && fallbackTarget.parentNode) {
+                fallbackTarget.parentNode.insertBefore(holder, fallbackTarget);
+            } else {
+                content.appendChild(holder);
+            }
+        }
+
+        state.profileButton = holder.querySelector("button");
+        state.profileButton.addEventListener("click", () => openPlayerProfileStats(playerId));
+    }
+
+    function createProfileStatsHolder(playerId) {
+        const archiveRow = findProfileArchiveRow();
+        if (archiveRow) {
+            const row = document.createElement("tr");
+            const colSpan = Math.max(1, archiveRow.children.length || 1);
+            row.id = `${APP.id}-profileStats`;
+            row.dataset.playerId = String(playerId);
+            row.className = `${APP.id}-profileStatsRow`;
+            row.innerHTML = `
+                <td class="${APP.id}-profileStatsCell" colspan="${colSpan}">
+                    ${profileStatsButtonHTML()}
+                </td>
+            `;
+            return row;
+        }
+
+        const wrap = document.createElement("div");
+        wrap.id = `${APP.id}-profileStats`;
+        wrap.dataset.playerId = String(playerId);
+        wrap.className = `${APP.id}-profileStatsWrap`;
+        wrap.innerHTML = profileStatsButtonHTML();
+        return wrap;
+    }
+
+    function profileStatsButtonHTML() {
+        return `<button type="button" class="${APP.id}-profileStatsButton">Info - Stats</button>`;
+    }
+
+    function openPlayerProfileStats(playerId) {
+        openPanel();
+        if (state.controls.playerInput) state.controls.playerInput.value = String(playerId);
+        runSummary(false);
+    }
+
+    function currentProfilePlayerId() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("screen") !== "info_player") return "";
+        const id = params.get("id") || "";
+        return /^\d+$/.test(id) ? id : "";
+    }
+
+    function findProfileArchiveRow() {
+        const content = document.querySelector("#content_value") || document;
+        return Array.from(content.querySelectorAll("tr")).find((row) => {
+            const text = fold(row.textContent);
+            return text.includes("arquivo de jogador") || text.includes("player archive");
+        }) || null;
+    }
+
+    function findVillageTable() {
+        const content = document.querySelector("#content_value") || document;
+        const header = Array.from(content.querySelectorAll("th, td")).find((cell) => /^aldeias\s*\(/i.test(cleanText(cell.textContent)));
+        return header ? header.closest("table") : null;
     }
 
     function setupLauncherPosition() {
@@ -301,17 +393,21 @@
         if (!player) throw new Error("Jogador nao encontrado no player.txt.");
 
         const conquerPromise = fetchConquestsSince(since, force);
+        const conquerAllPromise = fetchCachedText("conquerAll", "/map/conquer.txt", APP.conquerAllCacheMs, force);
         const villagePromise = fetchCachedText("villages", "/map/village.txt", APP.mapCacheMs, force);
         const odPromise = loadOdEntries(player.id, force);
 
-        const [conquerText, villagesText, od] = await Promise.all([
+        const [conquerText, conquerAllText, villagesText, od] = await Promise.all([
             conquerPromise,
+            conquerAllPromise,
             villagePromise,
             odPromise,
         ]);
 
         const villages = parseVillages(villagesText);
         const conquests = summarizeConquests(conquerText, villages, players.byId, player.id, since);
+        const allTime = summarizeAllTimeConquests(conquerAllText, villages, players.byId, player.id);
+        const villagesSummary = summarizePlayerVillages(villages, player.id);
 
         const current = {
             ts: now,
@@ -336,6 +432,9 @@
             baseline,
             diffs,
             conquests,
+            allTime,
+            villagesSummary,
+            twstats: buildTwStatsLinks(player.id),
             odSupportAvailable: od.support !== null,
             supportSource: od.supportSource || "",
         };
@@ -557,6 +656,155 @@
         };
     }
 
+    function summarizePlayerVillages(villages, playerId) {
+        const rows = Array.from(villages.values())
+            .filter((village) => village.playerId === playerId)
+            .sort((a, b) => a.x - b.x || a.y - b.y || a.name.localeCompare(b.name));
+
+        const continents = new Map();
+        for (const village of rows) {
+            const continent = continentFromVillage(village);
+            const list = continents.get(continent) || [];
+            list.push(village);
+            continents.set(continent, list);
+        }
+
+        return {
+            rows,
+            coords: rows.map((village) => village.coords),
+            continents: Array.from(continents.entries())
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([continent, list]) => ({
+                    continent,
+                    rows: list,
+                    coords: list.map((village) => village.coords),
+                })),
+        };
+    }
+
+    function summarizeAllTimeConquests(text, villages, playersById, playerId) {
+        const daily = new Map();
+        const opponents = new Map();
+        let gained = 0;
+        let lost = 0;
+        let firstTs = 0;
+        let lastTs = 0;
+
+        for (const line of splitLines(text)) {
+            const cols = line.split(",");
+            if (cols.length < 4) continue;
+
+            const villageId = toInt(cols[0]);
+            const timestamp = toInt(cols[1]);
+            const newOwnerId = toInt(cols[2]);
+            const oldOwnerId = toInt(cols[3]);
+            if (!timestamp || newOwnerId === oldOwnerId) continue;
+            if (newOwnerId !== playerId && oldOwnerId !== playerId) continue;
+
+            const dayKey = dateKey(timestamp);
+            const day = daily.get(dayKey) || {
+                key: dayKey,
+                ts: startOfDayTs(timestamp),
+                gained: 0,
+                lost: 0,
+            };
+
+            const village = villages.get(villageId) || fallbackVillage(villageId);
+
+            if (newOwnerId === playerId) {
+                gained += 1;
+                day.gained += 1;
+                addOpponent(opponents, oldOwnerId, playersById, "from", village.points);
+            }
+
+            if (oldOwnerId === playerId) {
+                lost += 1;
+                day.lost += 1;
+                addOpponent(opponents, newOwnerId, playersById, "to", village.points);
+            }
+
+            daily.set(dayKey, day);
+            firstTs = firstTs ? Math.min(firstTs, timestamp) : timestamp;
+            lastTs = Math.max(lastTs, timestamp);
+        }
+
+        const days = Array.from(daily.values()).sort((a, b) => a.ts - b.ts);
+        let runningGained = 0;
+        let runningLost = 0;
+        const cumulative = days.map((day) => {
+            runningGained += day.gained;
+            runningLost += day.lost;
+            return {
+                key: day.key,
+                ts: day.ts,
+                value: runningGained - runningLost,
+                gained: runningGained,
+                lost: runningLost,
+            };
+        });
+
+        return {
+            gained,
+            lost,
+            net: gained - lost,
+            firstTs,
+            lastTs,
+            days,
+            cumulative,
+            opponents: Array.from(opponents.values())
+                .sort((a, b) => (b.from + b.to) - (a.from + a.to))
+                .slice(0, 8),
+        };
+    }
+
+    function addOpponent(opponents, id, playersById, key, points) {
+        const current = opponents.get(id) || {
+            id,
+            name: playerName(playersById, id),
+            from: 0,
+            to: 0,
+            points: 0,
+        };
+        current[key] += 1;
+        current.points += Number.isFinite(points) ? points : 0;
+        opponents.set(id, current);
+    }
+
+    function buildTwStatsLinks(playerId) {
+        const world = twStatsWorldKey();
+        const base = `https://www.twstats.com/${encodeURIComponent(world)}/`;
+        const profileUrl = `${base}index.php?id=${encodeURIComponent(playerId)}&page=player`;
+        const graphs = [
+            ["points", "Pontos"],
+            ["villages", "Aldeias"],
+            ["od", "OD"],
+            ["oda", "OD ofensivo"],
+            ["odd", "OD defensivo"],
+            ["rank", "Rank"],
+        ].map(([graph, label]) => ({
+            graph,
+            label,
+            url: `${base}image.php?graph=${encodeURIComponent(graph)}&id=${encodeURIComponent(playerId)}&type=playergraph`,
+        }));
+
+        return {
+            world,
+            profileUrl,
+            historyUrl: `${profileUrl}&mode=history`,
+            graphs,
+        };
+    }
+
+    function twStatsWorldKey() {
+        const hostPart = window.location.hostname.split(".")[0].toLowerCase();
+        if (/^[a-z]{2}(?:p|c)?\d+$/i.test(hostPart)) return hostPart;
+
+        const gameData = pageGameData();
+        const world = String(gameData.world || "").toLowerCase();
+        if (/^[a-z]{2}(?:p|c)?\d+$/i.test(world)) return world;
+        return hostPart || "en1";
+    }
+
     function fallbackVillage(id) {
         return {
             id,
@@ -672,25 +920,13 @@
     }
 
     function renderResult(result) {
-        const baselineAge = result.baseline ? result.generatedAt - result.baseline.ts : null;
-        const baselineText = result.baseline
-            ? `${formatDuration(baselineAge)} atras`
-            : "sem snapshot local perto de 24h";
-        const baselineOk = result.baseline && Math.abs(baselineAge - APP.baselineTargetMs) <= APP.baselineToleranceMs;
-        const supportNote = result.odSupportAvailable
-            ? `Fonte apoio: ${escapeHTML(result.supportSource)}`
-            : "OD apoio: ficheiro publico nao encontrado neste mundo.";
-
         const summaryContent = `
             <div class="${APP.id}-playerHead">
                 <div>
                     <a href="/game.php?screen=info_player&id=${result.player.id}" target="_blank" rel="noopener">${escapeHTML(result.player.name)}</a>
                     <span>#${result.player.id}</span>
                 </div>
-                <small>Base: ${escapeHTML(baselineText)}</small>
             </div>
-
-            ${baselineOk ? "" : renderNotice("Os deltas de pontos e OD aparecem quando existir uma snapshot local entre 20h e 28h atras. Esta execucao guardou a snapshot atual.", "warn")}
 
             <div class="${APP.id}-grid">
                 ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points)}
@@ -719,11 +955,13 @@
                     </tbody>
                 </table>
                 </div>
-            <div class="${APP.id}-hint">${supportNote}</div>
         `;
 
         state.controls.body.innerHTML = `
             ${panelRow("RESUMO", "Totais do filtro ativo para leitura rapida.", summaryContent, "summaryRow")}
+            ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow")}
+            ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow")}
+            ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow")}
             ${panelRow("OD", "Pontos ofensivos, defensivos e apoio.", odContent, "odSectionRow")}
             ${panelRow("CONQUISTAS", "Aldeias ganhas e perdidas nas ultimas 24h.", renderConquestTable(result.conquests.gained, result.conquests.lost), "resultsRow")}
         `;
@@ -740,6 +978,193 @@
                     ${content}
                 </div>
             </section>
+        `;
+    }
+
+    function renderVillageCoordinates(summary) {
+        if (!summary || !summary.rows.length) {
+            return `<div class="${APP.id}-emptyList">Sem aldeias atuais para este jogador.</div>`;
+        }
+
+        return `
+            <div class="${APP.id}-coordsBlock">
+                <label class="${APP.id}-coordsField ${APP.id}-coordsAll">
+                    <span>Todas as aldeias (${formatNumber(summary.coords.length)})</span>
+                    <textarea readonly rows="3">${escapeTextArea(summary.coords.join(" "))}</textarea>
+                </label>
+                <div class="${APP.id}-continentGrid">
+                    ${summary.continents.map((group) => `
+                        <label class="${APP.id}-coordsField">
+                            <span>${escapeHTML(group.continent)} (${formatNumber(group.coords.length)})</span>
+                            <textarea readonly rows="3">${escapeTextArea(group.coords.join(" "))}</textarea>
+                        </label>
+                    `).join("")}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderAllTimeStats(allTime) {
+        if (!allTime || (!allTime.gained && !allTime.lost)) {
+            return `<div class="${APP.id}-emptyList">Sem conquistas publicas deste jogador no historico do mundo.</div>`;
+        }
+
+        const first = allTime.firstTs ? formatDateOnly(new Date(allTime.firstTs * 1000)) : "-";
+        const last = allTime.lastTs ? formatDateOnly(new Date(allTime.lastTs * 1000)) : "-";
+        return `
+            <div class="${APP.id}-grid ${APP.id}-allTimeGrid">
+                ${plainMetricCard("Ganhas", formatNumber(allTime.gained))}
+                ${plainMetricCard("Perdidas", formatNumber(allTime.lost))}
+                ${plainMetricCard("Saldo", formatSigned(allTime.net))}
+                ${plainMetricCard("Periodo", `${first} - ${last}`)}
+            </div>
+            <div class="${APP.id}-chartsGrid">
+                ${renderLineChart("Saldo acumulado", allTime.cumulative)}
+                ${renderBarChart("Atividade diaria", allTime.days)}
+            </div>
+            ${renderOpponentTable(allTime.opponents)}
+        `;
+    }
+
+    function renderTwStatsGraphs(twstats) {
+        if (!twstats || !twstats.world) {
+            return `<div class="${APP.id}-emptyList">Nao foi possivel determinar o mundo para TWStats.</div>`;
+        }
+
+        return `
+            <div class="${APP.id}-twstatsLinks">
+                <a href="${escapeHTML(twstats.profileUrl)}" target="_blank" rel="noopener">Abrir perfil no TWStats</a>
+                <a href="${escapeHTML(twstats.historyUrl)}" target="_blank" rel="noopener">Historico</a>
+                <span>Mundo: ${escapeHTML(twstats.world.toUpperCase())}</span>
+            </div>
+            <div class="${APP.id}-twstatsGrid">
+                ${twstats.graphs.map((graph) => `
+                    <figure>
+                        <figcaption>${escapeHTML(graph.label)}</figcaption>
+                        <img src="${escapeHTML(graph.url)}" alt="${escapeHTML(graph.label)}" loading="lazy" onerror="this.closest('figure').classList.add('${APP.id}-graphMissing')">
+                        <span>Grafico indisponivel neste mundo.</span>
+                    </figure>
+                `).join("")}
+            </div>
+        `;
+    }
+
+    function plainMetricCard(label, value) {
+        return `
+            <div class="${APP.id}-metric">
+                <span>${escapeHTML(label)}</span>
+                <strong>${escapeHTML(value)}</strong>
+            </div>
+        `;
+    }
+
+    function renderLineChart(title, series) {
+        const points = sampleSeries(series || [], 140);
+        if (points.length < 2) return chartEmpty(title);
+
+        const width = 520;
+        const height = 180;
+        const pad = 24;
+        const values = points.map((point) => point.value);
+        const min = Math.min(0, ...values);
+        const max = Math.max(1, ...values);
+        const range = Math.max(1, max - min);
+        const polyline = points.map((point, index) => {
+            const x = pad + (index / Math.max(1, points.length - 1)) * (width - pad * 2);
+            const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
+            return `${roundChart(x)},${roundChart(y)}`;
+        }).join(" ");
+
+        return `
+            <div class="${APP.id}-chart">
+                <h4>${escapeHTML(title)}</h4>
+                <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHTML(title)}">
+                    <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
+                    <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
+                    <polyline points="${polyline}" class="${APP.id}-chartLine"></polyline>
+                </svg>
+                <div class="${APP.id}-chartLegend">
+                    <span>${escapeHTML(formatDateOnly(new Date(points[0].ts * 1000)))}</span>
+                    <strong>${escapeHTML(formatSigned(points[points.length - 1].value))}</strong>
+                    <span>${escapeHTML(formatDateOnly(new Date(points[points.length - 1].ts * 1000)))}</span>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderBarChart(title, days) {
+        const points = sampleSeries(days || [], 90);
+        if (!points.length) return chartEmpty(title);
+
+        const width = 520;
+        const height = 180;
+        const pad = 24;
+        const max = Math.max(1, ...points.map((point) => point.gained + point.lost));
+        const innerWidth = width - pad * 2;
+        const barWidth = Math.max(2, innerWidth / points.length - 1);
+        const bars = points.map((point, index) => {
+            const total = point.gained + point.lost;
+            const gainedHeight = (point.gained / max) * (height - pad * 2);
+            const lostHeight = (point.lost / max) * (height - pad * 2);
+            const x = pad + (index / points.length) * innerWidth;
+            const gainedY = height - pad - gainedHeight;
+            const lostY = gainedY - lostHeight;
+            return `
+                <rect x="${roundChart(x)}" y="${roundChart(gainedY)}" width="${roundChart(barWidth)}" height="${roundChart(gainedHeight)}" class="${APP.id}-barGain"></rect>
+                <rect x="${roundChart(x)}" y="${roundChart(lostY)}" width="${roundChart(barWidth)}" height="${roundChart(lostHeight)}" class="${APP.id}-barLoss"></rect>
+            `;
+        }).join("");
+
+        return `
+            <div class="${APP.id}-chart">
+                <h4>${escapeHTML(title)}</h4>
+                <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHTML(title)}">
+                    <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
+                    ${bars}
+                </svg>
+                <div class="${APP.id}-chartLegend">
+                    <span>Ganhas</span>
+                    <strong>${formatNumber(points.reduce((sum, point) => sum + point.gained + point.lost, 0))}</strong>
+                    <span>Perdidas</span>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderOpponentTable(opponents) {
+        if (!opponents || !opponents.length) return "";
+        return `
+            <div class="${APP.id}-tableWrap ${APP.id}-opponentWrap">
+                <table class="${APP.id}-table ${APP.id}-opponentTable">
+                    <thead>
+                        <tr>
+                            <th>ADVERSARIO</th>
+                            <th>GANHAS DE</th>
+                            <th>PERDIDAS PARA</th>
+                            <th>PTS ATUAIS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${opponents.map((opponent) => `
+                            <tr>
+                                <td>${escapeHTML(opponent.name)}</td>
+                                <td>${formatNumber(opponent.from)}</td>
+                                <td>${formatNumber(opponent.to)}</td>
+                                <td>${formatNumber(opponent.points)}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function chartEmpty(title) {
+        return `
+            <div class="${APP.id}-chart">
+                <h4>${escapeHTML(title)}</h4>
+                <div class="${APP.id}-emptyList">Sem dados suficientes para grafico.</div>
+            </div>
         `;
     }
 
@@ -998,6 +1423,60 @@
             '"': "&quot;",
             "'": "&#39;",
         }[char]));
+    }
+
+    function escapeTextArea(value) {
+        return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+    }
+
+    function cleanText(value) {
+        return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function pageGameData() {
+        return window.game_data || {};
+    }
+
+    function startOfDayTs(timestamp) {
+        const date = new Date(timestamp * 1000);
+        date.setHours(0, 0, 0, 0);
+        return Math.floor(date.getTime() / 1000);
+    }
+
+    function dateKey(timestamp) {
+        const date = new Date(startOfDayTs(timestamp) * 1000);
+        return [
+            date.getFullYear(),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            String(date.getDate()).padStart(2, "0"),
+        ].join("-");
+    }
+
+    function formatDateOnly(date) {
+        return date.toLocaleDateString("pt-PT", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "2-digit",
+        });
+    }
+
+    function sampleSeries(series, maxPoints) {
+        const list = Array.isArray(series) ? series.filter((item) => item && Number.isFinite(item.ts)) : [];
+        if (list.length <= maxPoints) return list;
+
+        const sampled = [];
+        const step = (list.length - 1) / (maxPoints - 1);
+        for (let i = 0; i < maxPoints; i += 1) {
+            sampled.push(list[Math.round(i * step)]);
+        }
+        return sampled;
+    }
+
+    function roundChart(value) {
+        return Math.round(value * 10) / 10;
     }
 
     function injectStyle() {
@@ -1444,6 +1923,29 @@
                 transform: translateX(0) !important;
             }
 
+            .${APP.id}-profileStatsCell,
+            .${APP.id}-profileStatsWrap {
+                padding: 4px 0 !important;
+                background: transparent !important;
+            }
+
+            .${APP.id}-profileStatsButton {
+                min-width: 160px;
+                height: 28px;
+                border: 1px solid #7b201c;
+                border-radius: 3px;
+                background: linear-gradient(#b43a34, #8c1713);
+                color: #fff8dc;
+                cursor: pointer;
+                font: 700 12px Verdana, Arial, sans-serif;
+                text-shadow: 0 1px 0 #40100d;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 1px 2px rgba(0,0,0,.25);
+            }
+
+            .${APP.id}-profileStatsButton:hover {
+                background: linear-gradient(#c64a43, #971d18);
+            }
+
             #${APP.id}-panel {
                 position: fixed;
                 inset: 0;
@@ -1569,8 +2071,20 @@
                 border-left-color: #13a8bb;
             }
 
+            .${APP.id}-villagesRow .${APP.id}-rowLabel {
+                border-left-color: #3f8d2a;
+            }
+
             .${APP.id}-odSectionRow .${APP.id}-rowLabel {
                 border-left-color: #8f69d3;
+            }
+
+            .${APP.id}-worldStatsRow .${APP.id}-rowLabel {
+                border-left-color: #c59325;
+            }
+
+            .${APP.id}-chartsRow .${APP.id}-rowLabel {
+                border-left-color: #2d70b6;
             }
 
             .${APP.id}-resultsRow .${APP.id}-rowLabel {
@@ -1810,6 +2324,151 @@
                 font-size: 11px;
             }
 
+            .${APP.id}-coordsBlock {
+                display: grid;
+                gap: 10px;
+            }
+
+            .${APP.id}-coordsField {
+                display: grid;
+                gap: 4px;
+                min-width: 0;
+                color: #4d250f;
+                font-weight: 700;
+            }
+
+            .${APP.id}-coordsField textarea {
+                width: 100%;
+                min-height: 54px;
+                resize: vertical;
+                border: 1px solid #c89042;
+                border-radius: 2px;
+                background: #fff6d7;
+                color: #2f1809;
+                box-sizing: border-box;
+                padding: 6px 8px;
+                font: 12px Consolas, "Courier New", monospace;
+                line-height: 1.35;
+            }
+
+            .${APP.id}-continentGrid {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 8px;
+            }
+
+            .${APP.id}-chartsGrid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 10px;
+                margin-top: 10px;
+            }
+
+            .${APP.id}-chart {
+                border: 1px solid #c89042;
+                background: #fff6d7;
+                padding: 8px;
+                min-width: 0;
+            }
+
+            .${APP.id}-chart h4 {
+                margin: 0 0 6px;
+                color: #7f1b16;
+                font-size: 12px;
+            }
+
+            .${APP.id}-chart svg {
+                display: block;
+                width: 100%;
+                height: auto;
+                background: #fff2c8;
+            }
+
+            .${APP.id}-chartAxis {
+                stroke: #9d6d27;
+                stroke-width: 1;
+            }
+
+            .${APP.id}-chartLine {
+                fill: none;
+                stroke: #a7221e;
+                stroke-width: 2.5;
+            }
+
+            .${APP.id}-barGain {
+                fill: #24723a;
+            }
+
+            .${APP.id}-barLoss {
+                fill: #a22620;
+            }
+
+            .${APP.id}-chartLegend,
+            .${APP.id}-twstatsLinks {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                margin-top: 6px;
+                color: #5a2f13;
+                font-size: 11px;
+            }
+
+            .${APP.id}-twstatsLinks {
+                justify-content: flex-start;
+                margin: 0 0 8px;
+            }
+
+            .${APP.id}-twstatsLinks a {
+                color: #9f1d19;
+                font-weight: 700;
+                text-decoration: none;
+            }
+
+            .${APP.id}-twstatsGrid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 10px;
+            }
+
+            .${APP.id}-twstatsGrid figure {
+                margin: 0;
+                border: 1px solid #c89042;
+                background: #fff6d7;
+                padding: 8px;
+                min-width: 0;
+            }
+
+            .${APP.id}-twstatsGrid figcaption {
+                margin-bottom: 6px;
+                color: #7f1b16;
+                font-weight: 700;
+            }
+
+            .${APP.id}-twstatsGrid img {
+                display: block;
+                max-width: 100%;
+                height: auto;
+                background: #fff2c8;
+            }
+
+            .${APP.id}-twstatsGrid figure > span {
+                display: none;
+                color: #6e3a12;
+            }
+
+            .${APP.id}-twstatsGrid figure.${APP.id}-graphMissing img {
+                display: none;
+            }
+
+            .${APP.id}-twstatsGrid figure.${APP.id}-graphMissing > span {
+                display: block;
+            }
+
+            .${APP.id}-opponentWrap {
+                margin-top: 10px;
+            }
+
             .${APP.id}-gain td:nth-child(2) strong {
                 color: #16662a;
             }
@@ -1895,7 +2554,10 @@
 
                 .${APP.id}-controlsGrid,
                 .${APP.id}-grid,
-                .${APP.id}-actions {
+                .${APP.id}-actions,
+                .${APP.id}-continentGrid,
+                .${APP.id}-chartsGrid,
+                .${APP.id}-twstatsGrid {
                     grid-template-columns: 1fr;
                 }
 
