@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.5
+// @version      1.3.6
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.5 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.6 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -57,6 +57,7 @@
     const NOBLE_COUNTER_DAILY_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_daily_sent`;
     const PLAYER_TRIBE_CACHE_KEY = `${STORAGE_PREFIX}_player_tribes`;
     const VERIFICATION_ALERT_KEY = `${STORAGE_PREFIX}_verification_alert_last_sent`;
+    const GENERIC_INCOMING_STATE_KEY = `${STORAGE_PREFIX}_generic_incoming_state`;
 
     const PLAYER_TRIBE_CACHE_MS = 1000 * 60 * 60 * 8;
     const VERIFICATION_ALERT_COOLDOWN_MS = 1000 * 60 * 30;
@@ -1036,6 +1037,173 @@
             isNoble: unit.key === 'noble',
             targetCount: 1
         };
+    }
+
+    function parseFirstPositiveNumber(value) {
+        const match = cleanText(value).match(/\d[\d.\s]*/);
+        if (!match) return null;
+
+        const number = Number(match[0].replace(/[.\s]/g, '')) || 0;
+        return number > 0 ? number : null;
+    }
+
+    function detectGenericIncomingSignal(doc) {
+        if (!doc || !doc.body) return null;
+
+        const selectors = [
+            '#incomings_amount',
+            '#incomings_count',
+            '#incomings_cell',
+            'a[href*="mode=incomings"]',
+            'a[href*="screen=overview_villages"][href*="mode=incomings"]',
+            'a[href*="screen=overview"][href*="mode=incomings"]',
+            '.incoming-count',
+            '.command-incoming'
+        ];
+
+        for (const selector of selectors) {
+            const elements = Array.from(doc.querySelectorAll(selector));
+
+            for (const element of elements) {
+                const text = [
+                    element.innerText || '',
+                    element.textContent || '',
+                    element.getAttribute('title') || '',
+                    element.getAttribute('alt') || ''
+                ].join(' ');
+                const count = parseFirstPositiveNumber(text);
+
+                if (count !== null) {
+                    return {
+                        detected: true,
+                        count,
+                        source: 'Indicador do jogo'
+                    };
+                }
+            }
+        }
+
+        const text = normalizeSearchText(doc.body.innerText || '');
+        const patterns = [
+            /ataques?\s+a\s+chegar\D{0,40}(\d[\d.\s]*)/i,
+            /(\d[\d.\s]*)\D{0,20}ataques?\s+a\s+chegar/i,
+            /comandos?\s+a\s+chegar\D{0,40}(\d[\d.\s]*)/i,
+            /(\d[\d.\s]*)\D{0,20}comandos?\s+a\s+chegar/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (!match) continue;
+
+            const count = parseFirstPositiveNumber(match[1]);
+            if (count !== null) {
+                return {
+                    detected: true,
+                    count,
+                    source: 'Texto do jogo'
+                };
+            }
+        }
+
+        const premiumLimited =
+            text.includes('premium') ||
+            text.includes('conta premium') ||
+            text.includes('funcao premium') ||
+            text.includes('funcao de premium') ||
+            text.includes('esta funcionalidade');
+        const mentionsIncoming =
+            text.includes('ataque a chegar') ||
+            text.includes('ataques a chegar') ||
+            text.includes('comando a chegar') ||
+            text.includes('comandos a chegar');
+
+        if (premiumLimited && mentionsIncoming) {
+            return {
+                detected: true,
+                count: null,
+                source: 'Vista sem Premium'
+            };
+        }
+
+        return null;
+    }
+
+    function getGenericIncomingWebhook() {
+        const settings = getSettings();
+        const attacksWebhook = cleanText(settings.webhook);
+
+        if (
+            attacksWebhook &&
+            attacksWebhook !== DEFAULT_WEBHOOK &&
+            attacksWebhook !== DEFAULT_ATTACKS_WEBHOOK
+        ) {
+            return attacksWebhook;
+        }
+
+        return getNoblesWebhook();
+    }
+
+    function buildGenericIncomingEmbed(signal) {
+        const countText = signal && signal.count
+            ? `Ataques detetados: **${formatTroopNumber(signal.count)}**`
+            : 'Ataques detetados: **1 ou mais**';
+
+        return {
+            title: '🚨 ━━━ ATAQUE A CHEGAR ━━━ 🚨',
+            color: 15158332,
+            fields: [
+                {
+                    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Defensor',
+                    value: [
+                        `**${getDefenderValue()}**`,
+                        countText
+                    ].join('\n'),
+                    inline: false
+                },
+                {
+                    name: 'ℹ️ Informação',
+                    value: [
+                        'O jogo indica que existe ataque a chegar.',
+                        'Não foi possível obter detalhes da aba de comandos nesta conta/página.',
+                        'Abre o jogo para confirmar manualmente.'
+                    ].join('\n'),
+                    inline: false
+                }
+            ],
+            footer: { text: 'Tribal Wars PT' },
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    function maybeNotifyGenericIncoming(signal) {
+        const settings = getSettings();
+
+        if (!signal || !signal.detected) {
+            localStorage.removeItem(GENERIC_INCOMING_STATE_KEY);
+            return false;
+        }
+
+        if (!settings.notifyNormalAttacks && !settings.notifyNobleAttacks) {
+            return false;
+        }
+
+        const state = signal.count
+            ? `count:${signal.count}`
+            : 'present';
+
+        if (localStorage.getItem(GENERIC_INCOMING_STATE_KEY) === state) {
+            return false;
+        }
+
+        localStorage.setItem(GENERIC_INCOMING_STATE_KEY, state);
+        queueDiscordEmbed(
+            buildGenericIncomingEmbed(signal),
+            'TribalWars Alerts',
+            getGenericIncomingWebhook()
+        );
+
+        console.log('[TW] Alerta generico de ataque enviado:', state);
+        return true;
     }
 
     function getFallbackCounts() {
@@ -2055,6 +2223,12 @@
             syncFallbackCountsToVisibleAttacks(attacks);
 
             if (!attacks.length) {
+                const genericSignal =
+                    detectGenericIncomingSignal(doc) ||
+                    detectGenericIncomingSignal(document);
+
+                maybeNotifyGenericIncoming(genericSignal);
+
                 syncFallbackCountsToVisibleAttacks([]);
                 saveAttackSummaryState([]);
 
@@ -2071,6 +2245,8 @@
 
                 return;
             }
+
+            localStorage.removeItem(GENERIC_INCOMING_STATE_KEY);
 
             const targetCounts = {};
             attacks.forEach(attack => {
