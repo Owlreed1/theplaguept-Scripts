@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.7
+// @version      1.3.8
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.7 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.8 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -1050,6 +1050,20 @@
     function detectGenericIncomingSignal(doc) {
         if (!doc || !doc.body) return null;
 
+        const bodyText = normalizeSearchText(doc.body.innerText || '');
+        const premiumLimited =
+            bodyText.includes('premium') ||
+            bodyText.includes('conta premium') ||
+            bodyText.includes('funcao premium') ||
+            bodyText.includes('funcao de premium') ||
+            bodyText.includes('esta funcionalidade');
+        const mentionsIncoming =
+            bodyText.includes('ataque a chegar') ||
+            bodyText.includes('ataques a chegar') ||
+            bodyText.includes('comando a chegar') ||
+            bodyText.includes('comandos a chegar');
+        const isPremiumLimitedIncoming = premiumLimited && mentionsIncoming;
+
         const selectors = [
             '#incomings_amount',
             '#incomings_count',
@@ -1080,13 +1094,14 @@
                     return {
                         detected: true,
                         count,
-                        source: 'Indicador do jogo'
+                        source: isPremiumLimitedIncoming ? 'Vista sem Premium' : 'Indicador do jogo',
+                        premiumLimited: isPremiumLimitedIncoming
                     };
                 }
             }
         }
 
-        const text = normalizeSearchText(doc.body.innerText || '');
+        const text = bodyText;
         const patterns = [
             /ataques?\s+a\s+chegar\D{0,40}(\d[\d.\s]*)/i,
             /(\d[\d.\s]*)\D{0,20}ataques?\s+a\s+chegar/i,
@@ -1103,28 +1118,18 @@
                 return {
                     detected: true,
                     count,
-                    source: 'Texto do jogo'
+                    source: isPremiumLimitedIncoming ? 'Vista sem Premium' : 'Texto do jogo',
+                    premiumLimited: isPremiumLimitedIncoming
                 };
             }
         }
 
-        const premiumLimited =
-            text.includes('premium') ||
-            text.includes('conta premium') ||
-            text.includes('funcao premium') ||
-            text.includes('funcao de premium') ||
-            text.includes('esta funcionalidade');
-        const mentionsIncoming =
-            text.includes('ataque a chegar') ||
-            text.includes('ataques a chegar') ||
-            text.includes('comando a chegar') ||
-            text.includes('comandos a chegar');
-
-        if (premiumLimited && mentionsIncoming) {
+        if (isPremiumLimitedIncoming) {
             return {
                 detected: true,
                 count: null,
-                source: 'Vista sem Premium'
+                source: 'Vista sem Premium',
+                premiumLimited: true
             };
         }
 
@@ -1144,6 +1149,91 @@
         }
 
         return getNoblesWebhook();
+    }
+
+    function normalizePremiumState(value) {
+        if (value === true) return true;
+        if (value === false || value === null) return false;
+
+        if (typeof value === 'number') {
+            if (value <= 0) return false;
+            return value > Math.floor(Date.now() / 1000) || value === 1;
+        }
+
+        if (typeof value === 'string') {
+            const text = value.trim().toLowerCase();
+            if (!text || text === '0' || text === 'false' || text === 'no' || text === 'inactive') {
+                return false;
+            }
+
+            if (text === '1' || text === 'true' || text === 'yes' || text === 'active') {
+                return true;
+            }
+
+            const numeric = Number(text);
+            if (!Number.isNaN(numeric)) {
+                return normalizePremiumState(numeric);
+            }
+        }
+
+        if (value && typeof value === 'object') {
+            if ('active' in value) return normalizePremiumState(value.active);
+            if ('enabled' in value) return normalizePremiumState(value.enabled);
+            if ('expires' in value) return normalizePremiumState(value.expires);
+            if ('until' in value) return normalizePremiumState(value.until);
+        }
+
+        return null;
+    }
+
+    function getGameData() {
+        try {
+            if (typeof game_data !== 'undefined' && game_data) {
+                return game_data;
+            }
+
+            if (typeof unsafeWindow !== 'undefined' && unsafeWindow.game_data) {
+                return unsafeWindow.game_data;
+            }
+
+            if (window.game_data) {
+                return window.game_data;
+            }
+        } catch (_) {}
+
+        return null;
+    }
+
+    function hasPremiumAccount() {
+        const data = getGameData();
+        if (!data) return null;
+
+        const candidates = [
+            data.features && data.features.Premium,
+            data.features && data.features.premium,
+            data.player && data.player.premium,
+            data.player && data.player.premium_active,
+            data.player && data.player.premium_account,
+            data.player && data.player.premium_expires,
+            data.player && data.player.premium_until
+        ];
+
+        for (const candidate of candidates) {
+            const state = normalizePremiumState(candidate);
+            if (state !== null) return state;
+        }
+
+        return null;
+    }
+
+    function shouldUseGenericIncomingFallback(signal) {
+        if (!signal || !signal.detected) return false;
+
+        if (signal.premiumLimited || signal.source === 'Vista sem Premium') {
+            return true;
+        }
+
+        return hasPremiumAccount() === false;
     }
 
     function buildGenericIncomingEmbed(signal) {
@@ -1183,6 +1273,12 @@
 
         if (!signal || !signal.detected) {
             localStorage.removeItem(GENERIC_INCOMING_STATE_KEY);
+            return false;
+        }
+
+        if (!shouldUseGenericIncomingFallback(signal)) {
+            localStorage.removeItem(GENERIC_INCOMING_STATE_KEY);
+            console.log('[TW] Alerta generico ignorado porque a conta parece ter Premium ou o estado Premium nao foi confirmado.');
             return false;
         }
 
@@ -1423,17 +1519,8 @@
 
     function getGameDataPlayer() {
         try {
-            if (typeof game_data !== 'undefined' && game_data.player && game_data.player.name) {
-                return game_data.player;
-            }
-
-            if (typeof unsafeWindow !== 'undefined' && unsafeWindow.game_data && unsafeWindow.game_data.player) {
-                return unsafeWindow.game_data.player;
-            }
-
-            if (window.game_data && window.game_data.player && window.game_data.player.name) {
-                return window.game_data.player;
-            }
+            const data = getGameData();
+            return data && data.player ? data.player : null;
         } catch (_) {}
 
         return null;
