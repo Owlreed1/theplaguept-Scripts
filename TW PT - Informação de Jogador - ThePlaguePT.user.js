@@ -26,6 +26,9 @@
         id: "tpResumo24h",
         version: "1.0.0",
         title: "Informação de Jogador",
+        displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
+        githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
+        launcherIcon: "https://dspt.innogamescdn.com/asset/f441272cc5/graphic/welcome/player_points.webp",
         mapCacheMs: 50 * 60 * 1000,
         conquerCacheMs: 90 * 1000,
         minSnapshotGapMs: 10 * 60 * 1000,
@@ -54,6 +57,8 @@
         memoryCache: new Map(),
         controls: {},
         lastResult: null,
+        launcherPositionFrame: 0,
+        launcherResizeObserver: null,
     };
 
     const nf = new Intl.NumberFormat("pt-PT");
@@ -84,11 +89,60 @@
         const button = document.createElement("button");
         button.id = `${APP.id}-launcher`;
         button.type = "button";
-        button.textContent = "24h";
-        button.title = "Resumo 24h de jogador";
+        button.title = APP.displayTitle;
+        button.setAttribute("aria-label", APP.displayTitle);
+        button.innerHTML = `
+            <span class="${APP.id}-launcherIcon" aria-hidden="true"></span>
+            <span class="${APP.id}-launcherLabel">${escapeHTML(APP.displayTitle)}</span>
+        `;
         button.addEventListener("click", openPanel);
         document.body.appendChild(button);
         state.launcher = button;
+        setupLauncherPosition();
+    }
+
+    function setupLauncherPosition() {
+        scheduleLauncherPosition();
+        window.addEventListener("resize", scheduleLauncherPosition);
+        window.addEventListener("orientationchange", scheduleLauncherPosition);
+
+        if (typeof window.ResizeObserver === "function") {
+            const observedLayout = findGameLayout();
+            if (observedLayout) {
+                state.launcherResizeObserver = new window.ResizeObserver(scheduleLauncherPosition);
+                state.launcherResizeObserver.observe(observedLayout);
+            }
+        }
+
+        window.setTimeout(positionLauncher, 250);
+        window.setTimeout(positionLauncher, 1000);
+    }
+
+    function findGameLayout() {
+        return document.querySelector("#main_layout td.maincell") ||
+            document.querySelector("td.maincell") ||
+            document.querySelector("#contentContainer") ||
+            document.querySelector("#content_value");
+    }
+
+    function positionLauncher() {
+        if (!state.launcher) return;
+
+        const gameLayout = findGameLayout();
+        if (!gameLayout) return;
+
+        const layoutRect = gameLayout.getBoundingClientRect();
+        if (layoutRect.width <= 0) return;
+
+        const launcherWidth = 30;
+        const launcherGap = 25;
+        const left = Math.max(4, Math.round(layoutRect.left - launcherWidth - launcherGap));
+        state.launcher.style.setProperty("left", `${left}px`, "important");
+    }
+
+    function scheduleLauncherPosition() {
+        window.cancelAnimationFrame(state.launcherPositionFrame);
+        state.launcherPositionFrame = window.requestAnimationFrame(positionLauncher);
     }
 
     function registerHubShortcut() {
@@ -122,22 +176,70 @@
         const panel = document.createElement("div");
         panel.id = `${APP.id}-panel`;
         panel.innerHTML = `
-            <div class="${APP.id}-head">
-                <div>
-                    <strong>${APP.title}</strong>
-                    <span>Jogador</span>
-                </div>
-                <button type="button" class="${APP.id}-icon" data-action="close" title="Fechar">x</button>
-            </div>
-            <form class="${APP.id}-search">
-                <input type="text" name="player" autocomplete="off" placeholder="Nome ou ID do jogador">
-                <button type="submit">Resumo</button>
-                <button type="button" data-action="force">Atualizar</button>
-            </form>
-            <div class="${APP.id}-status">Pronto.</div>
-            <div class="${APP.id}-body">
-                <div class="${APP.id}-empty">
-                    Escreve um jogador para carregar o resumo.
+            <div class="${APP.id}-dialog" role="dialog" aria-modal="true" aria-label="${APP.title}">
+                <button type="button" class="${APP.id}-close" data-action="close" title="Fechar">x</button>
+                <div class="${APP.id}-shell">
+                    <header class="${APP.id}-masthead">
+                        <h2>${escapeHTML(APP.displayTitle)}</h2>
+                        <p>Resumo das ultimas 24 horas do mundo atual. ${escapeHTML(worldLabel())}</p>
+                    </header>
+
+                    <form id="${APP.id}-form" class="${APP.id}-panelRow ${APP.id}-searchRow">
+                        <aside class="${APP.id}-rowLabel">
+                            <strong>JOGADOR</strong>
+                            <span>Procura por nome ou ID para gerar o resumo.</span>
+                        </aside>
+                        <div class="${APP.id}-rowContent">
+                            <div class="${APP.id}-controlsGrid">
+                                <label>
+                                    <span>Jogador</span>
+                                    <input type="text" name="player" autocomplete="off" placeholder="Nome ou ID do jogador">
+                                </label>
+                                <label>
+                                    <span>Periodo</span>
+                                    <select disabled>
+                                        <option>Ultimas 24 horas</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Comparar</span>
+                                    <select disabled>
+                                        <option>Snapshot local ~24h</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+
+                    <div class="${APP.id}-body">
+                        <section class="${APP.id}-panelRow ${APP.id}-summaryRow">
+                            <aside class="${APP.id}-rowLabel">
+                                <strong>RESUMO</strong>
+                                <span>Totais e variação do jogador selecionado.</span>
+                            </aside>
+                            <div class="${APP.id}-rowContent">
+                                <div class="${APP.id}-empty">Escreve um jogador para carregar o resumo.</div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <section class="${APP.id}-panelRow ${APP.id}-actionsRow">
+                        <aside class="${APP.id}-rowLabel">
+                            <strong>ACOES</strong>
+                            <span>Atualiza dados da vista atual.</span>
+                        </aside>
+                        <div class="${APP.id}-rowContent">
+                            <div class="${APP.id}-actions">
+                                <button type="submit" form="${APP.id}-form">Resumo</button>
+                                <button type="button" data-action="force">Atualizar</button>
+                                <button type="button" data-action="clear">Limpar Cache</button>
+                            </div>
+                            <div class="${APP.id}-footerLine">
+                                <span class="${APP.id}-status">Pronto.</span>
+                                <span>Dados publicos do mapa. <a href="${APP.githubUrl}" target="_blank" rel="noopener">GitHub</a></span>
+                            </div>
+                        </div>
+                    </section>
                 </div>
             </div>
         `;
@@ -149,6 +251,7 @@
         state.controls.body = panel.querySelector(`.${APP.id}-body`);
         state.controls.submit = panel.querySelector('button[type="submit"]');
         state.controls.force = panel.querySelector('[data-action="force"]');
+        state.controls.clear = panel.querySelector('[data-action="clear"]');
 
         panel.querySelector('[data-action="close"]').addEventListener("click", closePanel);
         panel.querySelector("form").addEventListener("submit", (event) => {
@@ -156,6 +259,7 @@
             runSummary(false);
         });
         state.controls.force.addEventListener("click", () => runSummary(true));
+        state.controls.clear.addEventListener("click", clearCache);
     }
 
     async function runSummary(force) {
@@ -577,8 +681,8 @@
             ? `Fonte apoio: ${escapeHTML(result.supportSource)}`
             : "OD apoio: ficheiro publico nao encontrado neste mundo.";
 
-        state.controls.body.innerHTML = `
-            <div class="${APP.id}-summaryHead">
+        const summaryContent = `
+            <div class="${APP.id}-playerHead">
                 <div>
                     <a href="/game.php?screen=info_player&id=${result.player.id}" target="_blank" rel="noopener">${escapeHTML(result.player.name)}</a>
                     <span>#${result.player.id}</span>
@@ -594,28 +698,100 @@
                 ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true)}
                 ${metricCard("Ganhas / Perdidas", `${formatNumber(result.conquests.gained.length)} / ${formatNumber(result.conquests.lost.length)}`, result.conquests.net)}
             </div>
+        `;
 
-            <div class="${APP.id}-section">
-                <h3>OD</h3>
-                <div class="${APP.id}-odTable">
+        const odContent = `
+            <div class="${APP.id}-tableWrap">
+                <table class="${APP.id}-table ${APP.id}-odTable">
+                    <thead>
+                        <tr>
+                            <th>TIPO</th>
+                            <th>PONTOS</th>
+                            <th>RANK</th>
+                            <th>24H</th>
+                        </tr>
+                    </thead>
+                    <tbody>
                     ${odRow("Total", result.current.od.total, result.diffs.od.total)}
                     ${odRow("Ofensivo", result.current.od.off, result.diffs.od.off)}
                     ${odRow("Defensivo", result.current.od.def, result.diffs.od.def)}
                     ${odRow("Apoio", result.current.od.support, result.diffs.od.support)}
+                    </tbody>
+                </table>
                 </div>
-                <div class="${APP.id}-hint">${supportNote}</div>
-            </div>
+            <div class="${APP.id}-hint">${supportNote}</div>
+        `;
 
-            <div class="${APP.id}-section ${APP.id}-split">
-                <div>
-                    <h3>Ganhas 24h <span>${formatNumber(result.conquests.gained.length)}</span></h3>
-                    ${renderConquestList(result.conquests.gained, "gain")}
+        state.controls.body.innerHTML = `
+            ${panelRow("RESUMO", "Totais do filtro ativo para leitura rapida.", summaryContent, "summaryRow")}
+            ${panelRow("OD", "Pontos ofensivos, defensivos e apoio.", odContent, "odSectionRow")}
+            ${panelRow("CONQUISTAS", "Aldeias ganhas e perdidas nas ultimas 24h.", renderConquestTable(result.conquests.gained, result.conquests.lost), "resultsRow")}
+        `;
+    }
+
+    function panelRow(title, description, content, className) {
+        return `
+            <section class="${APP.id}-panelRow ${APP.id}-${className || "row"}">
+                <aside class="${APP.id}-rowLabel">
+                    <strong>${escapeHTML(title)}</strong>
+                    <span>${escapeHTML(description)}</span>
+                </aside>
+                <div class="${APP.id}-rowContent">
+                    ${content}
                 </div>
-                <div>
-                    <h3>Perdidas 24h <span>${formatNumber(result.conquests.lost.length)}</span></h3>
-                    ${renderConquestList(result.conquests.lost, "loss")}
-                </div>
+            </section>
+        `;
+    }
+
+    function renderConquestTable(gained, lost) {
+        const rows = [
+            ...gained.map((row) => ({ mode: "gain", row })),
+            ...lost.map((row) => ({ mode: "loss", row })),
+        ].sort((a, b) => b.row.timestamp - a.row.timestamp);
+
+        if (!rows.length) {
+            return `<div class="${APP.id}-emptyList">Sem aldeias ganhas ou perdidas nas ultimas 24h.</div>`;
+        }
+
+        return `
+            <div class="${APP.id}-tableWrap ${APP.id}-conquestWrap">
+                <table class="${APP.id}-table ${APP.id}-conquestTable">
+                    <thead>
+                        <tr>
+                            <th>HORA</th>
+                            <th>TIPO</th>
+                            <th>ALDEIA</th>
+                            <th>PTS</th>
+                            <th>DE</th>
+                            <th>PARA</th>
+                            <th>K</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map(conquestTableRow).join("")}
+                    </tbody>
+                </table>
             </div>
+        `;
+    }
+
+    function conquestTableRow(item) {
+        const row = item.row;
+        const village = row.village || fallbackVillage(row.villageId);
+        const type = item.mode === "gain" ? "GANHOU" : "PERDEU";
+        return `
+            <tr class="${APP.id}-${item.mode}">
+                <td>${formatTime(row.date)}</td>
+                <td><strong>${type}</strong></td>
+                <td>
+                    <a href="/game.php?screen=info_village&id=${row.villageId}" target="_blank" rel="noopener">${escapeHTML(village.name)}</a>
+                    <small>(${escapeHTML(village.coords)})</small>
+                </td>
+                <td>${formatNumber(village.points)}</td>
+                <td>${escapeHTML(row.oldOwner)}</td>
+                <td>${escapeHTML(row.newOwner)}</td>
+                <td>${escapeHTML(continentFromVillage(village))}</td>
+            </tr>
         `;
     }
 
@@ -642,12 +818,12 @@
         const rank = entry && entry.rank ? `#${formatNumber(entry.rank)}` : "-";
         const deltaText = delta === null ? "N/D" : formatSigned(delta);
         return `
-            <div class="${APP.id}-odRow">
-                <span>${escapeHTML(label)}</span>
-                <strong>${escapeHTML(score)}</strong>
-                <small>${escapeHTML(rank)}</small>
-                <em class="${deltaClass(delta, false)}">${escapeHTML(deltaText)}</em>
-            </div>
+            <tr>
+                <td>${escapeHTML(label)}</td>
+                <td><strong>${escapeHTML(score)}</strong></td>
+                <td>${escapeHTML(rank)}</td>
+                <td><em class="${deltaClass(delta, false)}">${escapeHTML(deltaText)}</em></td>
+            </tr>
         `;
     }
 
@@ -683,18 +859,41 @@
     }
 
     function showNotice(message, type) {
-        state.controls.body.innerHTML = renderNotice(message, type || "warn");
+        state.controls.body.innerHTML = panelRow(
+            "RESUMO",
+            "Estado da pesquisa atual.",
+            renderNotice(message, type || "warn"),
+            "summaryRow"
+        );
     }
 
     function setBusy(isBusy) {
         if (!state.controls.submit) return;
         state.controls.submit.disabled = isBusy;
         state.controls.force.disabled = isBusy;
+        state.controls.clear.disabled = isBusy;
         state.panel.classList.toggle(`${APP.id}-busy`, isBusy);
     }
 
     function setStatus(message) {
         if (state.controls.status) state.controls.status.textContent = message;
+    }
+
+    function clearCache() {
+        state.memoryCache.clear();
+        state.lastResult = null;
+
+        try {
+            const snapshotPrefix = `${APP.id}:snapshots:${window.location.host}:`;
+            Object.keys(window.localStorage)
+                .filter((key) => key.startsWith(snapshotPrefix))
+                .forEach((key) => window.localStorage.removeItem(key));
+        } catch (_) {
+            // O browser pode bloquear localStorage em alguns contextos.
+        }
+
+        showNotice("Cache local limpo. Faz um novo resumo para guardar a snapshot atual.", "warn");
+        setStatus("Cache limpo.");
     }
 
     function defaultPlayerQuery() {
@@ -705,6 +904,18 @@
         if (gameData.player && gameData.player.name) return gameData.player.name;
         if (gameData.player && gameData.player.id) return String(gameData.player.id);
         return "";
+    }
+
+    function worldLabel() {
+        const gameData = window.game_data || {};
+        const world = String(gameData.world || window.location.hostname.split(".")[0] || "").toUpperCase();
+        return `${world} - ${window.location.host}`;
+    }
+
+    function continentFromVillage(village) {
+        if (!village || village.coords === "-") return "-";
+        if (!Number.isFinite(village.x) || !Number.isFinite(village.y)) return "-";
+        return `K${Math.floor(village.y / 100)}${Math.floor(village.x / 100)}`;
     }
 
     function splitLines(text) {
@@ -1166,6 +1377,517 @@
 
                 .${APP.id}-odRow {
                     grid-template-columns: minmax(76px, 1fr) minmax(82px, 1fr) 54px 76px;
+                }
+            }
+
+            /* Layout inspirado no painel "Conquistas do Mundo". */
+            #${APP.id}-launcher {
+                position: fixed !important;
+                top: 250px !important;
+                right: auto !important;
+                left: 16px !important;
+                z-index: ${APP.zIndex} !important;
+                box-sizing: border-box !important;
+                width: 30px !important;
+                min-width: 30px !important;
+                height: 28px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                gap: 0 !important;
+                overflow: hidden !important;
+                cursor: pointer !important;
+                border: 1px solid #4f120f !important;
+                border-radius: 2px !important;
+                background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611) !important;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.45) !important;
+                color: #fff !important;
+                font: 700 12px Verdana, Arial, sans-serif !important;
+                text-shadow: 1px 1px 1px #000 !important;
+                white-space: nowrap !important;
+                padding: 0 6px !important;
+                transition: width .18s ease, min-width .18s ease, padding .18s ease, gap .18s ease, background .18s ease !important;
+            }
+
+            #${APP.id}-launcher:hover,
+            #${APP.id}-launcher:focus-visible {
+                width: 300px !important;
+                min-width: 300px !important;
+                gap: 8px !important;
+                padding: 0 9px !important;
+                background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
+            }
+
+            .${APP.id}-launcherIcon {
+                width: 16px !important;
+                height: 16px !important;
+                flex: 0 0 16px !important;
+                border-radius: 50% !important;
+                background: url("${APP.launcherIcon}") center / contain no-repeat !important;
+                box-shadow: inset 0 1px 1px rgba(255,255,255,.35), 0 1px 1px #000 !important;
+            }
+
+            .${APP.id}-launcherLabel {
+                display: inline-block !important;
+                max-width: 0 !important;
+                opacity: 0 !important;
+                overflow: hidden !important;
+                transform: translateX(-4px) !important;
+                white-space: nowrap !important;
+                transition: max-width .18s ease, opacity .14s ease, transform .18s ease !important;
+            }
+
+            #${APP.id}-launcher:hover .${APP.id}-launcherLabel,
+            #${APP.id}-launcher:focus-visible .${APP.id}-launcherLabel {
+                max-width: 254px !important;
+                opacity: 1 !important;
+                transform: translateX(0) !important;
+            }
+
+            #${APP.id}-panel {
+                position: fixed;
+                inset: 0;
+                z-index: ${APP.zIndex + 1};
+                width: auto;
+                max-height: none;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: auto;
+                padding: 18px;
+                border: 0;
+                border-radius: 0;
+                background: rgba(0, 0, 0, 0.42);
+                box-shadow: none;
+                color: #2f1809;
+                box-sizing: border-box;
+                font: 12px Verdana, Arial, sans-serif;
+            }
+
+            #${APP.id}-panel.${APP.id}-hidden {
+                display: none;
+            }
+
+            .${APP.id}-dialog {
+                position: relative;
+                width: min(1290px, calc(100vw - 36px));
+                max-height: calc(100vh - 36px);
+                overflow: auto;
+                padding: 8px;
+                border: 2px solid #77664b;
+                border-radius: 3px;
+                background: #c5b17b;
+                box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) inset, 0 18px 42px rgba(0, 0, 0, 0.55);
+                box-sizing: border-box;
+            }
+
+            .${APP.id}-close {
+                position: absolute;
+                top: -10px;
+                right: -10px;
+                z-index: 2;
+                width: 20px;
+                height: 20px;
+                padding: 0;
+                border: 2px solid #6b341d;
+                border-radius: 50%;
+                background: #f4dfaa;
+                color: #1f1209;
+                font-size: 16px;
+                line-height: 15px;
+                font-weight: 700;
+                cursor: pointer;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+            }
+
+            .${APP.id}-shell {
+                min-height: 640px;
+                padding: 12px 14px 10px;
+                border: 2px solid #9f251e;
+                border-radius: 3px;
+                background: #f1dfaa;
+                box-sizing: border-box;
+            }
+
+            .${APP.id}-masthead {
+                padding: 8px 14px 7px;
+                border: 1px solid #c98236;
+                border-bottom: 0;
+                border-radius: 3px 3px 0 0;
+                background: linear-gradient(#f8e8b9, #efd28d);
+            }
+
+            .${APP.id}-masthead h2 {
+                margin: 0;
+                color: #8c1711;
+                font-family: Georgia, "Times New Roman", serif;
+                font-size: 20px;
+                line-height: 1.15;
+                letter-spacing: 0;
+            }
+
+            .${APP.id}-masthead p {
+                margin: 3px 0 0;
+                color: #4a240d;
+                font-size: 12px;
+            }
+
+            .${APP.id}-panelRow {
+                display: grid;
+                grid-template-columns: 300px minmax(0, 1fr);
+                border-top: 1px solid #d2b873;
+                background: rgba(255, 255, 255, 0.08);
+            }
+
+            .${APP.id}-panelRow:first-of-type {
+                border-top: 0;
+            }
+
+            .${APP.id}-rowLabel {
+                min-height: 58px;
+                padding: 12px 14px 10px 12px;
+                border-left: 4px solid #b42522;
+                box-sizing: border-box;
+            }
+
+            .${APP.id}-summaryRow .${APP.id}-rowLabel {
+                border-left-color: #13a8bb;
+            }
+
+            .${APP.id}-odSectionRow .${APP.id}-rowLabel {
+                border-left-color: #8f69d3;
+            }
+
+            .${APP.id}-resultsRow .${APP.id}-rowLabel {
+                border-left-color: #c59325;
+            }
+
+            .${APP.id}-actionsRow .${APP.id}-rowLabel {
+                border-left-color: #9d6d27;
+            }
+
+            .${APP.id}-rowLabel strong {
+                display: block;
+                color: #9f1d19;
+                font-size: 14px;
+                line-height: 1.15;
+                text-transform: uppercase;
+            }
+
+            .${APP.id}-rowLabel span {
+                display: block;
+                margin-top: 4px;
+                color: #4d250f;
+                line-height: 1.25;
+            }
+
+            .${APP.id}-rowContent {
+                min-width: 0;
+                padding: 9px 14px 10px;
+                box-sizing: border-box;
+            }
+
+            .${APP.id}-controlsGrid {
+                display: grid;
+                grid-template-columns: 1.35fr 1fr 1fr;
+                gap: 8px;
+                align-items: end;
+            }
+
+            .${APP.id}-controlsGrid label {
+                display: grid;
+                gap: 4px;
+                min-width: 0;
+                color: #000;
+                font-weight: 700;
+            }
+
+            .${APP.id}-controlsGrid label > span {
+                line-height: 1.1;
+            }
+
+            .${APP.id}-controlsGrid input,
+            .${APP.id}-controlsGrid select {
+                width: 100%;
+                min-width: 0;
+                height: 29px;
+                padding: 3px 9px;
+                border: 1px solid #c89042;
+                border-radius: 2px;
+                background: #fff6d7;
+                color: #2f1809;
+                box-sizing: border-box;
+                font: 12px Verdana, Arial, sans-serif;
+            }
+
+            .${APP.id}-controlsGrid select:disabled {
+                opacity: 1;
+                color: #4d250f;
+            }
+
+            .${APP.id}-body {
+                overflow: visible;
+                padding: 0;
+            }
+
+            .${APP.id}-playerHead {
+                display: flex;
+                align-items: flex-end;
+                justify-content: space-between;
+                gap: 16px;
+                margin-bottom: 8px;
+            }
+
+            .${APP.id}-playerHead a {
+                color: #2b1508;
+                font-size: 17px;
+                font-weight: 700;
+                text-decoration: none;
+            }
+
+            .${APP.id}-playerHead a:hover {
+                text-decoration: underline;
+            }
+
+            .${APP.id}-playerHead span,
+            .${APP.id}-playerHead small {
+                color: #6b3a15;
+            }
+
+            .${APP.id}-empty,
+            .${APP.id}-emptyList,
+            .${APP.id}-notice {
+                border: 1px solid #c89042;
+                border-radius: 2px;
+                background: #fff2c8;
+                color: #4d250f;
+                padding: 11px 12px;
+            }
+
+            .${APP.id}-notice.${APP.id}-warn {
+                margin: 0 0 9px;
+                border-color: #c89042;
+                background: #fff2c8;
+                color: #6e3a12;
+            }
+
+            .${APP.id}-notice.${APP.id}-error {
+                border-color: #a52c26;
+                background: #ffe5d9;
+                color: #7d1712;
+            }
+
+            .${APP.id}-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 8px;
+                margin: 0;
+            }
+
+            .${APP.id}-metric {
+                min-height: 48px;
+                padding: 7px 9px;
+                border: 1px solid #c89042;
+                border-radius: 2px;
+                background: #fff6d7;
+                box-sizing: border-box;
+            }
+
+            .${APP.id}-metric span {
+                display: block;
+                margin: 0 0 3px;
+                color: #6a340f;
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+            }
+
+            .${APP.id}-metric strong {
+                display: block;
+                color: #120b05;
+                font-size: 17px;
+                line-height: 1.15;
+                overflow-wrap: anywhere;
+            }
+
+            .${APP.id}-metric em {
+                display: block;
+                margin-top: 3px;
+                font-style: normal;
+                font-weight: 700;
+            }
+
+            .${APP.id}-positive {
+                color: #176c2d;
+            }
+
+            .${APP.id}-negative {
+                color: #a22620;
+            }
+
+            .${APP.id}-neutral {
+                color: #63452b;
+            }
+
+            .${APP.id}-tableWrap {
+                width: 100%;
+                overflow: auto;
+                border: 1px solid #c89042;
+                background: #fff2c8;
+            }
+
+            .${APP.id}-table {
+                width: 100%;
+                min-width: 760px;
+                border-collapse: collapse;
+                color: #2f1809;
+                font-size: 12px;
+            }
+
+            .${APP.id}-table th {
+                padding: 6px 8px;
+                background: linear-gradient(#dcb25e, #c99035);
+                color: #2a1408;
+                text-align: left;
+                font-size: 11px;
+                text-transform: uppercase;
+            }
+
+            .${APP.id}-table td {
+                padding: 8px;
+                border-top: 1px solid #e0c481;
+                background: #fff2c8;
+                vertical-align: top;
+            }
+
+            .${APP.id}-table tr:nth-child(even) td {
+                background: #f7e3a9;
+            }
+
+            .${APP.id}-table a {
+                color: #2d1709;
+                font-weight: 700;
+                text-decoration: none;
+            }
+
+            .${APP.id}-table a:hover {
+                text-decoration: underline;
+            }
+
+            .${APP.id}-table small {
+                display: block;
+                color: #6b3a15;
+                margin-top: 2px;
+            }
+
+            .${APP.id}-table em {
+                font-style: normal;
+                font-weight: 700;
+            }
+
+            .${APP.id}-odTable {
+                min-width: 560px;
+            }
+
+            .${APP.id}-hint {
+                margin-top: 6px;
+                color: #5a2f13;
+                font-size: 11px;
+            }
+
+            .${APP.id}-gain td:nth-child(2) strong {
+                color: #16662a;
+            }
+
+            .${APP.id}-loss td:nth-child(2) strong {
+                color: #9d211b;
+            }
+
+            .${APP.id}-actions {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(140px, 1fr));
+                gap: 10px;
+                margin-bottom: 9px;
+            }
+
+            .${APP.id}-actions button {
+                height: 33px;
+                border: 1px solid #7b201c;
+                border-radius: 3px;
+                background: linear-gradient(#b43a34, #8c1713);
+                color: #fff8dc;
+                cursor: pointer;
+                font: 700 12px Verdana, Arial, sans-serif;
+                text-shadow: 0 1px 0 #40100d;
+            }
+
+            .${APP.id}-actions button:hover {
+                background: linear-gradient(#c64a43, #971d18);
+            }
+
+            .${APP.id}-actions button:disabled {
+                opacity: 0.65;
+                cursor: progress;
+            }
+
+            .${APP.id}-footerLine {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                color: #5a2f13;
+                font-size: 11px;
+            }
+
+            .${APP.id}-status {
+                padding: 0;
+                border: 0;
+                background: transparent;
+                color: #5a2f13;
+                font-size: 11px;
+            }
+
+            .${APP.id}-footerLine a {
+                color: #9f1d19;
+                font-weight: 700;
+                text-decoration: none;
+            }
+
+            @media (max-width: 900px) {
+                #${APP.id}-panel {
+                    padding: 8px;
+                    align-items: flex-start;
+                }
+
+                .${APP.id}-dialog {
+                    width: 100%;
+                    max-height: calc(100vh - 16px);
+                }
+
+                .${APP.id}-shell {
+                    min-height: 0;
+                    padding: 10px;
+                }
+
+                .${APP.id}-panelRow {
+                    grid-template-columns: 1fr;
+                }
+
+                .${APP.id}-rowLabel {
+                    min-height: 0;
+                    padding-bottom: 7px;
+                }
+
+                .${APP.id}-controlsGrid,
+                .${APP.id}-grid,
+                .${APP.id}-actions {
+                    grid-template-columns: 1fr;
+                }
+
+                .${APP.id}-playerHead,
+                .${APP.id}-footerLine {
+                    align-items: flex-start;
+                    flex-direction: column;
                 }
             }
         `;
