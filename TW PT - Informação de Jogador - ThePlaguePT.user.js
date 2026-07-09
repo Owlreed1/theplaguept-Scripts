@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.3
+// @version      1.0.4
 // @description  Painel com resumo das ultimas 24h de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.3",
+        version: "1.0.4",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -1453,8 +1453,8 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                overflow: auto;
-                padding: 18px;
+                overflow: hidden;
+                padding: 22px;
                 border: 0;
                 border-radius: 0;
                 background: rgba(0, 0, 0, 0.42);
@@ -1470,50 +1470,65 @@
 
             .${APP.id}-dialog {
                 position: relative;
-                width: min(1290px, calc(100vw - 36px));
-                max-height: calc(100vh - 36px);
-                overflow: auto;
-                padding: 8px;
-                border: 2px solid #77664b;
+                width: min(1260px, calc(100vw - 56px));
+                max-height: calc(100vh - 56px);
+                overflow-y: auto;
+                overflow-x: hidden;
+                padding: 15px 14px 14px;
+                border: 1px solid #4c2a12;
                 border-radius: 3px;
-                background: #c5b17b;
-                box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) inset, 0 18px 42px rgba(0, 0, 0, 0.55);
+                background: #f3dfaa;
+                box-shadow: 0 0 0 2px #d8c79b, 0 0 0 4px #735027, 0 0 0 6px #cfc7aa, 0 0 0 8px #3d3428, 0 8px 26px rgba(0, 0, 0, 0.62);
                 box-sizing: border-box;
+            }
+
+            .${APP.id}-dialog::before {
+                content: "";
+                position: absolute;
+                inset: 7px;
+                pointer-events: none;
+                border: 2px solid #a7221e;
+                border-radius: 2px;
+                box-shadow: inset 0 0 0 1px rgba(255, 245, 205, 0.75);
             }
 
             .${APP.id}-close {
                 position: absolute;
-                top: -10px;
-                right: -10px;
-                z-index: 2;
+                top: -13px;
+                right: -13px;
+                z-index: 3;
                 width: 20px;
                 height: 20px;
+                line-height: 18px;
                 padding: 0;
-                border: 2px solid #6b341d;
-                border-radius: 50%;
-                background: #f4dfaa;
-                color: #1f1209;
-                font-size: 16px;
-                line-height: 15px;
+                border: 2px solid #4c2a12;
+                border-radius: 2px;
+                background: #f6d28b;
+                color: #1b0d07;
+                font-size: 18px;
                 font-weight: 700;
+                text-align: center;
                 cursor: pointer;
                 box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
             }
 
             .${APP.id}-shell {
-                min-height: 640px;
-                padding: 12px 14px 10px;
-                border: 2px solid #9f251e;
-                border-radius: 3px;
-                background: #f1dfaa;
+                position: relative;
+                z-index: 1;
+                min-height: 0;
+                padding: 0;
+                border: 1px solid #c99545;
+                border-radius: 0;
+                background: rgba(255, 239, 188, 0.38);
                 box-sizing: border-box;
             }
 
             .${APP.id}-masthead {
-                padding: 8px 14px 7px;
-                border: 1px solid #c98236;
-                border-bottom: 0;
-                border-radius: 3px 3px 0 0;
+                margin: 0;
+                padding: 12px 14px 10px;
+                border: 0;
+                border-bottom: 1px solid #c8913e;
+                border-radius: 0;
                 background: linear-gradient(#f8e8b9, #efd28d);
             }
 
