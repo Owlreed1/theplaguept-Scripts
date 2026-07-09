@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.8
+// @version      1.3.9
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.8 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.9 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -1268,6 +1268,54 @@
         };
     }
 
+    function readGenericIncomingState() {
+        const raw = localStorage.getItem(GENERIC_INCOMING_STATE_KEY);
+
+        if (!raw) {
+            return {
+                present: false,
+                count: null
+            };
+        }
+
+        try {
+            const parsed = JSON.parse(raw);
+
+            if (parsed && typeof parsed === 'object') {
+                const count = parsed.count === null || typeof parsed.count === 'undefined'
+                    ? null
+                    : Number(parsed.count);
+
+                return {
+                    present: Boolean(parsed.present),
+                    count: Number.isFinite(count) ? count : null
+                };
+            }
+        } catch (_) {}
+
+        if (raw.startsWith('count:')) {
+            const count = Number(raw.slice(6));
+
+            return {
+                present: true,
+                count: Number.isFinite(count) ? count : null
+            };
+        }
+
+        return {
+            present: raw === 'present',
+            count: null
+        };
+    }
+
+    function saveGenericIncomingState(signal) {
+        writeJson(GENERIC_INCOMING_STATE_KEY, {
+            present: Boolean(signal && signal.detected),
+            count: signal && signal.count ? Number(signal.count) : null,
+            time: Date.now()
+        });
+    }
+
     function maybeNotifyGenericIncoming(signal) {
         const settings = getSettings();
 
@@ -1286,22 +1334,35 @@
             return false;
         }
 
-        const state = signal.count
-            ? `count:${signal.count}`
-            : 'present';
+        const previousState = readGenericIncomingState();
+        const currentCount = signal.count ? Number(signal.count) : null;
 
-        if (localStorage.getItem(GENERIC_INCOMING_STATE_KEY) === state) {
+        if (currentCount !== null && previousState.present && previousState.count !== null) {
+            if (currentCount <= previousState.count) {
+                saveGenericIncomingState(signal);
+                console.log('[TW] Alerta generico ignorado porque o contador nao aumentou:', previousState.count, '->', currentCount);
+                return false;
+            }
+        }
+
+        if (currentCount !== null && previousState.present && previousState.count === null) {
+            saveGenericIncomingState(signal);
+            console.log('[TW] Alerta generico ignorado porque ja existia ataque sem contador confirmado.');
             return false;
         }
 
-        localStorage.setItem(GENERIC_INCOMING_STATE_KEY, state);
+        if (currentCount === null && previousState.present) {
+            return false;
+        }
+
+        saveGenericIncomingState(signal);
         queueDiscordEmbed(
             buildGenericIncomingEmbed(signal),
             'TribalWars Alerts',
             getGenericIncomingWebhook()
         );
 
-        console.log('[TW] Alerta generico de ataque enviado:', state);
+        console.log('[TW] Alerta generico de ataque enviado:', currentCount === null ? 'present' : `count:${currentCount}`);
         return true;
     }
 
