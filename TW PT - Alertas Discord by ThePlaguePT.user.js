@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.6
+// @version      1.3.7
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.6 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.7 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -1040,10 +1040,10 @@
     }
 
     function parseFirstPositiveNumber(value) {
-        const match = cleanText(value).match(/\d[\d.\s]*/);
+        const match = cleanText(value).match(/\d[\d.]*/);
         if (!match) return null;
 
-        const number = Number(match[0].replace(/[.\s]/g, '')) || 0;
+        const number = Number(match[0].replace(/\./g, '')) || 0;
         return number > 0 ? number : null;
     }
 
@@ -1065,13 +1065,16 @@
             const elements = Array.from(doc.querySelectorAll(selector));
 
             for (const element of elements) {
-                const text = [
+                const textValues = [
                     element.innerText || '',
                     element.textContent || '',
                     element.getAttribute('title') || '',
                     element.getAttribute('alt') || ''
-                ].join(' ');
-                const count = parseFirstPositiveNumber(text);
+                ].map(cleanText).filter(Boolean);
+
+                const count = textValues
+                    .map(parseFirstPositiveNumber)
+                    .find(value => value !== null);
 
                 if (count !== null) {
                     return {
