@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.1
+// @version      1.0.2
 // @description  Painel com resumo das ultimas 24h de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.1",
+        version: "1.0.2",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -1383,7 +1383,7 @@
             /* Layout inspirado no painel "Conquistas do Mundo". */
             #${APP.id}-launcher {
                 position: fixed !important;
-                top: 250px !important;
+                top: 178px !important;
                 right: auto !important;
                 left: 16px !important;
                 z-index: ${APP.zIndex} !important;
@@ -1411,8 +1411,8 @@
 
             #${APP.id}-launcher:hover,
             #${APP.id}-launcher:focus-visible {
-                width: 300px !important;
-                min-width: 300px !important;
+                width: 378px !important;
+                min-width: 378px !important;
                 gap: 8px !important;
                 padding: 0 9px !important;
                 background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17) !important;
@@ -1439,7 +1439,7 @@
 
             #${APP.id}-launcher:hover .${APP.id}-launcherLabel,
             #${APP.id}-launcher:focus-visible .${APP.id}-launcherLabel {
-                max-width: 254px !important;
+                max-width: 332px !important;
                 opacity: 1 !important;
                 transform: translateX(0) !important;
             }
