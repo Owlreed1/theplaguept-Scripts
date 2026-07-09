@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
+// @version      1.3.3
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.1 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.3 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2295,6 +2295,27 @@
         return Number(text.replace(/[.\s]/g, '')) || 0;
     }
 
+    function parseTroopCellNumber(value) {
+        const raw = String(value || '').replace(/\u00a0/g, ' ').trim();
+        if (!raw || raw === '-' || raw === '—' || raw === 'â€”') return 0;
+
+        const lines = raw
+            .split(/\r?\n/)
+            .map(cleanText)
+            .filter(Boolean);
+
+        const parseNumber = text => Number(String(text || '').replace(/[.\s]/g, '')) || 0;
+        const numericLines = lines.filter(line => /^\d[\d.\s]*$/.test(line));
+        const sourceLines = numericLines.length ? numericLines : lines;
+        const values = sourceLines
+            .map(line => line.match(/\d[\d.\s]*/g) || [])
+            .flat()
+            .map(parseNumber)
+            .filter(number => number > 0);
+
+        return values.length ? Math.max(...values) : 0;
+    }
+
     function createTroopTotals() {
         const totals = {};
 
@@ -2630,14 +2651,27 @@
 
         const totals = createTroopTotals();
 
-        const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'))
-            .filter(row => /\d{3}\|\d{3}/.test(cleanText(row.innerText)));
+        const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'));
 
         const villageKeys = new Set();
         const villagesByKey = new Map();
+        let currentVillageKey = '';
 
         rows.forEach(row => {
-            const villageKey = getRowCoordsKey(row);
+            const detectedVillageKey = getRowCoordsKey(row);
+            const rowText = normalizeSearchText(row.innerText || '');
+
+            if (detectedVillageKey) {
+                currentVillageKey = detectedVillageKey;
+            }
+
+            if (!detectedVillageKey && /total|selecionar|seleccionar/.test(rowText)) {
+                return;
+            }
+
+            const villageKey = detectedVillageKey || currentVillageKey;
+
+            if (!villageKey) return;
 
             if (villageKey) {
                 villageKeys.add(villageKey);
@@ -2654,7 +2688,7 @@
 
             bestColumns.forEach(column => {
                 const cell = getCellAtColumn(row, column.index);
-                const value = parseTroopNumber(cell ? cell.innerText : '');
+                const value = parseTroopCellNumber(cell ? cell.innerText : '');
 
                 totals[column.key] += value;
 
@@ -4505,7 +4539,7 @@
                             </div>
                             <label class="tw-alerts-check tw-alerts-combine-counters-field">
                                 <input id="tw-alerts-combine-counters" type="checkbox" ${settings.combineAttackFullsAndNobles ? 'checked' : ''}>
-                                <span>Juntar Fulls + Nobres no mesmo embed</span>
+                                <span>Juntar Fulls + Nobres</span>
                             </label>
                         </div>
                     </div>
