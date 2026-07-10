@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.12
-// @description  Painel com resumo das ultimas 24h de um jogador: pontos, aldeias, conquistas e OD.
+// @version      1.0.13
+// @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
 // @include      *://*.tribalwars.*/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.12",
+        version: "1.0.13",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -35,6 +35,7 @@
         minSnapshotGapMs: 10 * 60 * 1000,
         snapshotRetentionMs: 10 * 24 * 60 * 60 * 1000,
         dailySnapshotRetentionMs: 180 * 24 * 60 * 60 * 1000,
+        dayMs: 24 * 60 * 60 * 1000,
         baselineTargetMs: 24 * 60 * 60 * 1000,
         baselineToleranceMs: 4 * 60 * 60 * 1000,
         maxSnapshotsPerPlayer: 120,
@@ -126,7 +127,7 @@
         if (existing) existing.remove();
         removeOldProfileStatsButtons(null);
 
-        const holder = createProfileStatsHolder(playerId);
+        const holder = createProfileStatsHolder(playerId, archiveRow);
 
         insertProfileStatsHolder(holder, archiveRow);
 
@@ -142,11 +143,16 @@
     }
 
     function removeOldProfileStatsButtons(keep) {
-        const nodes = Array.from(document.querySelectorAll(
-            `#${APP.id}-profileStats, .${APP.id}-profileStatsRow, .${APP.id}-profileStatsWrap`
+        const wrappers = Array.from(document.querySelectorAll(
+            `#${APP.id}-profileStats, .${APP.id}-profileStatsRow, .${APP.id}-profileStatsWrap, .${APP.id}-profileStatsButton`
         ));
-        nodes.forEach((node) => {
-            if (node !== keep) node.remove();
+        const looseButtons = Array.from(document.querySelectorAll("button")).filter((button) => cleanText(button.textContent) === "Info - Stats");
+        Array.from(new Set([...wrappers, ...looseButtons])).forEach((node) => {
+            if (keep && (node === keep || keep.contains(node))) return;
+
+            const container = node.closest(`.${APP.id}-profileStatsRow, .${APP.id}-profileStatsWrap`) || node;
+            if (keep && (container === keep || keep.contains(container))) return;
+            container.remove();
         });
     }
 
@@ -166,8 +172,7 @@
         content.insertBefore(holder, content.firstChild);
     }
 
-    function createProfileStatsHolder(playerId) {
-        const archiveRow = findProfileArchiveRow();
+    function createProfileStatsHolder(playerId, archiveRow) {
         if (archiveRow) {
             const row = document.createElement("tr");
             const colSpan = Math.max(1, Array.from(archiveRow.children).reduce((total, cell) => total + (cell.colSpan || 1), 0));
@@ -211,7 +216,9 @@
         const content = document.querySelector("#content_value") || document;
         return Array.from(content.querySelectorAll("tr")).find((row) => {
             const text = fold(row.textContent);
-            return text.includes("arquivo de jogador") || text.includes("player archive");
+            return (text.includes("arquivo") && text.includes("jogador")) ||
+                text.includes("ligacao externa") ||
+                text.includes("player archive");
         }) || null;
     }
 
@@ -273,9 +280,9 @@
     function registerHubShortcut() {
         const item = {
             id: "resumo-24h-jogador-theplaguept",
-            label: "Resumo 24h",
+            label: "Info Stats",
             group: "Paineis",
-            description: "Abre o resumo de pontos, aldeias e OD das ultimas 24h.",
+            description: "Abre o resumo de pontos, aldeias, conquistas e OD por periodo.",
             order: 35,
             run: openPanel,
         };
@@ -306,12 +313,12 @@
                 <div class="${APP.id}-shell">
                     <header class="${APP.id}-masthead">
                         <h2>${escapeHTML(APP.displayTitle)}</h2>
-                        <p>Resumo das ultimas 24 horas do mundo atual. ${escapeHTML(worldLabel())}</p>
+                        <p>Resumo por periodo do mundo atual. ${escapeHTML(worldLabel())}</p>
                     </header>
 
                     <form id="${APP.id}-form" class="${APP.id}-panelRow ${APP.id}-searchRow">
                         <aside class="${APP.id}-rowLabel">
-                            <strong>JOGADOR</strong>
+                            <strong>${sectionIcon("JOGADOR")}<span>JOGADOR</span></strong>
                             <span>Procura por nome ou ID para gerar o resumo.</span>
                         </aside>
                         <div class="${APP.id}-rowContent">
@@ -322,14 +329,19 @@
                                 </label>
                                 <label>
                                     <span>Periodo</span>
-                                    <select disabled>
-                                        <option>Ultimas 24 horas</option>
+                                    <select name="period">
+                                        <option value="1">24 horas</option>
+                                        <option value="2">2 dias</option>
+                                        <option value="3">3 dias</option>
+                                        <option value="4">4 dias</option>
+                                        <option value="5">5 dias</option>
+                                        <option value="6">6 dias</option>
                                     </select>
                                 </label>
                                 <label>
                                     <span>Comparar</span>
                                     <select disabled>
-                                        <option>Snapshot local ~24h</option>
+                                        <option>Snapshot local do periodo</option>
                                     </select>
                                 </label>
                             </div>
@@ -339,7 +351,7 @@
                     <div class="${APP.id}-body">
                         <section class="${APP.id}-panelRow ${APP.id}-summaryRow">
                             <aside class="${APP.id}-rowLabel">
-                                <strong>RESUMO</strong>
+                                <strong>${sectionIcon("RESUMO")}<span>RESUMO</span></strong>
                                 <span>Totais e variação do jogador selecionado.</span>
                             </aside>
                             <div class="${APP.id}-rowContent">
@@ -350,7 +362,7 @@
 
                     <section class="${APP.id}-panelRow ${APP.id}-actionsRow">
                         <aside class="${APP.id}-rowLabel">
-                            <strong>ACOES</strong>
+                            <strong>${sectionIcon("ACOES")}<span>ACOES</span></strong>
                             <span>Atualiza dados da vista atual.</span>
                         </aside>
                         <div class="${APP.id}-rowContent">
@@ -372,6 +384,7 @@
         document.body.appendChild(panel);
         state.panel = panel;
         state.controls.playerInput = panel.querySelector('input[name="player"]');
+        state.controls.periodSelect = panel.querySelector('select[name="period"]');
         state.controls.status = panel.querySelector(`.${APP.id}-status`);
         state.controls.body = panel.querySelector(`.${APP.id}-body`);
         state.controls.submit = panel.querySelector('button[type="submit"]');
@@ -385,6 +398,9 @@
         });
         state.controls.force.addEventListener("click", () => runSummary(true));
         state.controls.clear.addEventListener("click", clearCache);
+        state.controls.periodSelect.addEventListener("change", () => {
+            if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
+        });
         state.controls.body.addEventListener("click", (event) => {
             const toggle = event.target.closest(`[data-${APP.id}-toggle]`);
             if (toggle) togglePanelRow(toggle);
@@ -422,14 +438,16 @@
 
     async function buildSummary(query, force) {
         const now = Date.now();
-        const since = Math.floor((now - APP.baselineTargetMs) / 1000);
+        const periodDays = selectedPeriodDays();
+        const periodMs = periodToMs(periodDays);
+        const since = Math.floor((now - periodMs) / 1000);
 
         const playersText = await fetchCachedText("players", "/map/player.txt", APP.mapCacheMs, force);
         const players = parsePlayers(playersText);
         const player = findPlayer(players, query);
         if (!player) throw new Error("Jogador nao encontrado no player.txt.");
 
-        const conquerPromise = fetchConquestsSince(since, force);
+        const conquerPromise = fetchConquestsSince(since, force, periodDays);
         const conquerAllPromise = fetchCachedText("conquerAll", "/map/conquer.txt", APP.conquerAllCacheMs, force);
         const villagePromise = fetchCachedText("villages", "/map/village.txt", APP.mapCacheMs, force);
         const odPromise = loadOdEntries(player.id, force);
@@ -456,16 +474,23 @@
             od,
         };
 
-        const history = loadSnapshots(player.id);
-        const baseline = chooseBaseline(history, now);
+        const dailyHistory = loadDailySnapshots(player.id);
+        const history = mergeBaselineHistory(loadSnapshots(player.id), dailyHistory);
+        const baseline = chooseBaseline(history, now, periodDays);
         const diffs = buildDiffs(current, baseline);
-        const dailyStats = buildDailyStats(loadDailySnapshots(player.id), current);
+        const dailyStats = buildDailyStats(dailyHistory, current);
         saveSnapshot(current);
         saveDailySnapshot(current);
 
         return {
             generatedAt: now,
             since,
+            period: {
+                days: periodDays,
+                ms: periodMs,
+                label: periodLabel(periodDays),
+                shortLabel: periodShortLabel(periodDays),
+            },
             player,
             current,
             baseline,
@@ -480,14 +505,31 @@
         };
     }
 
-    async function fetchConquestsSince(since, force) {
+    async function fetchConquestsSince(since, force, periodDays) {
         const recentPath = `/interface.php?func=get_conquer&since=${since}`;
         try {
-            return await fetchCachedText("conquer24h", recentPath, APP.conquerCacheMs, force);
+            return await fetchCachedText(`conquer:${periodDays}d`, recentPath, APP.conquerCacheMs, force);
         } catch (error) {
             console.warn(`[${APP.id}] interface conquer falhou; a usar /map/conquer.txt`, error);
             return fetchCachedText("conquerFull", "/map/conquer.txt", APP.conquerCacheMs, force);
         }
+    }
+
+    function selectedPeriodDays() {
+        const value = toInt(state.controls.periodSelect && state.controls.periodSelect.value);
+        return Math.min(6, Math.max(1, value || 1));
+    }
+
+    function periodToMs(days) {
+        return Math.max(1, days || 1) * APP.dayMs;
+    }
+
+    function periodLabel(days) {
+        return days === 1 ? "24 horas" : `${days} dias`;
+    }
+
+    function periodShortLabel(days) {
+        return days === 1 ? "24H" : `${days}D`;
     }
 
     async function loadOdEntries(playerId, force) {
@@ -903,8 +945,8 @@
         return current.score - previous.score;
     }
 
-    function chooseBaseline(history, now) {
-        const target = now - APP.baselineTargetMs;
+    function chooseBaseline(history, now, periodDays) {
+        const target = now - periodToMs(periodDays);
         const candidates = history
             .filter((snapshot) => snapshot && Number.isFinite(snapshot.ts) && snapshot.ts < now - APP.minSnapshotGapMs)
             .map((snapshot) => ({
@@ -916,6 +958,29 @@
             .sort((a, b) => a.distance - b.distance);
 
         return candidates[0] ? candidates[0].snapshot : null;
+    }
+
+    function mergeBaselineHistory(snapshots, dailySnapshots) {
+        const byTime = new Map();
+        (snapshots || []).forEach((snapshot) => {
+            if (snapshot && Number.isFinite(snapshot.ts)) byTime.set(snapshot.ts, snapshot);
+        });
+        (dailySnapshots || []).forEach((entry) => {
+            if (entry && Number.isFinite(entry.ts)) byTime.set(entry.ts, dailyEntryToSnapshot(entry));
+        });
+        return Array.from(byTime.values()).sort((a, b) => a.ts - b.ts);
+    }
+
+    function dailyEntryToSnapshot(entry) {
+        return {
+            ts: entry.ts,
+            playerId: entry.playerId,
+            name: entry.name,
+            points: entry.points,
+            villages: entry.villages,
+            rank: entry.rank,
+            od: entry.od || {},
+        };
     }
 
     function loadSnapshots(playerId) {
@@ -1047,7 +1112,7 @@
             <div class="${APP.id}-playerHead">
                 <div>
                     <a href="/game.php?screen=info_player&id=${result.player.id}" target="_blank" rel="noopener">${escapeHTML(result.player.name)}</a>
-                    <span>#${result.player.id}</span>
+                    <span>#${result.player.id} - ${escapeHTML(result.period.label)}</span>
                 </div>
             </div>
 
@@ -1068,7 +1133,7 @@
                             <th>PONTOS</th>
                             <th>RANK</th>
                             <th>1D</th>
-                            <th>24H</th>
+                            <th>${escapeHTML(result.period.shortLabel)}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1082,13 +1147,13 @@
         `;
 
         state.controls.body.innerHTML = `
-            ${panelRow("RESUMO", "Totais do filtro ativo para leitura rapida.", summaryContent, "summaryRow", true)}
-            ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.diffs), "dailyRow", true)}
+            ${panelRow("RESUMO", `Totais do periodo selecionado: ${result.period.label}.`, summaryContent, "summaryRow", true)}
+            ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.period.days === 1 ? result.diffs : null), "dailyRow", true)}
             ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow", false)}
             ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow", false)}
             ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow", false)}
             ${panelRow("OD", "Pontos ofensivos, defensivos e apoio.", odContent, "odSectionRow", false)}
-            ${panelRow("CONQUISTAS", "Aldeias ganhas e perdidas nas ultimas 24h.", renderConquestTable(result.conquests.gained, result.conquests.lost), "resultsRow", false)}
+            ${panelRow("CONQUISTAS", `Aldeias ganhas e perdidas em ${result.period.label}.`, renderConquestTable(result.conquests.gained, result.conquests.lost, result.period.label), "resultsRow", false)}
         `;
     }
 
@@ -1097,7 +1162,7 @@
         return `
             <section class="${APP.id}-panelRow ${APP.id}-${className || "row"} ${expanded ? `${APP.id}-panelRowOpen` : ""}" data-${APP.id}-row>
                 <aside class="${APP.id}-rowLabel">
-                    <strong>${escapeHTML(title)}</strong>
+                    <strong>${sectionIcon(title)}<span>${escapeHTML(title)}</span></strong>
                     <span>${escapeHTML(description)}</span>
                 </aside>
                 <div class="${APP.id}-rowContent">
@@ -1110,6 +1175,22 @@
                 </div>
             </section>
         `;
+    }
+
+    function sectionIcon(title) {
+        const icons = {
+            jogador: "&#9817;",
+            resumo: "&#9638;",
+            "1 dia": "1D",
+            aldeias: "&#8962;",
+            mundo: "&#9673;",
+            twstats: "TW",
+            od: "OD",
+            conquistas: "&#9873;",
+            acoes: "&#10003;",
+        };
+        const key = fold(title);
+        return `<span class="${APP.id}-sectionIcon" aria-hidden="true">${icons[key] || "&#9632;"}</span>`;
     }
 
     function togglePanelRow(button) {
@@ -1143,7 +1224,7 @@
                 ${dailyMetricCard("Pontos", pointsDelta)}
                 ${dailyMetricCard("Aldeias", villagesDelta)}
                 ${dailyMetricCard("Rank", rankDelta, true)}
-                ${dailyMetricCard("Conquistas", conquests ? conquests.net : null)}
+                ${dailyMetricCard("Conquistas", dailyConquestNet(conquests))}
             </div>
             <div class="${APP.id}-grid ${APP.id}-dailyGrid ${APP.id}-dailyOdGrid">
                 ${dailyMetricCard("OD Total", odTotalDelta)}
@@ -1162,6 +1243,14 @@
                 <strong class="${deltaClass(delta, inverse)}">${escapeHTML(formatDelta(delta))}</strong>
             </div>
         `;
+    }
+
+    function dailyConquestNet(conquests) {
+        if (!conquests) return null;
+        const todayStart = startOfDayTs(Math.floor(Date.now() / 1000));
+        const gained = (conquests.gained || []).filter((row) => row.timestamp >= todayStart).length;
+        const lost = (conquests.lost || []).filter((row) => row.timestamp >= todayStart).length;
+        return gained - lost;
     }
 
     function renderDailyOdHistory(rows) {
@@ -1390,14 +1479,14 @@
         `;
     }
 
-    function renderConquestTable(gained, lost) {
+    function renderConquestTable(gained, lost, periodLabelText) {
         const rows = [
             ...gained.map((row) => ({ mode: "gain", row })),
             ...lost.map((row) => ({ mode: "loss", row })),
         ].sort((a, b) => b.row.timestamp - a.row.timestamp);
 
         if (!rows.length) {
-            return `<div class="${APP.id}-emptyList">Sem aldeias ganhas ou perdidas nas ultimas 24h.</div>`;
+            return `<div class="${APP.id}-emptyList">Sem aldeias ganhas ou perdidas em ${escapeHTML(periodLabelText)}.</div>`;
         }
 
         return `
@@ -1476,7 +1565,7 @@
 
     function renderConquestList(rows, mode) {
         if (!rows.length) {
-            return `<div class="${APP.id}-emptyList">Sem aldeias ${mode === "gain" ? "ganhas" : "perdidas"} nas ultimas 24h.</div>`;
+            return `<div class="${APP.id}-emptyList">Sem aldeias ${mode === "gain" ? "ganhas" : "perdidas"} no periodo selecionado.</div>`;
         }
 
         const visible = rows.slice(0, 12);
@@ -2198,10 +2287,10 @@
                 align-items: center;
                 justify-content: center;
                 overflow: hidden;
-                padding: 34px 40px 30px;
+                padding: 30px 38px 30px;
                 border: 0;
                 border-radius: 0;
-                background: rgba(0, 0, 0, 0.42);
+                background: rgba(0, 0, 0, 0.38);
                 box-shadow: none;
                 color: #2f1809;
                 box-sizing: border-box;
@@ -2221,22 +2310,27 @@
                 overflow-y: auto;
                 overflow-x: hidden;
                 margin: 0 auto;
-                padding: 15px 14px 14px;
-                border: 1px solid #4c2a12;
-                border-radius: 3px;
-                background: #f3dfaa;
-                box-shadow: 0 0 0 2px #d8c79b, 0 0 0 4px #735027, 0 0 0 6px #cfc7aa, 0 0 0 8px #3d3428, 0 8px 26px rgba(0, 0, 0, 0.62);
+                padding: 18px 17px 17px;
+                border: 1px solid #2f2619;
+                border-radius: 4px;
+                background: #d4c49d;
+                box-shadow:
+                    0 0 0 1px #efe5c9,
+                    0 0 0 3px #80633b,
+                    0 0 0 5px #c7b68d,
+                    0 0 0 7px #3b3328,
+                    0 8px 26px rgba(0, 0, 0, 0.62);
                 box-sizing: border-box;
             }
 
             .${APP.id}-dialog::before {
                 content: "";
                 position: absolute;
-                inset: 7px;
+                inset: 10px;
                 pointer-events: none;
                 border: 2px solid #a7221e;
                 border-radius: 2px;
-                box-shadow: inset 0 0 0 1px rgba(255, 245, 205, 0.75);
+                box-shadow: inset 0 0 0 1px rgba(255, 245, 205, 0.75), 0 0 0 1px rgba(80, 40, 18, 0.35);
             }
 
             .${APP.id}-close {
@@ -2272,7 +2366,7 @@
                 padding: 0;
                 border: 1px solid #c99545;
                 border-radius: 0;
-                background: rgba(255, 239, 188, 0.38);
+                background: #f2dda7;
                 color: #3b2508;
                 overflow: hidden;
                 box-sizing: border-box;
@@ -2354,14 +2448,34 @@
             }
 
             .${APP.id}-rowLabel strong {
-                display: block;
+                display: flex;
+                align-items: center;
+                gap: 7px;
                 color: #9f1d19;
                 font-size: 14px;
                 line-height: 1.15;
                 text-transform: uppercase;
             }
 
-            .${APP.id}-rowLabel span {
+            .${APP.id}-sectionIcon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 17px;
+                height: 17px;
+                flex: 0 0 17px;
+                border: 1px solid #c8913e;
+                border-radius: 2px;
+                background: linear-gradient(to bottom, #fff2c8, #dfb765);
+                color: #7d1713;
+                font-size: 10px;
+                line-height: 1;
+                font-weight: 700;
+                text-transform: none;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.75);
+            }
+
+            .${APP.id}-rowLabel > span {
                 display: block;
                 margin-top: 4px;
                 color: #4d250f;
@@ -2375,14 +2489,15 @@
             }
 
             .${APP.id}-sectionToggle {
-                min-width: 102px;
-                height: 27px;
+                min-width: 78px;
+                height: 23px;
+                padding: 0 8px;
                 border: 1px solid #7b201c;
                 border-radius: 3px;
                 background: linear-gradient(#b43a34, #8c1713);
                 color: #fff8dc;
                 cursor: pointer;
-                font: 700 12px Verdana, Arial, sans-serif;
+                font: 700 11px Verdana, Arial, sans-serif;
                 text-shadow: 0 1px 0 #40100d;
                 box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.3);
             }
