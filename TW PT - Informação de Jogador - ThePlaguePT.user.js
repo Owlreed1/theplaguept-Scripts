@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.18
+// @version      1.0.19
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.18",
+        version: "1.0.19",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -262,7 +262,7 @@
                 <div class="${APP.id}-shell">
                     <header class="${APP.id}-masthead">
                         <h2>${escapeHTML(APP.displayTitle)}</h2>
-                        <p>Resumo por periodo do mundo atual. ${escapeHTML(worldLabel())}</p>
+                        <p>Resumo das ultimas 24 horas do mundo atual. ${escapeHTML(worldLabel())}</p>
                     </header>
 
                     <form id="${APP.id}-form" class="${APP.id}-panelRow ${APP.id}-searchRow">
@@ -279,13 +279,7 @@
                                 <label>
                                     <span>Periodo</span>
                                     <select name="period">
-                                        <option value="12">12 horas</option>
                                         <option value="24" selected>24 horas</option>
-                                        <option value="48">2 dias</option>
-                                        <option value="72">3 dias</option>
-                                        <option value="96">4 dias</option>
-                                        <option value="120">5 dias</option>
-                                        <option value="144">6 dias</option>
                                     </select>
                                 </label>
                                 <label>
