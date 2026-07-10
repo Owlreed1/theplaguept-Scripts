@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.8
+// @version      1.0.9
 // @description  Painel com resumo das ultimas 24h de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.8",
+        version: "1.0.9",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -34,6 +34,7 @@
         conquerAllCacheMs: 5 * 60 * 1000,
         minSnapshotGapMs: 10 * 60 * 1000,
         snapshotRetentionMs: 10 * 24 * 60 * 60 * 1000,
+        dailySnapshotRetentionMs: 180 * 24 * 60 * 60 * 1000,
         baselineTargetMs: 24 * 60 * 60 * 1000,
         baselineToleranceMs: 4 * 60 * 60 * 1000,
         maxSnapshotsPerPlayer: 120,
@@ -353,6 +354,10 @@
         });
         state.controls.force.addEventListener("click", () => runSummary(true));
         state.controls.clear.addEventListener("click", clearCache);
+        state.controls.body.addEventListener("click", (event) => {
+            const toggle = event.target.closest(`[data-${APP.id}-toggle]`);
+            if (toggle) togglePanelRow(toggle);
+        });
     }
 
     async function runSummary(force) {
@@ -423,7 +428,9 @@
         const history = loadSnapshots(player.id);
         const baseline = chooseBaseline(history, now);
         const diffs = buildDiffs(current, baseline);
+        const dailyStats = buildDailyStats(loadDailySnapshots(player.id), current);
         saveSnapshot(current);
+        saveDailySnapshot(current);
 
         return {
             generatedAt: now,
@@ -432,6 +439,7 @@
             current,
             baseline,
             diffs,
+            dailyStats,
             conquests,
             allTime,
             villagesSummary,
@@ -920,6 +928,89 @@
         return `${APP.id}:snapshots:${window.location.host}:${playerId}`;
     }
 
+    function loadDailySnapshots(playerId) {
+        try {
+            const raw = window.localStorage.getItem(dailySnapshotKey(playerId));
+            const parsed = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(parsed)) return [];
+            return parsed
+                .filter((snapshot) => snapshot && snapshot.day && Number.isFinite(snapshot.ts))
+                .sort((a, b) => a.ts - b.ts);
+        } catch (_) {
+            return [];
+        }
+    }
+
+    function saveDailySnapshot(snapshot) {
+        const key = dailySnapshotKey(snapshot.playerId);
+        const now = snapshot.ts;
+        const entry = snapshotToDailyEntry(snapshot);
+        const byDay = new Map(loadDailySnapshots(snapshot.playerId)
+            .filter((item) => now - item.ts <= APP.dailySnapshotRetentionMs)
+            .map((item) => [item.day, item]));
+
+        byDay.set(entry.day, entry);
+
+        try {
+            window.localStorage.setItem(key, JSON.stringify(Array.from(byDay.values()).sort((a, b) => a.ts - b.ts)));
+        } catch (_) {
+            // O resumo atual continua funcional mesmo sem historico diario local.
+        }
+    }
+
+    function buildDailyStats(history, current) {
+        const byDay = new Map((history || []).map((entry) => [entry.day, entry]));
+        byDay.set(dayKeyFromMs(current.ts), snapshotToDailyEntry(current));
+
+        const rows = Array.from(byDay.values())
+            .sort((a, b) => a.ts - b.ts)
+            .map((entry, index, list) => dailyRowWithDiff(entry, list[index - 1] || null));
+
+        return {
+            today: rows[rows.length - 1] || null,
+            rows: rows.slice(-45).reverse(),
+        };
+    }
+
+    function dailyRowWithDiff(entry, previous) {
+        return {
+            day: entry.day,
+            ts: entry.ts,
+            points: entry.points,
+            villages: entry.villages,
+            rank: entry.rank,
+            od: entry.od || {},
+            diff: {
+                points: previous ? diffNumber(entry.points, previous.points) : null,
+                villages: previous ? diffNumber(entry.villages, previous.villages) : null,
+                rank: previous ? diffNumber(entry.rank, previous.rank) : null,
+                od: {
+                    total: previous ? diffScore(entry.od && entry.od.total, previous.od && previous.od.total) : null,
+                    off: previous ? diffScore(entry.od && entry.od.off, previous.od && previous.od.off) : null,
+                    def: previous ? diffScore(entry.od && entry.od.def, previous.od && previous.od.def) : null,
+                    support: previous ? diffScore(entry.od && entry.od.support, previous.od && previous.od.support) : null,
+                },
+            },
+        };
+    }
+
+    function snapshotToDailyEntry(snapshot) {
+        return {
+            day: dayKeyFromMs(snapshot.ts),
+            ts: snapshot.ts,
+            playerId: snapshot.playerId,
+            name: snapshot.name,
+            points: snapshot.points,
+            villages: snapshot.villages,
+            rank: snapshot.rank,
+            od: snapshot.od || {},
+        };
+    }
+
+    function dailySnapshotKey(playerId) {
+        return `${APP.id}:daily:${window.location.host}:${playerId}`;
+    }
+
     function renderResult(result) {
         const summaryContent = `
             <div class="${APP.id}-playerHead">
@@ -945,40 +1036,139 @@
                             <th>TIPO</th>
                             <th>PONTOS</th>
                             <th>RANK</th>
+                            <th>1D</th>
                             <th>24H</th>
                         </tr>
                     </thead>
                     <tbody>
-                    ${odRow("Total", result.current.od.total, result.diffs.od.total)}
-                    ${odRow("Ofensivo", result.current.od.off, result.diffs.od.off)}
-                    ${odRow("Defensivo", result.current.od.def, result.diffs.od.def)}
-                    ${odRow("Apoio", result.current.od.support, result.diffs.od.support)}
+                    ${odRow("Total", result.current.od.total, result.diffs.od.total, result.dailyStats.today && result.dailyStats.today.diff.od.total)}
+                    ${odRow("Ofensivo", result.current.od.off, result.diffs.od.off, result.dailyStats.today && result.dailyStats.today.diff.od.off)}
+                    ${odRow("Defensivo", result.current.od.def, result.diffs.od.def, result.dailyStats.today && result.dailyStats.today.diff.od.def)}
+                    ${odRow("Apoio", result.current.od.support, result.diffs.od.support, result.dailyStats.today && result.dailyStats.today.diff.od.support)}
                     </tbody>
                 </table>
                 </div>
         `;
 
         state.controls.body.innerHTML = `
-            ${panelRow("RESUMO", "Totais do filtro ativo para leitura rapida.", summaryContent, "summaryRow")}
-            ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow")}
-            ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow")}
-            ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow")}
-            ${panelRow("OD", "Pontos ofensivos, defensivos e apoio.", odContent, "odSectionRow")}
-            ${panelRow("CONQUISTAS", "Aldeias ganhas e perdidas nas ultimas 24h.", renderConquestTable(result.conquests.gained, result.conquests.lost), "resultsRow")}
+            ${panelRow("RESUMO", "Totais do filtro ativo para leitura rapida.", summaryContent, "summaryRow", true)}
+            ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.diffs), "dailyRow", true)}
+            ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow", false)}
+            ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow", false)}
+            ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow", false)}
+            ${panelRow("OD", "Pontos ofensivos, defensivos e apoio.", odContent, "odSectionRow", false)}
+            ${panelRow("CONQUISTAS", "Aldeias ganhas e perdidas nas ultimas 24h.", renderConquestTable(result.conquests.gained, result.conquests.lost), "resultsRow", false)}
         `;
     }
 
-    function panelRow(title, description, content, className) {
+    function panelRow(title, description, content, className, expanded) {
+        const isExpanded = expanded ? "true" : "false";
         return `
-            <section class="${APP.id}-panelRow ${APP.id}-${className || "row"}">
+            <section class="${APP.id}-panelRow ${APP.id}-${className || "row"} ${expanded ? `${APP.id}-panelRowOpen` : ""}" data-${APP.id}-row>
                 <aside class="${APP.id}-rowLabel">
                     <strong>${escapeHTML(title)}</strong>
                     <span>${escapeHTML(description)}</span>
                 </aside>
                 <div class="${APP.id}-rowContent">
-                    ${content}
+                    <button type="button" class="${APP.id}-sectionToggle" data-${APP.id}-toggle aria-expanded="${isExpanded}">
+                        ${expanded ? "Recolher" : "Expandir"}
+                    </button>
+                    <div class="${APP.id}-sectionContent">
+                        ${content}
+                    </div>
                 </div>
             </section>
+        `;
+    }
+
+    function togglePanelRow(button) {
+        const row = button.closest(`[data-${APP.id}-row]`);
+        if (!row) return;
+
+        const open = !row.classList.contains(`${APP.id}-panelRowOpen`);
+        row.classList.toggle(`${APP.id}-panelRowOpen`, open);
+        button.setAttribute("aria-expanded", open ? "true" : "false");
+        button.textContent = open ? "Recolher" : "Expandir";
+    }
+
+    function renderDailyStats(dailyStats, conquests, fallbackDiffs) {
+        const today = dailyStats && dailyStats.today;
+        const todayLabel = today ? formatDateOnly(new Date(today.ts)) : "-";
+        const rows = dailyStats && dailyStats.rows ? dailyStats.rows : [];
+        const pointsDelta = coalesceNumber(today && today.diff.points, fallbackDiffs && fallbackDiffs.points);
+        const villagesDelta = coalesceNumber(today && today.diff.villages, fallbackDiffs && fallbackDiffs.villages);
+        const rankDelta = coalesceNumber(today && today.diff.rank, fallbackDiffs && fallbackDiffs.rank);
+        const odTotalDelta = coalesceNumber(today && today.diff.od.total, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.total);
+        const odOffDelta = coalesceNumber(today && today.diff.od.off, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.off);
+        const odDefDelta = coalesceNumber(today && today.diff.od.def, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.def);
+        const odSupportDelta = coalesceNumber(today && today.diff.od.support, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.support);
+
+        return `
+            <div class="${APP.id}-dailyHead">
+                <strong>Classificacao de 1 dia</strong>
+                <span>${escapeHTML(todayLabel)}</span>
+            </div>
+            <div class="${APP.id}-grid ${APP.id}-dailyGrid">
+                ${dailyMetricCard("Pontos", pointsDelta)}
+                ${dailyMetricCard("Aldeias", villagesDelta)}
+                ${dailyMetricCard("Rank", rankDelta, true)}
+                ${dailyMetricCard("Conquistas", conquests ? conquests.net : null)}
+            </div>
+            <div class="${APP.id}-grid ${APP.id}-dailyGrid ${APP.id}-dailyOdGrid">
+                ${dailyMetricCard("OD Total", odTotalDelta)}
+                ${dailyMetricCard("OD Ofensivo", odOffDelta)}
+                ${dailyMetricCard("OD Defensivo", odDefDelta)}
+                ${dailyMetricCard("OD Apoio", odSupportDelta)}
+            </div>
+            ${renderDailyOdHistory(rows)}
+        `;
+    }
+
+    function dailyMetricCard(label, delta, inverse) {
+        return `
+            <div class="${APP.id}-metric">
+                <span>${escapeHTML(label)}</span>
+                <strong class="${deltaClass(delta, inverse)}">${escapeHTML(formatDelta(delta))}</strong>
+            </div>
+        `;
+    }
+
+    function renderDailyOdHistory(rows) {
+        if (!rows || !rows.length) {
+            return `<div class="${APP.id}-emptyList">Sem historico diario local. O script comeca a guardar estes dados a partir de agora.</div>`;
+        }
+
+        return `
+            <div class="${APP.id}-tableWrap ${APP.id}-dailyOdWrap">
+                <table class="${APP.id}-table ${APP.id}-dailyOdTable">
+                    <thead>
+                        <tr>
+                            <th>DIA</th>
+                            <th>PONTOS</th>
+                            <th>ALDEIAS</th>
+                            <th>RANK</th>
+                            <th>OD TOTAL</th>
+                            <th>OD OF</th>
+                            <th>OD DEF</th>
+                            <th>OD APOIO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((row) => `
+                            <tr>
+                                <td>${escapeHTML(formatDateOnly(new Date(row.ts)))}</td>
+                                <td><em class="${deltaClass(row.diff.points, false)}">${escapeHTML(formatDelta(row.diff.points))}</em></td>
+                                <td><em class="${deltaClass(row.diff.villages, false)}">${escapeHTML(formatDelta(row.diff.villages))}</em></td>
+                                <td><em class="${deltaClass(row.diff.rank, true)}">${escapeHTML(formatDelta(row.diff.rank))}</em></td>
+                                <td><em class="${deltaClass(row.diff.od.total, false)}">${escapeHTML(formatDelta(row.diff.od.total))}</em></td>
+                                <td><em class="${deltaClass(row.diff.od.off, false)}">${escapeHTML(formatDelta(row.diff.od.off))}</em></td>
+                                <td><em class="${deltaClass(row.diff.od.def, false)}">${escapeHTML(formatDelta(row.diff.od.def))}</em></td>
+                                <td><em class="${deltaClass(row.diff.od.support, false)}">${escapeHTML(formatDelta(row.diff.od.support))}</em></td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </div>
         `;
     }
 
@@ -1239,16 +1429,16 @@
         `;
     }
 
-    function odRow(label, entry, delta) {
+    function odRow(label, entry, delta, dailyDelta) {
         const score = entry ? formatNumber(entry.score) : "N/D";
         const rank = entry && entry.rank ? `#${formatNumber(entry.rank)}` : "-";
-        const deltaText = delta === null ? "N/D" : formatSigned(delta);
         return `
             <tr>
                 <td>${escapeHTML(label)}</td>
                 <td><strong>${escapeHTML(score)}</strong></td>
                 <td>${escapeHTML(rank)}</td>
-                <td><em class="${deltaClass(delta, false)}">${escapeHTML(deltaText)}</em></td>
+                <td><em class="${deltaClass(dailyDelta, false)}">${escapeHTML(formatDelta(dailyDelta))}</em></td>
+                <td><em class="${deltaClass(delta, false)}">${escapeHTML(formatDelta(delta))}</em></td>
             </tr>
         `;
     }
@@ -1289,7 +1479,8 @@
             "RESUMO",
             "Estado da pesquisa atual.",
             renderNotice(message, type || "warn"),
-            "summaryRow"
+            "summaryRow",
+            true
         );
     }
 
@@ -1311,8 +1502,9 @@
 
         try {
             const snapshotPrefix = `${APP.id}:snapshots:${window.location.host}:`;
+            const dailyPrefix = `${APP.id}:daily:${window.location.host}:`;
             Object.keys(window.localStorage)
-                .filter((key) => key.startsWith(snapshotPrefix))
+                .filter((key) => key.startsWith(snapshotPrefix) || key.startsWith(dailyPrefix))
                 .forEach((key) => window.localStorage.removeItem(key));
         } catch (_) {
             // O browser pode bloquear localStorage em alguns contextos.
@@ -1382,6 +1574,14 @@
         if (!Number.isFinite(value)) return "N/D";
         if (value > 0) return `+${nf.format(value)}`;
         return nf.format(value);
+    }
+
+    function formatDelta(value) {
+        return Number.isFinite(value) ? formatSigned(value) : "N/D";
+    }
+
+    function coalesceNumber(primary, fallback) {
+        return Number.isFinite(primary) ? primary : fallback;
     }
 
     function formatDuration(ms) {
@@ -1454,6 +1654,10 @@
             String(date.getMonth() + 1).padStart(2, "0"),
             String(date.getDate()).padStart(2, "0"),
         ].join("-");
+    }
+
+    function dayKeyFromMs(ms) {
+        return dateKey(Math.floor(ms / 1000));
     }
 
     function formatDateOnly(date) {
@@ -2094,6 +2298,10 @@
                 border-left-color: #3f8d2a;
             }
 
+            .${APP.id}-dailyRow .${APP.id}-rowLabel {
+                border-left-color: #1f9ac5;
+            }
+
             .${APP.id}-odSectionRow .${APP.id}-rowLabel {
                 border-left-color: #8f69d3;
             }
@@ -2133,6 +2341,32 @@
                 min-width: 0;
                 padding: 9px 14px 10px;
                 box-sizing: border-box;
+            }
+
+            .${APP.id}-sectionToggle {
+                min-width: 102px;
+                height: 27px;
+                border: 1px solid #7b201c;
+                border-radius: 3px;
+                background: linear-gradient(#b43a34, #8c1713);
+                color: #fff8dc;
+                cursor: pointer;
+                font: 700 12px Verdana, Arial, sans-serif;
+                text-shadow: 0 1px 0 #40100d;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.3);
+            }
+
+            .${APP.id}-sectionToggle:hover {
+                background: linear-gradient(#c64a43, #971d18);
+            }
+
+            .${APP.id}-sectionContent {
+                display: none;
+                margin-top: 8px;
+            }
+
+            .${APP.id}-panelRowOpen .${APP.id}-sectionContent {
+                display: block;
             }
 
             .${APP.id}-controlsGrid {
@@ -2241,6 +2475,29 @@
                 grid-template-columns: repeat(4, minmax(0, 1fr));
                 gap: 8px;
                 margin: 0;
+            }
+
+            .${APP.id}-dailyHead {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin-bottom: 8px;
+                color: #5a2f13;
+            }
+
+            .${APP.id}-dailyHead strong {
+                color: #9d1714;
+                font-size: 13px;
+                text-transform: uppercase;
+            }
+
+            .${APP.id}-dailyOdGrid {
+                margin-top: 8px;
+            }
+
+            .${APP.id}-dailyOdWrap {
+                margin-top: 10px;
             }
 
             .${APP.id}-metric {
