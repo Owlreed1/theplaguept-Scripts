@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.15
+// @version      1.0.16
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -10,7 +10,9 @@
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Informa%C3%A7%C3%A3o%20de%20Jogador%20-%20ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Informa%C3%A7%C3%A3o%20de%20Jogador%20-%20ThePlaguePT.user.js
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
+// @connect      pt.twstats.com
 // @run-at       document-idle
 // @noframes
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -24,7 +26,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.15",
+        version: "1.0.16",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -33,6 +35,7 @@
         mapCacheMs: 50 * 60 * 1000,
         conquerCacheMs: 90 * 1000,
         conquerAllCacheMs: 5 * 60 * 1000,
+        twstatsCacheMs: 2 * 60 * 1000,
         minSnapshotGapMs: 10 * 60 * 1000,
         snapshotRetentionMs: 10 * 24 * 60 * 60 * 1000,
         dailySnapshotRetentionMs: 180 * 24 * 60 * 60 * 1000,
@@ -43,16 +46,7 @@
         zIndex: 60030,
     };
 
-    const OD_FILES = {
-        total: ["/map/kill_all.txt"],
-        off: ["/map/kill_att.txt"],
-        def: ["/map/kill_def.txt"],
-        support: [
-            "/map/kill_sup.txt",
-            "/map/kill_support.txt",
-            "/map/kill_supporter.txt",
-        ],
-    };
+    const pageWindow = typeof unsafeWindow === "object" && unsafeWindow ? unsafeWindow : window;
 
     const state = {
         launcher: null,
@@ -86,10 +80,548 @@
         window.setInterval(ensureProfileStatsButton, 1500);
         window.addEventListener("scroll", ensureProfileStatsButton, true);
 
-        window.TPResumo24hJogador = {
+        pageWindow.TPResumo24hJogador = {
             open: openPanel,
             run: () => runSummary(false),
             version: APP.version,
+        };
+    }
+
+    async function loadTwStatsPlayerData(query, since, force) {
+        const profile = await resolveTwStatsPlayer(query, force);
+        const pages = await loadTwStatsPlayerPages(profile.id, force);
+        const primary = pages[0] || { doc: parseHTML("", profile.url), url: profile.url };
+        const parsedPages = pages.map((page) => parseTwStatsPlayerPage(page.doc, {
+            id: profile.id,
+            name: profile.name,
+            url: page.url,
+        }));
+
+        const merged = mergeTwStatsParsedPages(parsedPages, profile);
+        const player = {
+            id: profile.id,
+            name: merged.name || profile.name || `Jogador #${profile.id}`,
+            points: merged.points,
+            villages: merged.villages,
+            rank: merged.rank,
+            tribe: merged.tribe || "",
+        };
+
+        if (!Number.isFinite(player.id)) {
+            throw new Error("Nao foi possivel identificar o jogador no TWStats.");
+        }
+
+        return {
+            player,
+            od: merged.od,
+            conquests: filterTwStatsConquests(merged.conquests, player, since),
+            allTime: buildAllTimeFromTwStatsConquests(merged.conquests, player),
+            villagesSummary: buildTwStatsVillagesSummary(merged.villageRows),
+            sourceUrl: primary.url,
+        };
+    }
+
+    async function resolveTwStatsPlayer(query, force) {
+        const clean = String(query || "").trim();
+        if (!clean) throw new Error("Indica o nome ou ID do jogador.");
+
+        if (/^\d+$/.test(clean)) {
+            const id = toInt(clean);
+            return {
+                id,
+                name: "",
+                url: twStatsPlayerUrl(id),
+            };
+        }
+
+        const found = await findTwStatsPlayerByName(clean, force);
+        if (found) return found;
+
+        throw new Error(`Jogador "${clean}" nao encontrado no TWStats. Tenta usar o ID do jogador.`);
+    }
+
+    async function findTwStatsPlayerByName(name, force) {
+        const base = twStatsBaseUrl();
+        const encoded = encodeURIComponent(name);
+        const urls = [
+            `${base}index.php?search=${encoded}`,
+            `${base}index.php?page=search&search=${encoded}&type=player`,
+            `${base}index.php?page=search&type=player&search=${encoded}`,
+            `${base}index.php?page=rankings&mode=players&search=${encoded}`,
+            `${base}index.php`,
+        ];
+
+        for (const url of urls) {
+            try {
+                const html = await twStatsRequestText(url, APP.twstatsCacheMs, force);
+                const doc = parseHTML(html, url);
+                assertTwStatsUsable(doc);
+                const match = findPlayerLinkInDoc(doc, name);
+                if (match) return match;
+            } catch (error) {
+                console.warn(`[${APP.id}] pesquisa TWStats falhou`, url, error);
+            }
+        }
+
+        return null;
+    }
+
+    async function loadTwStatsPlayerPages(playerId, force) {
+        const urls = uniqueList([
+            twStatsPlayerUrl(playerId),
+            `${twStatsBaseUrl()}index.php?page=player&id=${encodeURIComponent(playerId)}`,
+            `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player&mode=villages`,
+            `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player&mode=conquers`,
+            `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player&mode=history`,
+            `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player&mode=od`,
+        ]);
+
+        const pages = [];
+        for (const url of urls) {
+            try {
+                const html = await twStatsRequestText(url, APP.twstatsCacheMs, force);
+                const doc = parseHTML(html, url);
+                assertTwStatsUsable(doc);
+                pages.push({ url, doc });
+            } catch (error) {
+                console.warn(`[${APP.id}] pagina TWStats falhou`, url, error);
+            }
+        }
+
+        if (!pages.length) {
+            throw new Error("Nao foi possivel carregar dados do TWStats. Se aparecer protecao Cloudflare, abre o TWStats numa aba e tenta novamente.");
+        }
+
+        return pages;
+    }
+
+    function parseTwStatsPlayerPage(doc, profile) {
+        const text = cleanText(doc.body ? doc.body.textContent : "");
+        const rows = readDocumentRows(doc);
+        return {
+            id: profile.id,
+            name: parseTwStatsPlayerName(doc, profile),
+            points: parseTwStatsStat(rows, text, ["pontos", "points"]),
+            villages: parseTwStatsStat(rows, text, ["aldeias", "villages"]),
+            rank: parseTwStatsRank(rows, text),
+            tribe: parseTwStatsTribe(rows, text),
+            od: parseTwStatsOd(rows),
+            villageRows: parseTwStatsVillageRows(doc, profile.id),
+            conquests: parseTwStatsConquestRows(doc, profile),
+        };
+    }
+
+    function mergeTwStatsParsedPages(pages, profile) {
+        const merged = {
+            name: profile.name,
+            points: null,
+            villages: null,
+            rank: null,
+            tribe: "",
+            od: emptyOd("TWStats"),
+            villageRows: [],
+            conquests: [],
+        };
+
+        for (const page of pages) {
+            merged.name = merged.name || page.name;
+            merged.points = coalesceNumber(merged.points, page.points);
+            merged.villages = coalesceNumber(merged.villages, page.villages);
+            merged.rank = coalesceNumber(merged.rank, page.rank);
+            merged.tribe = merged.tribe || page.tribe || "";
+            merged.od = mergeOd(merged.od, page.od);
+            merged.villageRows.push(...(page.villageRows || []));
+            merged.conquests.push(...(page.conquests || []));
+        }
+
+        merged.villageRows = dedupeTwStatsVillages(merged.villageRows);
+        merged.conquests = dedupeTwStatsConquests(merged.conquests);
+        if (!Number.isFinite(merged.villages) && merged.villageRows.length) merged.villages = merged.villageRows.length;
+        return merged;
+    }
+
+    function twStatsRequestText(url, ttlMs, force) {
+        const key = `twstats:${url}`;
+        const now = Date.now();
+        const cached = state.memoryCache.get(key);
+        if (!force && cached && now - cached.time < ttlMs) return Promise.resolve(cached.text);
+
+        return new Promise((resolve, reject) => {
+            const done = (text) => {
+                state.memoryCache.set(key, { time: Date.now(), text });
+                resolve(text);
+            };
+
+            if (typeof GM_xmlhttpRequest === "function") {
+                GM_xmlhttpRequest({
+                    method: "GET",
+                    url,
+                    headers: { "Accept": "text/html,application/xhtml+xml,*/*" },
+                    onload: (response) => {
+                        if (response.status >= 200 && response.status < 300) done(response.responseText || "");
+                        else reject(new Error(`TWStats ${response.status}`));
+                    },
+                    onerror: () => reject(new Error("Falha ao contactar o TWStats.")),
+                    ontimeout: () => reject(new Error("Tempo esgotado ao contactar o TWStats.")),
+                    timeout: 15000,
+                });
+                return;
+            }
+
+            fetch(url, { credentials: "include", cache: "no-store" })
+                .then((response) => {
+                    if (!response.ok) throw new Error(`TWStats ${response.status}`);
+                    return response.text();
+                })
+                .then(done)
+                .catch(reject);
+        });
+    }
+
+    function parseHTML(html, url) {
+        const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+        if (url) {
+            const base = doc.createElement("base");
+            base.href = url;
+            doc.head.appendChild(base);
+        }
+        return doc;
+    }
+
+    function assertTwStatsUsable(doc) {
+        const text = cleanText(doc.body ? doc.body.textContent : "");
+        if (/just a moment|enable javascript and cookies|cloudflare/i.test(text)) {
+            throw new Error("TWStats devolveu verificacao Cloudflare.");
+        }
+    }
+
+    function findPlayerLinkInDoc(doc, query) {
+        const wanted = fold(query);
+        const links = Array.from(doc.querySelectorAll("a[href]"));
+        const candidates = links
+            .map((link) => {
+                const id = extractTwStatsPlayerId(link.getAttribute("href") || link.href);
+                if (!id) return null;
+                return {
+                    id,
+                    name: cleanText(link.textContent),
+                    url: absoluteTwStatsUrl(link.getAttribute("href") || link.href),
+                };
+            })
+            .filter(Boolean);
+
+        return candidates.find((item) => fold(item.name) === wanted) ||
+            candidates.find((item) => fold(item.name).includes(wanted)) ||
+            null;
+    }
+
+    function extractTwStatsPlayerId(url) {
+        const text = String(url || "");
+        if (!/page=player|player/i.test(text)) return 0;
+        const match = text.match(/[?&]id=(\d+)/i) || text.match(/\/player\/(\d+)/i);
+        return match ? toInt(match[1]) : 0;
+    }
+
+    function parseTwStatsPlayerName(doc, profile) {
+        const directLink = Array.from(doc.querySelectorAll("a[href]")).find((link) => extractTwStatsPlayerId(link.getAttribute("href") || link.href) === profile.id);
+        if (directLink && cleanText(directLink.textContent)) return cleanText(directLink.textContent);
+
+        const heading = Array.from(doc.querySelectorAll("h1,h2,h3"))
+            .map((node) => cleanText(node.textContent))
+            .find((value) => value && !/tw stats|estatisticas|classifica/i.test(value));
+        return heading || profile.name || "";
+    }
+
+    function readDocumentRows(doc) {
+        return Array.from(doc.querySelectorAll("tr")).map((row) => {
+            const cells = Array.from(row.children).filter((cell) => /^(td|th)$/i.test(cell.tagName));
+            const headers = cells.map((cell) => cleanText(cell.textContent));
+            return {
+                row,
+                cells,
+                text: cleanText(row.textContent),
+                folded: fold(row.textContent),
+                headers,
+            };
+        });
+    }
+
+    function parseTwStatsStat(rows, text, labels) {
+        for (const row of rows) {
+            const first = fold(row.headers[0] || "");
+            if (labels.some((label) => first === label || first.includes(label))) {
+                const value = firstFinite(row.headers.slice(1).map(parseHumanNumber));
+                if (Number.isFinite(value)) return value;
+            }
+        }
+
+        return parseTextLabelNumber(text, labels);
+    }
+
+    function parseTwStatsRank(rows, text) {
+        return parseTwStatsStat(rows, text, ["posicao na classificacao", "classificacao", "rank", "posicao"]);
+    }
+
+    function parseTwStatsTribe(rows, text) {
+        for (const row of rows) {
+            const first = fold(row.headers[0] || "");
+            if (first.includes("tribo") || first.includes("tribe")) {
+                const value = cleanText(row.headers[1] || "");
+                if (value && !/tribo|tribe/i.test(value)) return value;
+            }
+        }
+
+        const match = text.match(/(?:Tribo|Tribe)\s*:?\s*([^\n\r|]+)/i);
+        return match ? cleanText(match[1]).split(/\s{2,}/)[0] : "";
+    }
+
+    function parseTwStatsOd(rows) {
+        const od = emptyOd("TWStats");
+        for (const row of rows) {
+            const label = row.folded;
+            if (!/oponentes derrotados|od|off|def|apoio|support/i.test(label)) continue;
+
+            const entry = parseOdEntryFromRow(row);
+            if (!entry) continue;
+
+            if (label.includes("ofens") || label.includes("ataque") || /\boff\b/.test(label)) od.off = entry;
+            else if (label.includes("defens") || label.includes("defesa") || /\bdef\b/.test(label)) od.def = entry;
+            else if (label.includes("apoio") || label.includes("support")) od.support = entry;
+            else if (label.includes("oponentes derrotados") || label.includes("total") || label === "od") od.total = entry;
+        }
+        return od;
+    }
+
+    function parseOdEntryFromRow(row) {
+        const nums = row.headers.slice(1).map(parseHumanNumber).filter(Number.isFinite);
+        if (!nums.length) return null;
+        const rank = parseRankFromTexts(row.headers);
+        const score = nums.reduce((max, value) => Math.max(max, value), 0);
+        return {
+            rank: Number.isFinite(rank) ? rank : null,
+            score,
+        };
+    }
+
+    function parseRankFromTexts(values) {
+        for (const value of values) {
+            const match = String(value || "").match(/#\s*([\d.,\s]+)/);
+            if (match) return parseHumanNumber(match[1]);
+        }
+        return null;
+    }
+
+    function emptyOd(source) {
+        return {
+            total: null,
+            off: null,
+            def: null,
+            support: null,
+            supportSource: source || "TWStats",
+        };
+    }
+
+    function mergeOd(base, extra) {
+        return {
+            total: base.total || extra.total || null,
+            off: base.off || extra.off || null,
+            def: base.def || extra.def || null,
+            support: base.support || extra.support || null,
+            supportSource: "TWStats",
+        };
+    }
+
+    function parseTwStatsVillageRows(doc, playerId) {
+        const rows = [];
+        Array.from(doc.querySelectorAll("tr")).forEach((row, index) => {
+            const text = cleanText(row.textContent);
+            const coord = parseCoords(text);
+            if (!coord) return;
+
+            const cells = Array.from(row.children).map((cell) => cleanText(cell.textContent));
+            const villageLink = Array.from(row.querySelectorAll("a[href]")).find((link) => /village|aldeia|info_village/i.test(link.href || link.getAttribute("href")));
+            const name = cleanText(villageLink ? villageLink.textContent : cells.find((cell) => !cell.includes(coord.coords) && /[A-Za-zÀ-ÿ]/.test(cell)) || `Aldeia ${coord.coords}`);
+            const points = firstFinite(cells.map(parseHumanNumber).filter((value) => value !== coord.x && value !== coord.y));
+
+            rows.push({
+                id: index + 1,
+                name,
+                x: coord.x,
+                y: coord.y,
+                coords: coord.coords,
+                playerId,
+                points: Number.isFinite(points) ? points : 0,
+            });
+        });
+        return rows;
+    }
+
+    function parseTwStatsConquestRows(doc, profile) {
+        const rows = [];
+        Array.from(doc.querySelectorAll("table")).forEach((table) => {
+            const headerCells = Array.from(table.querySelectorAll("tr:first-child th, tr:first-child td")).map((cell) => fold(cell.textContent));
+            Array.from(table.querySelectorAll("tr")).forEach((row) => {
+                const text = cleanText(row.textContent);
+                const coord = parseCoords(text);
+                if (!coord) return;
+
+                const links = Array.from(row.querySelectorAll("a[href]"))
+                    .map((link) => ({
+                        id: extractTwStatsPlayerId(link.getAttribute("href") || link.href),
+                        name: cleanText(link.textContent),
+                    }))
+                    .filter((link) => link.id);
+                if (!links.length) return;
+
+                const ownership = inferTwStatsConquestOwners(row, headerCells, links, profile);
+                if (!ownership || (ownership.newOwnerId !== profile.id && ownership.oldOwnerId !== profile.id)) return;
+
+                const timestamp = parseTwStatsTimestamp(text);
+                const cells = Array.from(row.children).map((cell) => cleanText(cell.textContent));
+                const points = firstFinite(cells.map(parseHumanNumber).filter((value) => value !== coord.x && value !== coord.y));
+                rows.push({
+                    villageId: `${coord.x}${coord.y}`,
+                    village: {
+                        id: `${coord.x}${coord.y}`,
+                        name: cells.find((cell) => cell.includes(coord.coords)) || `Aldeia ${coord.coords}`,
+                        x: coord.x,
+                        y: coord.y,
+                        coords: coord.coords,
+                        playerId: ownership.newOwnerId,
+                        points: Number.isFinite(points) ? points : 0,
+                    },
+                    timestamp,
+                    date: new Date(timestamp * 1000),
+                    newOwner: ownership.newOwnerName,
+                    oldOwner: ownership.oldOwnerName,
+                    newOwnerId: ownership.newOwnerId,
+                    oldOwnerId: ownership.oldOwnerId,
+                });
+            });
+        });
+        return rows;
+    }
+
+    function inferTwStatsConquestOwners(row, headerCells, links, profile) {
+        if (links.length >= 2) {
+            const cells = Array.from(row.children);
+            const cellLinks = cells.map((cell) => Array.from(cell.querySelectorAll("a[href]"))
+                .map((link) => ({
+                    id: extractTwStatsPlayerId(link.getAttribute("href") || link.href),
+                    name: cleanText(link.textContent),
+                }))
+                .filter((link) => link.id));
+
+            const newIndex = headerCells.findIndex((header) => /ganhou|novo|conquist|para|new/.test(header));
+            const oldIndex = headerCells.findIndex((header) => /perdeu|antigo|de |from|old/.test(header));
+            const newLink = newIndex >= 0 && cellLinks[newIndex] && cellLinks[newIndex][0] ? cellLinks[newIndex][0] : links[0];
+            const oldLink = oldIndex >= 0 && cellLinks[oldIndex] && cellLinks[oldIndex][0] ? cellLinks[oldIndex][0] : links[1];
+            return {
+                newOwnerId: newLink.id,
+                newOwnerName: newLink.name,
+                oldOwnerId: oldLink.id,
+                oldOwnerName: oldLink.name,
+            };
+        }
+
+        const only = links[0];
+        const text = fold(row.textContent);
+        if (only.id === profile.id && /ganhou|conquist/.test(text)) {
+            return { newOwnerId: only.id, newOwnerName: only.name, oldOwnerId: 0, oldOwnerName: "-" };
+        }
+        if (only.id === profile.id && /perdeu|perdid/.test(text)) {
+            return { newOwnerId: 0, newOwnerName: "-", oldOwnerId: only.id, oldOwnerName: only.name };
+        }
+        return null;
+    }
+
+    function filterTwStatsConquests(rows, player, since) {
+        const gained = [];
+        const lost = [];
+        for (const row of rows || []) {
+            if (row.timestamp < since) continue;
+            if (row.newOwnerId === player.id) gained.push(row);
+            if (row.oldOwnerId === player.id) lost.push(row);
+        }
+        gained.sort((a, b) => b.timestamp - a.timestamp);
+        lost.sort((a, b) => b.timestamp - a.timestamp);
+        return {
+            gained,
+            lost,
+            net: gained.length - lost.length,
+        };
+    }
+
+    function buildAllTimeFromTwStatsConquests(rows, player) {
+        const daily = new Map();
+        const opponents = new Map();
+        let gained = 0;
+        let lost = 0;
+        let firstTs = 0;
+        let lastTs = 0;
+
+        for (const row of rows || []) {
+            const dayKey = dateKey(row.timestamp);
+            const day = daily.get(dayKey) || { key: dayKey, ts: startOfDayTs(row.timestamp), gained: 0, lost: 0 };
+            if (row.newOwnerId === player.id) {
+                gained += 1;
+                day.gained += 1;
+            }
+            if (row.oldOwnerId === player.id) {
+                lost += 1;
+                day.lost += 1;
+            }
+            daily.set(dayKey, day);
+            firstTs = firstTs ? Math.min(firstTs, row.timestamp) : row.timestamp;
+            lastTs = Math.max(lastTs, row.timestamp);
+        }
+
+        const days = Array.from(daily.values()).sort((a, b) => a.ts - b.ts);
+        let runningGained = 0;
+        let runningLost = 0;
+        const cumulative = days.map((day) => {
+            runningGained += day.gained;
+            runningLost += day.lost;
+            return {
+                key: day.key,
+                ts: day.ts,
+                value: runningGained - runningLost,
+                gained: runningGained,
+                lost: runningLost,
+            };
+        });
+
+        return {
+            gained,
+            lost,
+            net: gained - lost,
+            firstTs,
+            lastTs,
+            days,
+            cumulative,
+            opponents: Array.from(opponents.values()),
+        };
+    }
+
+    function buildTwStatsVillagesSummary(rows) {
+        const list = (rows || []).sort((a, b) => a.x - b.x || a.y - b.y || a.name.localeCompare(b.name));
+        const continents = new Map();
+        for (const village of list) {
+            const continent = continentFromVillage(village);
+            const group = continents.get(continent) || [];
+            group.push(village);
+            continents.set(continent, group);
+        }
+        return {
+            rows: list,
+            coords: list.map((village) => village.coords),
+            continents: Array.from(continents.entries())
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([continent, villages]) => ({
+                    continent,
+                    rows: villages,
+                    coords: villages.map((village) => village.coords),
+                })),
         };
     }
 
@@ -271,12 +803,12 @@
             order: 35,
             run: openPanel,
         };
-        window.TWHubQueue = window.TWHubQueue || [];
-        window.TWHubQueue.push(item);
+        pageWindow.TWHubQueue = pageWindow.TWHubQueue || [];
+        pageWindow.TWHubQueue.push(item);
     }
 
     function openPanel() {
-        if (window.Dialog && typeof window.Dialog.show === "function") {
+        if (pageWindow.Dialog && typeof pageWindow.Dialog.show === "function") {
             openNativeDialogPanel();
             return;
         }
@@ -303,7 +835,7 @@
             "",
         );
 
-        window.Dialog.show(APP.dialogId, html);
+        pageWindow.Dialog.show(APP.dialogId, html);
         const dialog = document.querySelector(`#popup_box_${APP.dialogId} .${APP.id}-dialog`) ||
             document.querySelector(`.${APP.id}-dialog`);
         if (!dialog) return;
@@ -334,8 +866,8 @@
     }
 
     function closePanel() {
-        if (state.nativeDialog && window.Dialog && typeof window.Dialog.close === "function") {
-            window.Dialog.close(APP.dialogId);
+        if (state.nativeDialog && pageWindow.Dialog && typeof pageWindow.Dialog.close === "function") {
+            pageWindow.Dialog.close(APP.dialogId);
             state.nativeDialog = false;
             state.panel = null;
             state.controls = {};
@@ -416,7 +948,7 @@
                             </div>
                             <div class="${APP.id}-footerLine">
                                 <span class="${APP.id}-status">Pronto.</span>
-                                <span>Dados publicos do mapa. <a href="${APP.githubUrl}" target="_blank" rel="noopener">GitHub</a></span>
+                                <span>Dados do TWStats. <a href="${APP.githubUrl}" target="_blank" rel="noopener">GitHub</a></span>
                             </div>
                         </div>
                     </section>
@@ -548,7 +1080,7 @@
 
         state.busy = true;
         setBusy(true);
-        setStatus(force ? "A atualizar ficheiros do mundo..." : "A carregar dados do mundo...");
+        setStatus(force ? "A atualizar dados do TWStats..." : "A carregar dados do TWStats...");
 
         try {
             const result = await buildSummary(query, force);
@@ -572,27 +1104,12 @@
         const periodMs = periodToMs(periodHours);
         const since = Math.floor((now - periodMs) / 1000);
 
-        const playersText = await fetchCachedText("players", "/map/player.txt", APP.mapCacheMs, force);
-        const players = parsePlayers(playersText);
-        const player = findPlayer(players, query);
-        if (!player) throw new Error("Jogador nao encontrado no player.txt.");
-
-        const conquerPromise = fetchConquestsSince(since, force, periodHours);
-        const conquerAllPromise = fetchCachedText("conquerAll", "/map/conquer.txt", APP.conquerAllCacheMs, force);
-        const villagePromise = fetchCachedText("villages", "/map/village.txt", APP.mapCacheMs, force);
-        const odPromise = loadOdEntries(player.id, force);
-
-        const [conquerText, conquerAllText, villagesText, od] = await Promise.all([
-            conquerPromise,
-            conquerAllPromise,
-            villagePromise,
-            odPromise,
-        ]);
-
-        const villages = parseVillages(villagesText);
-        const conquests = summarizeConquests(conquerText, villages, players.byId, player.id, since);
-        const allTime = summarizeAllTimeConquests(conquerAllText, villages, players.byId, player.id);
-        const villagesSummary = summarizePlayerVillages(villages, player.id);
+        const twstatsData = await loadTwStatsPlayerData(query, since, force);
+        const player = twstatsData.player;
+        const od = twstatsData.od;
+        const conquests = twstatsData.conquests;
+        const allTime = twstatsData.allTime;
+        const villagesSummary = twstatsData.villagesSummary;
 
         const current = {
             ts: now,
@@ -632,18 +1149,8 @@
             villagesSummary,
             twstats: buildTwStatsLinks(player.id),
             odSupportAvailable: od.support !== null,
-            supportSource: od.supportSource || "",
+            supportSource: od.supportSource || "TWStats",
         };
-    }
-
-    async function fetchConquestsSince(since, force, periodHours) {
-        const recentPath = `/interface.php?func=get_conquer&since=${since}`;
-        try {
-            return await fetchCachedText(`conquer:${periodHours}h`, recentPath, APP.conquerCacheMs, force);
-        } catch (error) {
-            console.warn(`[${APP.id}] interface conquer falhou; a usar /map/conquer.txt`, error);
-            return fetchCachedText("conquerFull", "/map/conquer.txt", APP.conquerCacheMs, force);
-        }
     }
 
     function selectedPeriodHours() {
@@ -666,65 +1173,6 @@
         if (hours < 24) return `${hours}H`;
         if (hours === 24) return "24H";
         return `${hours / 24}D`;
-    }
-
-    async function loadOdEntries(playerId, force) {
-        const [totalText, offText, defText, supportData] = await Promise.all([
-            fetchFirstAvailable("odTotal", OD_FILES.total, APP.mapCacheMs, force, true),
-            fetchFirstAvailable("odOff", OD_FILES.off, APP.mapCacheMs, force, true),
-            fetchFirstAvailable("odDef", OD_FILES.def, APP.mapCacheMs, force, true),
-            fetchFirstAvailable("odSupport", OD_FILES.support, APP.mapCacheMs, force, true),
-        ]);
-
-        return {
-            total: findKillEntry(totalText.text, playerId),
-            off: findKillEntry(offText.text, playerId),
-            def: findKillEntry(defText.text, playerId),
-            support: supportData.text ? findKillEntry(supportData.text, playerId) : null,
-            supportSource: supportData.path || "",
-        };
-    }
-
-    async function fetchFirstAvailable(name, paths, ttlMs, force, optional) {
-        let lastError = null;
-        for (const path of paths) {
-            try {
-                const text = await fetchCachedText(`${name}:${path}`, path, ttlMs, force, optional);
-                if (text !== null) return { path, text };
-            } catch (error) {
-                lastError = error;
-            }
-        }
-
-        if (!optional && lastError) throw lastError;
-        return { path: "", text: null };
-    }
-
-    async function fetchCachedText(name, path, ttlMs, force, optional) {
-        const now = Date.now();
-        const cached = state.memoryCache.get(name);
-        if (!force && cached && now - cached.time < ttlMs) {
-            if (cached.missing) return null;
-            return cached.text;
-        }
-
-        const response = await fetch(path, {
-            credentials: "same-origin",
-            cache: "no-store",
-            headers: { "Accept": "text/plain,*/*" },
-        });
-
-        if (!response.ok) {
-            if (optional && (response.status === 404 || response.status === 403)) {
-                state.memoryCache.set(name, { time: now, missing: true, text: null });
-                return null;
-            }
-            throw new Error(`${path} (${response.status})`);
-        }
-
-        const text = await response.text();
-        state.memoryCache.set(name, { time: now, text });
-        return text;
     }
 
     function parsePlayers(text) {
@@ -1011,6 +1459,99 @@
             historyUrl: `${profileUrl}&mode=history`,
             graphs,
         };
+    }
+
+    function twStatsBaseUrl() {
+        return `https://pt.twstats.com/${encodeURIComponent(twStatsWorldKey())}/`;
+    }
+
+    function twStatsPlayerUrl(playerId) {
+        return `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player`;
+    }
+
+    function absoluteTwStatsUrl(url) {
+        try {
+            return new URL(String(url || ""), twStatsBaseUrl()).href;
+        } catch (_) {
+            return twStatsBaseUrl();
+        }
+    }
+
+    function uniqueList(values) {
+        return Array.from(new Set((values || []).filter(Boolean)));
+    }
+
+    function parseHumanNumber(value) {
+        const text = String(value == null ? "" : value).replace(/&nbsp;/g, " ");
+        const match = text.match(/#?\s*[-+]?\d[\d.,\s]*/);
+        if (!match) return null;
+        const clean = match[0].replace(/[^\d-]/g, "");
+        if (!clean || clean === "-") return null;
+        const number = Number.parseInt(clean, 10);
+        return Number.isFinite(number) ? number : null;
+    }
+
+    function firstFinite(values) {
+        return (values || []).find((value) => Number.isFinite(value));
+    }
+
+    function parseTextLabelNumber(text, labels) {
+        const folded = fold(text);
+        for (const label of labels) {
+            const index = folded.indexOf(fold(label));
+            if (index < 0) continue;
+            const segment = folded.slice(index, index + 120);
+            const number = parseHumanNumber(segment.replace(fold(label), ""));
+            if (Number.isFinite(number)) return number;
+        }
+        return null;
+    }
+
+    function parseCoords(text) {
+        const match = String(text || "").match(/\b(\d{3})[|\/](\d{3})\b/);
+        if (!match) return null;
+        const x = toInt(match[1]);
+        const y = toInt(match[2]);
+        return {
+            x,
+            y,
+            coords: `${x}|${y}`,
+        };
+    }
+
+    function parseTwStatsTimestamp(text) {
+        const value = String(text || "");
+        const match = value.match(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?(?:,?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (!match) return Math.floor(Date.now() / 1000);
+
+        const now = new Date();
+        let year = match[3] ? toInt(match[3]) : now.getFullYear();
+        if (year < 100) year += 2000;
+        const month = Math.max(0, toInt(match[2]) - 1);
+        const day = toInt(match[1]);
+        const hour = match[4] ? toInt(match[4]) : 0;
+        const minute = match[5] ? toInt(match[5]) : 0;
+        const second = match[6] ? toInt(match[6]) : 0;
+        const date = new Date(year, month, day, hour, minute, second);
+        return Math.floor(date.getTime() / 1000);
+    }
+
+    function dedupeTwStatsVillages(rows) {
+        const byCoord = new Map();
+        for (const row of rows || []) {
+            if (row && row.coords && !byCoord.has(row.coords)) byCoord.set(row.coords, row);
+        }
+        return Array.from(byCoord.values());
+    }
+
+    function dedupeTwStatsConquests(rows) {
+        const byKey = new Map();
+        for (const row of rows || []) {
+            if (!row) continue;
+            const key = [row.timestamp, row.village && row.village.coords, row.newOwnerId, row.oldOwnerId].join(":");
+            if (!byKey.has(key)) byKey.set(key, row);
+        }
+        return Array.from(byKey.values());
     }
 
     function twStatsWorldKey() {
@@ -1774,14 +2315,14 @@
         const params = new URLSearchParams(window.location.search);
         if (params.get("screen") === "info_player" && params.get("id")) return params.get("id");
 
-        const gameData = window.game_data || {};
+        const gameData = pageWindow.game_data || {};
         if (gameData.player && gameData.player.name) return gameData.player.name;
         if (gameData.player && gameData.player.id) return String(gameData.player.id);
         return "";
     }
 
     function worldLabel() {
-        const gameData = window.game_data || {};
+        const gameData = pageWindow.game_data || {};
         const world = String(gameData.world || window.location.hostname.split(".")[0] || "").toUpperCase();
         return `${world} - ${window.location.host}`;
     }
@@ -1894,7 +2435,7 @@
     }
 
     function pageGameData() {
-        return window.game_data || {};
+        return pageWindow.game_data || {};
     }
 
     function startOfDayTs(timestamp) {
