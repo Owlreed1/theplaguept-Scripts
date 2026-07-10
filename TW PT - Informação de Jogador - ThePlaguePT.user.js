@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.14
+// @version      1.0.15
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.14",
+        version: "1.0.15",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -372,12 +372,13 @@
                                 <label>
                                     <span>Periodo</span>
                                     <select name="period">
-                                        <option value="1">24 horas</option>
-                                        <option value="2">2 dias</option>
-                                        <option value="3">3 dias</option>
-                                        <option value="4">4 dias</option>
-                                        <option value="5">5 dias</option>
-                                        <option value="6">6 dias</option>
+                                        <option value="12">12 horas</option>
+                                        <option value="24" selected>24 horas</option>
+                                        <option value="48">2 dias</option>
+                                        <option value="72">3 dias</option>
+                                        <option value="96">4 dias</option>
+                                        <option value="120">5 dias</option>
+                                        <option value="144">6 dias</option>
                                     </select>
                                 </label>
                                 <label>
@@ -567,8 +568,8 @@
 
     async function buildSummary(query, force) {
         const now = Date.now();
-        const periodDays = selectedPeriodDays();
-        const periodMs = periodToMs(periodDays);
+        const periodHours = selectedPeriodHours();
+        const periodMs = periodToMs(periodHours);
         const since = Math.floor((now - periodMs) / 1000);
 
         const playersText = await fetchCachedText("players", "/map/player.txt", APP.mapCacheMs, force);
@@ -576,7 +577,7 @@
         const player = findPlayer(players, query);
         if (!player) throw new Error("Jogador nao encontrado no player.txt.");
 
-        const conquerPromise = fetchConquestsSince(since, force, periodDays);
+        const conquerPromise = fetchConquestsSince(since, force, periodHours);
         const conquerAllPromise = fetchCachedText("conquerAll", "/map/conquer.txt", APP.conquerAllCacheMs, force);
         const villagePromise = fetchCachedText("villages", "/map/village.txt", APP.mapCacheMs, force);
         const odPromise = loadOdEntries(player.id, force);
@@ -605,7 +606,7 @@
 
         const dailyHistory = loadDailySnapshots(player.id);
         const history = mergeBaselineHistory(loadSnapshots(player.id), dailyHistory);
-        const baseline = chooseBaseline(history, now, periodDays);
+        const baseline = chooseBaseline(history, now, periodHours);
         const diffs = buildDiffs(current, baseline);
         const dailyStats = buildDailyStats(dailyHistory, current);
         saveSnapshot(current);
@@ -615,10 +616,11 @@
             generatedAt: now,
             since,
             period: {
-                days: periodDays,
+                hours: periodHours,
+                days: periodHours / 24,
                 ms: periodMs,
-                label: periodLabel(periodDays),
-                shortLabel: periodShortLabel(periodDays),
+                label: periodLabel(periodHours),
+                shortLabel: periodShortLabel(periodHours),
             },
             player,
             current,
@@ -634,31 +636,36 @@
         };
     }
 
-    async function fetchConquestsSince(since, force, periodDays) {
+    async function fetchConquestsSince(since, force, periodHours) {
         const recentPath = `/interface.php?func=get_conquer&since=${since}`;
         try {
-            return await fetchCachedText(`conquer:${periodDays}d`, recentPath, APP.conquerCacheMs, force);
+            return await fetchCachedText(`conquer:${periodHours}h`, recentPath, APP.conquerCacheMs, force);
         } catch (error) {
             console.warn(`[${APP.id}] interface conquer falhou; a usar /map/conquer.txt`, error);
             return fetchCachedText("conquerFull", "/map/conquer.txt", APP.conquerCacheMs, force);
         }
     }
 
-    function selectedPeriodDays() {
-        const value = toInt(state.controls.periodSelect && state.controls.periodSelect.value);
-        return Math.min(6, Math.max(1, value || 1));
+    function selectedPeriodHours() {
+        const value = Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10);
+        const allowed = [12, 24, 48, 72, 96, 120, 144];
+        return allowed.includes(value) ? value : 24;
     }
 
-    function periodToMs(days) {
-        return Math.max(1, days || 1) * APP.dayMs;
+    function periodToMs(hours) {
+        return Math.max(1, hours || 24) * 60 * 60 * 1000;
     }
 
-    function periodLabel(days) {
-        return days === 1 ? "24 horas" : `${days} dias`;
+    function periodLabel(hours) {
+        if (hours < 24) return `${hours} horas`;
+        if (hours === 24) return "24 horas";
+        return `${hours / 24} dias`;
     }
 
-    function periodShortLabel(days) {
-        return days === 1 ? "24H" : `${days}D`;
+    function periodShortLabel(hours) {
+        if (hours < 24) return `${hours}H`;
+        if (hours === 24) return "24H";
+        return `${hours / 24}D`;
     }
 
     async function loadOdEntries(playerId, force) {
@@ -1074,8 +1081,8 @@
         return current.score - previous.score;
     }
 
-    function chooseBaseline(history, now, periodDays) {
-        const target = now - periodToMs(periodDays);
+    function chooseBaseline(history, now, periodHours) {
+        const target = now - periodToMs(periodHours);
         const candidates = history
             .filter((snapshot) => snapshot && Number.isFinite(snapshot.ts) && snapshot.ts < now - APP.minSnapshotGapMs)
             .map((snapshot) => ({
@@ -1277,7 +1284,7 @@
 
         state.controls.body.innerHTML = `
             ${panelRow("RESUMO", `Totais do periodo selecionado: ${result.period.label}.`, summaryContent, "summaryRow", true)}
-            ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.period.days === 1 ? result.diffs : null), "dailyRow", true)}
+            ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.period.hours === 24 ? result.diffs : null), "dailyRow", true)}
             ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow", false)}
             ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow", false)}
             ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow", false)}
