@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.7
+// @version      1.0.8
 // @description  Painel com resumo das ultimas 24h de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.7",
+        version: "1.0.8",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -117,45 +117,50 @@
             return;
         }
 
-        if (existing && existing.dataset.playerId === String(playerId)) {
-            positionProfileStatsButton(existing);
-            return;
-        }
+        if (existing && existing.dataset.playerId === String(playerId)) return;
         if (existing) existing.remove();
 
         const holder = createProfileStatsHolder(playerId);
-        document.body.appendChild(holder);
-        positionProfileStatsButton(holder);
+        const archiveRow = findProfileArchiveRow();
+
+        if (archiveRow && archiveRow.parentNode) {
+            archiveRow.parentNode.insertBefore(holder, archiveRow.nextSibling);
+        } else {
+            const fallbackTarget = findVillageTable();
+            const content = document.querySelector("#content_value") || document.querySelector("#contentContainer") || document.body;
+            if (fallbackTarget && fallbackTarget.parentNode) {
+                fallbackTarget.parentNode.insertBefore(holder, fallbackTarget);
+            } else {
+                content.appendChild(holder);
+            }
+        }
 
         state.profileButton = holder.querySelector("button");
         state.profileButton.addEventListener("click", () => openPlayerProfileStats(playerId));
     }
 
     function createProfileStatsHolder(playerId) {
+        const archiveRow = findProfileArchiveRow();
+        if (archiveRow) {
+            const row = document.createElement("tr");
+            const colSpan = Math.max(1, archiveRow.children.length || 1);
+            row.id = `${APP.id}-profileStats`;
+            row.dataset.playerId = String(playerId);
+            row.className = `${APP.id}-profileStatsRow`;
+            row.innerHTML = `
+                <td class="${APP.id}-profileStatsCell" colspan="${colSpan}">
+                    ${profileStatsButtonHTML()}
+                </td>
+            `;
+            return row;
+        }
+
         const wrap = document.createElement("div");
         wrap.id = `${APP.id}-profileStats`;
         wrap.dataset.playerId = String(playerId);
         wrap.className = `${APP.id}-profileStatsWrap`;
         wrap.innerHTML = profileStatsButtonHTML();
         return wrap;
-    }
-
-    function positionProfileStatsButton(holder) {
-        const archiveRow = findProfileArchiveRow();
-        const villageTable = findVillageTable();
-        const target = archiveRow || villageTable;
-        if (!holder || !target) return;
-
-        const rect = target.getBoundingClientRect();
-        const contentRect = (document.querySelector("#content_value") || document.body).getBoundingClientRect();
-        const top = archiveRow
-            ? Math.round(rect.bottom + window.scrollY + 6)
-            : Math.round(rect.top + window.scrollY - 36);
-        const left = Math.round(Math.max(contentRect.left + window.scrollX + 16, rect.left + window.scrollX));
-
-        holder.style.setProperty("position", "absolute", "important");
-        holder.style.setProperty("left", `${left}px`, "important");
-        holder.style.setProperty("top", `${top}px`, "important");
     }
 
     function profileStatsButtonHTML() {
@@ -768,7 +773,7 @@
 
     function buildTwStatsLinks(playerId) {
         const world = twStatsWorldKey();
-        const base = `https://www.twstats.com/${encodeURIComponent(world)}/`;
+        const base = `https://pt.twstats.com/${encodeURIComponent(world)}/`;
         const profileUrl = `${base}index.php?id=${encodeURIComponent(playerId)}&page=player`;
         const graphs = [
             ["points", "Pontos"],
@@ -1919,13 +1924,16 @@
                 transform: translateX(0) !important;
             }
 
+            .${APP.id}-profileStatsRow td,
+            .${APP.id}-profileStatsCell,
             .${APP.id}-profileStatsWrap {
-                z-index: ${APP.zIndex - 1} !important;
-                width: 170px !important;
-                height: 32px !important;
-                padding: 0 !important;
+                padding: 5px 0 6px !important;
                 background: transparent !important;
-                pointer-events: auto !important;
+                border: 0 !important;
+            }
+
+            .${APP.id}-profileStatsCell {
+                padding-left: 0 !important;
             }
 
             .${APP.id}-profileStatsButton {
@@ -1955,10 +1963,10 @@
                 align-items: center;
                 justify-content: center;
                 overflow: hidden;
-                padding: 0;
+                padding: 22px;
                 border: 0;
                 border-radius: 0;
-                background: transparent;
+                background: rgba(0, 0, 0, 0.42);
                 box-shadow: none;
                 color: #2f1809;
                 box-sizing: border-box;
@@ -1971,32 +1979,39 @@
 
             .${APP.id}-dialog {
                 position: relative;
-                width: min(1260px, calc(100vw - 72px));
-                max-width: 100%;
+                width: min(1260px, calc(100vw - 56px));
+                max-width: calc(100vw - 56px);
                 min-width: 0;
-                max-height: calc(100vh - 42px);
-                overflow: visible;
+                max-height: calc(100vh - 56px);
+                overflow-y: auto;
+                overflow-x: hidden;
                 margin: 0 auto;
-                padding: 0;
-                border: 0;
-                border-radius: 0;
-                background: transparent;
-                box-shadow: none;
+                padding: 15px 14px 14px;
+                border: 1px solid #4c2a12;
+                border-radius: 3px;
+                background: #f3dfaa;
+                box-shadow: 0 0 0 2px #d8c79b, 0 0 0 4px #735027, 0 0 0 6px #cfc7aa, 0 0 0 8px #3d3428, 0 8px 26px rgba(0, 0, 0, 0.62);
                 box-sizing: border-box;
             }
 
             .${APP.id}-dialog::before {
-                content: none;
+                content: "";
+                position: absolute;
+                inset: 7px;
+                pointer-events: none;
+                border: 2px solid #a7221e;
+                border-radius: 2px;
+                box-shadow: inset 0 0 0 1px rgba(255, 245, 205, 0.75);
             }
 
             .${APP.id}-close {
                 position: absolute;
-                top: -12px;
-                right: -12px;
+                top: -13px;
+                right: -13px;
                 z-index: 3;
                 width: 20px;
                 height: 20px;
-                line-height: 16px;
+                line-height: 18px;
                 padding: 0;
                 border: 2px solid #4c2a12;
                 border-radius: 2px;
@@ -2016,13 +2031,13 @@
                 flex-direction: column;
                 width: 100%;
                 max-width: 100%;
-                max-height: calc(100vh - 42px);
+                max-height: calc(100vh - 88px);
                 min-height: 0;
                 min-width: 0;
                 padding: 0;
-                border: 2px solid #7e211c;
-                border-radius: 4px;
-                background: #f4e4b8;
+                border: 1px solid #c99545;
+                border-radius: 0;
+                background: rgba(255, 239, 188, 0.38);
                 color: #3b2508;
                 overflow: hidden;
                 box-sizing: border-box;
@@ -2039,10 +2054,11 @@
 
             .${APP.id}-masthead h2 {
                 margin: 0;
-                color: #8f2b25;
-                font-family: Georgia, "Times New Roman", serif;
-                font-size: 20px;
-                line-height: 22px;
+                color: #9d1714;
+                font-family: Verdana, Arial, sans-serif;
+                font-size: 16px;
+                line-height: 20px;
+                font-weight: 700;
                 letter-spacing: 0;
             }
 
