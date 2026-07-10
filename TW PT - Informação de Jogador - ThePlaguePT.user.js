@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.13
+// @version      1.0.14
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,9 +24,10 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.13",
+        version: "1.0.14",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
+        dialogId: "tpResumo24hInfoJogador",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
         launcherIcon: "https://dspt.innogamescdn.com/asset/f441272cc5/graphic/welcome/player_points.webp",
         mapCacheMs: 50 * 60 * 1000,
@@ -61,6 +62,7 @@
         controls: {},
         lastResult: null,
         profileButton: null,
+        nativeDialog: false,
         launcherPositionFrame: 0,
         launcherResizeObserver: null,
     };
@@ -115,6 +117,7 @@
 
         if (!playerId) {
             if (existing) existing.remove();
+            removeOldProfileStatsButtons(null);
             state.profileButton = null;
             return;
         }
@@ -127,9 +130,13 @@
         if (existing) existing.remove();
         removeOldProfileStatsButtons(null);
 
-        const holder = createProfileStatsHolder(playerId, archiveRow);
+        if (!archiveRow || !archiveRow.parentNode) {
+            state.profileButton = null;
+            return;
+        }
 
-        insertProfileStatsHolder(holder, archiveRow);
+        const holder = createProfileStatsHolder(playerId, archiveRow);
+        archiveRow.parentNode.insertBefore(holder, archiveRow.nextSibling);
 
         state.profileButton = holder.querySelector("button");
         state.profileButton.addEventListener("click", () => openPlayerProfileStats(playerId));
@@ -146,7 +153,10 @@
         const wrappers = Array.from(document.querySelectorAll(
             `#${APP.id}-profileStats, .${APP.id}-profileStatsRow, .${APP.id}-profileStatsWrap, .${APP.id}-profileStatsButton`
         ));
-        const looseButtons = Array.from(document.querySelectorAll("button")).filter((button) => cleanText(button.textContent) === "Info - Stats");
+        const looseButtons = Array.from(document.querySelectorAll("button, a, input")).filter((node) => {
+            const text = cleanText(node.textContent || node.value);
+            return text === "Info - Stats";
+        });
         Array.from(new Set([...wrappers, ...looseButtons])).forEach((node) => {
             if (keep && (node === keep || keep.contains(node))) return;
 
@@ -156,43 +166,18 @@
         });
     }
 
-    function insertProfileStatsHolder(holder, archiveRow) {
-        if (archiveRow && archiveRow.parentNode) {
-            archiveRow.parentNode.insertBefore(holder, archiveRow.nextSibling);
-            return;
-        }
-
-        const fallbackTarget = findVillageTable();
-        const content = document.querySelector("#content_value") || document.querySelector("#contentContainer") || document.body;
-        if (fallbackTarget && fallbackTarget.parentNode) {
-            fallbackTarget.parentNode.insertBefore(holder, fallbackTarget);
-            return;
-        }
-
-        content.insertBefore(holder, content.firstChild);
-    }
-
     function createProfileStatsHolder(playerId, archiveRow) {
-        if (archiveRow) {
-            const row = document.createElement("tr");
-            const colSpan = Math.max(1, Array.from(archiveRow.children).reduce((total, cell) => total + (cell.colSpan || 1), 0));
-            row.id = `${APP.id}-profileStats`;
-            row.dataset.playerId = String(playerId);
-            row.className = `${APP.id}-profileStatsRow`;
-            row.innerHTML = `
-                <td class="${APP.id}-profileStatsCell" colspan="${colSpan}">
-                    ${profileStatsButtonHTML()}
-                </td>
-            `;
-            return row;
-        }
-
-        const wrap = document.createElement("div");
-        wrap.id = `${APP.id}-profileStats`;
-        wrap.dataset.playerId = String(playerId);
-        wrap.className = `${APP.id}-profileStatsWrap`;
-        wrap.innerHTML = profileStatsButtonHTML();
-        return wrap;
+        const row = document.createElement("tr");
+        const colSpan = Math.max(1, Array.from(archiveRow.children).reduce((total, cell) => total + (cell.colSpan || 1), 0));
+        row.id = `${APP.id}-profileStats`;
+        row.dataset.playerId = String(playerId);
+        row.className = `${APP.id}-profileStatsRow`;
+        row.innerHTML = `
+            <td class="${APP.id}-profileStatsCell" colspan="${colSpan}">
+                ${profileStatsButtonHTML()}
+            </td>
+        `;
+        return row;
     }
 
     function profileStatsButtonHTML() {
@@ -291,22 +276,79 @@
     }
 
     function openPanel() {
-        if (!state.panel) createPanel();
+        if (window.Dialog && typeof window.Dialog.show === "function") {
+            openNativeDialogPanel();
+            return;
+        }
+
+        if (!state.panel || !state.panel.isConnected || state.nativeDialog) createPanel();
+        state.nativeDialog = false;
         state.panel.classList.remove(`${APP.id}-hidden`);
+        hydratePanelAfterOpen();
+    }
+
+    function hydratePanelAfterOpen() {
         const guess = defaultPlayerQuery();
-        if (guess && !state.controls.playerInput.value.trim()) {
+        if (guess && state.controls.playerInput && !state.controls.playerInput.value.trim()) {
             state.controls.playerInput.value = guess;
         }
-        window.setTimeout(() => state.controls.playerInput.focus(), 20);
+        window.setTimeout(() => {
+            if (state.controls.playerInput) state.controls.playerInput.focus();
+        }, 20);
+    }
+
+    function openNativeDialogPanel() {
+        const html = getPanelInnerHTML().replace(
+            new RegExp(`<button[^>]*class="${APP.id}-close"[^>]*>[\\s\\S]*?<\\/button>`),
+            "",
+        );
+
+        window.Dialog.show(APP.dialogId, html);
+        const dialog = document.querySelector(`#popup_box_${APP.dialogId} .${APP.id}-dialog`) ||
+            document.querySelector(`.${APP.id}-dialog`);
+        if (!dialog) return;
+
+        state.panel = dialog;
+        state.nativeDialog = true;
+        bindPanelControls(document);
+        expandNativeDialog(dialog);
+        scheduleDialogRecentering();
+
+        if (state.lastResult) renderResult(state.lastResult);
+        hydratePanelAfterOpen();
+    }
+
+    function getPanelInnerHTML() {
+        let panel = document.getElementById(`${APP.id}-panel`);
+        if (!panel || state.nativeDialog) {
+            if (panel) panel.remove();
+            createPanel();
+            panel = document.getElementById(`${APP.id}-panel`);
+        }
+
+        const html = panel.innerHTML;
+        panel.remove();
+        if (state.panel === panel) state.panel = null;
+        state.controls = {};
+        return html;
     }
 
     function closePanel() {
+        if (state.nativeDialog && window.Dialog && typeof window.Dialog.close === "function") {
+            window.Dialog.close(APP.dialogId);
+            state.nativeDialog = false;
+            state.panel = null;
+            state.controls = {};
+            return;
+        }
+
         if (state.panel) state.panel.classList.add(`${APP.id}-hidden`);
     }
 
     function createPanel() {
         const panel = document.createElement("div");
         panel.id = `${APP.id}-panel`;
+        panel.className = `${APP.id}-hidden`;
         panel.innerHTML = `
             <div class="${APP.id}-dialog" role="dialog" aria-modal="true" aria-label="${APP.title}">
                 <button type="button" class="${APP.id}-close" data-action="close" title="Fechar">x</button>
@@ -383,28 +425,115 @@
 
         document.body.appendChild(panel);
         state.panel = panel;
-        state.controls.playerInput = panel.querySelector('input[name="player"]');
-        state.controls.periodSelect = panel.querySelector('select[name="period"]');
-        state.controls.status = panel.querySelector(`.${APP.id}-status`);
-        state.controls.body = panel.querySelector(`.${APP.id}-body`);
-        state.controls.submit = panel.querySelector('button[type="submit"]');
-        state.controls.force = panel.querySelector('[data-action="force"]');
-        state.controls.clear = panel.querySelector('[data-action="clear"]');
+        state.nativeDialog = false;
+        bindPanelControls(panel);
+    }
 
-        panel.querySelector('[data-action="close"]').addEventListener("click", closePanel);
-        panel.querySelector("form").addEventListener("submit", (event) => {
+    function bindPanelControls(root) {
+        const scope = state.nativeDialog
+            ? document.querySelector(`#popup_box_${APP.dialogId} .${APP.id}-dialog`) || root.querySelector(`.${APP.id}-dialog`) || root
+            : root;
+
+        state.controls.playerInput = scope.querySelector('input[name="player"]');
+        state.controls.periodSelect = scope.querySelector('select[name="period"]');
+        state.controls.status = scope.querySelector(`.${APP.id}-status`);
+        state.controls.body = scope.querySelector(`.${APP.id}-body`);
+        state.controls.submit = scope.querySelector('button[type="submit"]');
+        state.controls.force = scope.querySelector('[data-action="force"]');
+        state.controls.clear = scope.querySelector('[data-action="clear"]');
+
+        const closeButton = scope.querySelector('[data-action="close"]');
+        if (closeButton) closeButton.addEventListener("click", closePanel);
+
+        const form = scope.querySelector("form");
+        if (form) form.addEventListener("submit", (event) => {
             event.preventDefault();
             runSummary(false);
         });
-        state.controls.force.addEventListener("click", () => runSummary(true));
-        state.controls.clear.addEventListener("click", clearCache);
-        state.controls.periodSelect.addEventListener("change", () => {
+
+        if (state.controls.force) state.controls.force.addEventListener("click", () => runSummary(true));
+        if (state.controls.clear) state.controls.clear.addEventListener("click", clearCache);
+        if (state.controls.periodSelect) state.controls.periodSelect.addEventListener("change", () => {
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
-        state.controls.body.addEventListener("click", (event) => {
+
+        if (state.controls.body) state.controls.body.addEventListener("click", (event) => {
             const toggle = event.target.closest(`[data-${APP.id}-toggle]`);
             if (toggle) togglePanelRow(toggle);
         });
+    }
+
+    function expandNativeDialog(dialog) {
+        const box = findNativeDialogBox(dialog);
+        const content = dialog.closest(".popup_box_content") || (box && box.querySelector(".popup_box_content")) || dialog.parentElement;
+        const frame = dialog.querySelector(`.${APP.id}-shell`) || dialog;
+        const viewportWidth = document.documentElement.clientWidth || window.innerWidth || 1320;
+        const width = Math.min(1320, Math.max(320, viewportWidth - 24));
+
+        if (box) {
+            setStyleImportant(box, "position", "fixed");
+            setStyleImportant(box, "top", "50%");
+            setStyleImportant(box, "left", "50%");
+            setStyleImportant(box, "right", "auto");
+            setStyleImportant(box, "bottom", "auto");
+            setStyleImportant(box, "transform", "translate(-50%, -50%)");
+            setStyleImportant(box, "margin", "0");
+            setStyleImportant(box, "margin-left", "0");
+            setStyleImportant(box, "width", `${width}px`);
+            setStyleImportant(box, "max-width", "calc(100vw - 24px)");
+            setStyleImportant(box, "max-height", "calc(100vh - 8px)");
+            setStyleImportant(box, "box-sizing", "border-box");
+            setStyleImportant(box, "overflow", "visible");
+            setStyleImportant(box, "z-index", String(APP.zIndex + 2));
+        }
+
+        [content, content && content.firstElementChild, dialog, frame].filter(Boolean).forEach((node) => {
+            setStyleImportant(node, "max-width", "100%");
+            setStyleImportant(node, "min-width", "0");
+            setStyleImportant(node, "box-sizing", "border-box");
+            setStyleImportant(node, "overflow-x", "hidden");
+        });
+
+        setStyleImportant(dialog, "width", "min(1260px, calc(100vw - 58px))");
+        setStyleImportant(dialog, "margin", "0 auto");
+        setStyleImportant(dialog, "padding", "0");
+        setStyleImportant(dialog, "overflow", "visible");
+        setStyleImportant(frame, "width", "100%");
+        setStyleImportant(frame, "max-height", "calc(100vh - 42px)");
+        setStyleImportant(frame, "overflow", "hidden");
+    }
+
+    function setStyleImportant(node, name, value) {
+        if (!node || !node.style) return;
+        node.style.setProperty(name, value, "important");
+    }
+
+    function recenterNativeDialog() {
+        const dialog = document.querySelector(`#popup_box_${APP.dialogId} .${APP.id}-dialog`);
+        if (dialog) expandNativeDialog(dialog);
+    }
+
+    function scheduleDialogRecentering() {
+        [0, 50, 150, 350].forEach((delay) => {
+            window.setTimeout(recenterNativeDialog, delay);
+        });
+    }
+
+    function findNativeDialogBox(dialog) {
+        const explicit = document.getElementById(`popup_box_${APP.dialogId}`);
+        if (explicit) return explicit;
+
+        let node = dialog.parentElement;
+        let candidate = null;
+        while (node && node !== document.body) {
+            const id = String(node.id || "");
+            const className = String(node.className || "");
+            const classes = node.classList ? Array.from(node.classList) : [];
+            if (id.indexOf("popup_box_") === 0 || id === "popup_box" || classes.includes("popup_box")) return node;
+            if (!candidate && /popup|dialog/i.test(`${id} ${className}`)) candidate = node;
+            node = node.parentElement;
+        }
+        return candidate || dialog.parentElement;
     }
 
     async function runSummary(force) {
@@ -2279,18 +2408,19 @@
 
             #${APP.id}-panel {
                 position: fixed;
-                inset: 0;
                 z-index: ${APP.zIndex + 1};
-                width: auto;
-                max-height: none;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                overflow: hidden;
-                padding: 30px 38px 30px;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: min(1320px, calc(100vw - 24px));
+                max-width: calc(100vw - 24px);
+                max-height: calc(100vh - 18px);
+                overflow: visible;
+                margin: 0;
+                padding: 0;
                 border: 0;
                 border-radius: 0;
-                background: rgba(0, 0, 0, 0.38);
+                background: transparent;
                 box-shadow: none;
                 color: #2f1809;
                 box-sizing: border-box;
@@ -2301,46 +2431,65 @@
                 display: none;
             }
 
+            #popup_box_${APP.dialogId} {
+                position: fixed !important;
+                top: 50% !important;
+                left: 50% !important;
+                right: auto !important;
+                bottom: auto !important;
+                transform: translate(-50%, -50%) !important;
+                margin: 0 !important;
+                width: min(1320px, calc(100vw - 24px)) !important;
+                max-width: calc(100vw - 24px) !important;
+                max-height: calc(100vh - 8px) !important;
+                box-sizing: border-box !important;
+                overflow: visible !important;
+                z-index: ${APP.zIndex + 2} !important;
+            }
+
+            #popup_box_${APP.dialogId} .popup_box_content,
+            #popup_box_${APP.dialogId} .popup_box_content > div {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                overflow-x: hidden !important;
+                overflow-y: hidden !important;
+                box-sizing: border-box !important;
+            }
+
+            #popup_box_${APP.dialogId} .${APP.id}-dialog {
+                width: min(1260px, calc(100vw - 58px)) !important;
+                max-width: 100% !important;
+                margin: 0 auto !important;
+            }
+
             .${APP.id}-dialog {
                 position: relative;
-                width: min(1320px, calc(100vw - 80px));
-                max-width: calc(100vw - 80px);
+                width: min(1260px, calc(100vw - 72px));
+                max-width: 100%;
                 min-width: 0;
-                max-height: calc(100vh - 64px);
-                overflow-y: auto;
-                overflow-x: hidden;
                 margin: 0 auto;
-                padding: 18px 17px 17px;
-                border: 1px solid #2f2619;
-                border-radius: 4px;
-                background: #d4c49d;
-                box-shadow:
-                    0 0 0 1px #efe5c9,
-                    0 0 0 3px #80633b,
-                    0 0 0 5px #c7b68d,
-                    0 0 0 7px #3b3328,
-                    0 8px 26px rgba(0, 0, 0, 0.62);
+                padding: 0;
+                border: 0;
+                border-radius: 0;
+                background: transparent;
+                box-shadow: none;
+                overflow: visible;
                 box-sizing: border-box;
             }
 
             .${APP.id}-dialog::before {
-                content: "";
-                position: absolute;
-                inset: 10px;
-                pointer-events: none;
-                border: 2px solid #a7221e;
-                border-radius: 2px;
-                box-shadow: inset 0 0 0 1px rgba(255, 245, 205, 0.75), 0 0 0 1px rgba(80, 40, 18, 0.35);
+                content: none;
             }
 
             .${APP.id}-close {
                 position: absolute;
-                top: -13px;
-                right: -13px;
+                top: -12px;
+                right: -12px;
                 z-index: 3;
                 width: 20px;
                 height: 20px;
-                line-height: 18px;
+                line-height: 16px;
                 padding: 0;
                 border: 2px solid #4c2a12;
                 border-radius: 2px;
@@ -2360,13 +2509,13 @@
                 flex-direction: column;
                 width: 100%;
                 max-width: 100%;
-                max-height: calc(100vh - 88px);
+                max-height: calc(100vh - 42px);
                 min-height: 0;
                 min-width: 0;
                 padding: 0;
-                border: 1px solid #c99545;
-                border-radius: 0;
-                background: #f2dda7;
+                border: 2px solid #7e211c;
+                border-radius: 4px;
+                background: #f4e4b8;
                 color: #3b2508;
                 overflow: hidden;
                 box-sizing: border-box;
