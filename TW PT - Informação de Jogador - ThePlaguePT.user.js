@@ -10,9 +10,7 @@
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Informa%C3%A7%C3%A3o%20de%20Jogador%20-%20ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Informa%C3%A7%C3%A3o%20de%20Jogador%20-%20ThePlaguePT.user.js
-// @grant        GM_xmlhttpRequest
-// @grant        unsafeWindow
-// @connect      pt.twstats.com
+// @grant        none
 // @run-at       document-idle
 // @noframes
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -35,7 +33,7 @@
         mapCacheMs: 50 * 60 * 1000,
         conquerCacheMs: 90 * 1000,
         conquerAllCacheMs: 5 * 60 * 1000,
-        twstatsCacheMs: 2 * 60 * 1000,
+        maxDailyConquestRows: 80,
         minSnapshotGapMs: 10 * 60 * 1000,
         snapshotRetentionMs: 10 * 24 * 60 * 60 * 1000,
         dailySnapshotRetentionMs: 180 * 24 * 60 * 60 * 1000,
@@ -46,7 +44,16 @@
         zIndex: 60030,
     };
 
-    const pageWindow = typeof unsafeWindow === "object" && unsafeWindow ? unsafeWindow : window;
+    const OD_FILES = {
+        total: ["/map/kill_all.txt"],
+        off: ["/map/kill_att.txt"],
+        def: ["/map/kill_def.txt"],
+        support: [
+            "/map/kill_sup.txt",
+            "/map/kill_support.txt",
+            "/map/kill_supporter.txt",
+        ],
+    };
 
     const state = {
         launcher: null,
@@ -80,548 +87,10 @@
         window.setInterval(ensureProfileStatsButton, 1500);
         window.addEventListener("scroll", ensureProfileStatsButton, true);
 
-        pageWindow.TPResumo24hJogador = {
+        window.TPResumo24hJogador = {
             open: openPanel,
             run: () => runSummary(false),
             version: APP.version,
-        };
-    }
-
-    async function loadTwStatsPlayerData(query, since, force) {
-        const profile = await resolveTwStatsPlayer(query, force);
-        const pages = await loadTwStatsPlayerPages(profile.id, force);
-        const primary = pages[0] || { doc: parseHTML("", profile.url), url: profile.url };
-        const parsedPages = pages.map((page) => parseTwStatsPlayerPage(page.doc, {
-            id: profile.id,
-            name: profile.name,
-            url: page.url,
-        }));
-
-        const merged = mergeTwStatsParsedPages(parsedPages, profile);
-        const player = {
-            id: profile.id,
-            name: merged.name || profile.name || `Jogador #${profile.id}`,
-            points: merged.points,
-            villages: merged.villages,
-            rank: merged.rank,
-            tribe: merged.tribe || "",
-        };
-
-        if (!Number.isFinite(player.id)) {
-            throw new Error("Nao foi possivel identificar o jogador no TWStats.");
-        }
-
-        return {
-            player,
-            od: merged.od,
-            conquests: filterTwStatsConquests(merged.conquests, player, since),
-            allTime: buildAllTimeFromTwStatsConquests(merged.conquests, player),
-            villagesSummary: buildTwStatsVillagesSummary(merged.villageRows),
-            sourceUrl: primary.url,
-        };
-    }
-
-    async function resolveTwStatsPlayer(query, force) {
-        const clean = String(query || "").trim();
-        if (!clean) throw new Error("Indica o nome ou ID do jogador.");
-
-        if (/^\d+$/.test(clean)) {
-            const id = toInt(clean);
-            return {
-                id,
-                name: "",
-                url: twStatsPlayerUrl(id),
-            };
-        }
-
-        const found = await findTwStatsPlayerByName(clean, force);
-        if (found) return found;
-
-        throw new Error(`Jogador "${clean}" nao encontrado no TWStats. Tenta usar o ID do jogador.`);
-    }
-
-    async function findTwStatsPlayerByName(name, force) {
-        const base = twStatsBaseUrl();
-        const encoded = encodeURIComponent(name);
-        const urls = [
-            `${base}index.php?search=${encoded}`,
-            `${base}index.php?page=search&search=${encoded}&type=player`,
-            `${base}index.php?page=search&type=player&search=${encoded}`,
-            `${base}index.php?page=rankings&mode=players&search=${encoded}`,
-            `${base}index.php`,
-        ];
-
-        for (const url of urls) {
-            try {
-                const html = await twStatsRequestText(url, APP.twstatsCacheMs, force);
-                const doc = parseHTML(html, url);
-                assertTwStatsUsable(doc);
-                const match = findPlayerLinkInDoc(doc, name);
-                if (match) return match;
-            } catch (error) {
-                console.warn(`[${APP.id}] pesquisa TWStats falhou`, url, error);
-            }
-        }
-
-        return null;
-    }
-
-    async function loadTwStatsPlayerPages(playerId, force) {
-        const urls = uniqueList([
-            twStatsPlayerUrl(playerId),
-            `${twStatsBaseUrl()}index.php?page=player&id=${encodeURIComponent(playerId)}`,
-            `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player&mode=villages`,
-            `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player&mode=conquers`,
-            `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player&mode=history`,
-            `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player&mode=od`,
-        ]);
-
-        const pages = [];
-        for (const url of urls) {
-            try {
-                const html = await twStatsRequestText(url, APP.twstatsCacheMs, force);
-                const doc = parseHTML(html, url);
-                assertTwStatsUsable(doc);
-                pages.push({ url, doc });
-            } catch (error) {
-                console.warn(`[${APP.id}] pagina TWStats falhou`, url, error);
-            }
-        }
-
-        if (!pages.length) {
-            throw new Error("Nao foi possivel carregar dados do TWStats. Se aparecer protecao Cloudflare, abre o TWStats numa aba e tenta novamente.");
-        }
-
-        return pages;
-    }
-
-    function parseTwStatsPlayerPage(doc, profile) {
-        const text = cleanText(doc.body ? doc.body.textContent : "");
-        const rows = readDocumentRows(doc);
-        return {
-            id: profile.id,
-            name: parseTwStatsPlayerName(doc, profile),
-            points: parseTwStatsStat(rows, text, ["pontos", "points"]),
-            villages: parseTwStatsStat(rows, text, ["aldeias", "villages"]),
-            rank: parseTwStatsRank(rows, text),
-            tribe: parseTwStatsTribe(rows, text),
-            od: parseTwStatsOd(rows),
-            villageRows: parseTwStatsVillageRows(doc, profile.id),
-            conquests: parseTwStatsConquestRows(doc, profile),
-        };
-    }
-
-    function mergeTwStatsParsedPages(pages, profile) {
-        const merged = {
-            name: profile.name,
-            points: null,
-            villages: null,
-            rank: null,
-            tribe: "",
-            od: emptyOd("TWStats"),
-            villageRows: [],
-            conquests: [],
-        };
-
-        for (const page of pages) {
-            merged.name = merged.name || page.name;
-            merged.points = coalesceNumber(merged.points, page.points);
-            merged.villages = coalesceNumber(merged.villages, page.villages);
-            merged.rank = coalesceNumber(merged.rank, page.rank);
-            merged.tribe = merged.tribe || page.tribe || "";
-            merged.od = mergeOd(merged.od, page.od);
-            merged.villageRows.push(...(page.villageRows || []));
-            merged.conquests.push(...(page.conquests || []));
-        }
-
-        merged.villageRows = dedupeTwStatsVillages(merged.villageRows);
-        merged.conquests = dedupeTwStatsConquests(merged.conquests);
-        if (!Number.isFinite(merged.villages) && merged.villageRows.length) merged.villages = merged.villageRows.length;
-        return merged;
-    }
-
-    function twStatsRequestText(url, ttlMs, force) {
-        const key = `twstats:${url}`;
-        const now = Date.now();
-        const cached = state.memoryCache.get(key);
-        if (!force && cached && now - cached.time < ttlMs) return Promise.resolve(cached.text);
-
-        return new Promise((resolve, reject) => {
-            const done = (text) => {
-                state.memoryCache.set(key, { time: Date.now(), text });
-                resolve(text);
-            };
-
-            if (typeof GM_xmlhttpRequest === "function") {
-                GM_xmlhttpRequest({
-                    method: "GET",
-                    url,
-                    headers: { "Accept": "text/html,application/xhtml+xml,*/*" },
-                    onload: (response) => {
-                        if (response.status >= 200 && response.status < 300) done(response.responseText || "");
-                        else reject(new Error(`TWStats ${response.status}`));
-                    },
-                    onerror: () => reject(new Error("Falha ao contactar o TWStats.")),
-                    ontimeout: () => reject(new Error("Tempo esgotado ao contactar o TWStats.")),
-                    timeout: 15000,
-                });
-                return;
-            }
-
-            fetch(url, { credentials: "include", cache: "no-store" })
-                .then((response) => {
-                    if (!response.ok) throw new Error(`TWStats ${response.status}`);
-                    return response.text();
-                })
-                .then(done)
-                .catch(reject);
-        });
-    }
-
-    function parseHTML(html, url) {
-        const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
-        if (url) {
-            const base = doc.createElement("base");
-            base.href = url;
-            doc.head.appendChild(base);
-        }
-        return doc;
-    }
-
-    function assertTwStatsUsable(doc) {
-        const text = cleanText(doc.body ? doc.body.textContent : "");
-        if (/just a moment|enable javascript and cookies|cloudflare/i.test(text)) {
-            throw new Error("TWStats devolveu verificacao Cloudflare.");
-        }
-    }
-
-    function findPlayerLinkInDoc(doc, query) {
-        const wanted = fold(query);
-        const links = Array.from(doc.querySelectorAll("a[href]"));
-        const candidates = links
-            .map((link) => {
-                const id = extractTwStatsPlayerId(link.getAttribute("href") || link.href);
-                if (!id) return null;
-                return {
-                    id,
-                    name: cleanText(link.textContent),
-                    url: absoluteTwStatsUrl(link.getAttribute("href") || link.href),
-                };
-            })
-            .filter(Boolean);
-
-        return candidates.find((item) => fold(item.name) === wanted) ||
-            candidates.find((item) => fold(item.name).includes(wanted)) ||
-            null;
-    }
-
-    function extractTwStatsPlayerId(url) {
-        const text = String(url || "");
-        if (!/page=player|player/i.test(text)) return 0;
-        const match = text.match(/[?&]id=(\d+)/i) || text.match(/\/player\/(\d+)/i);
-        return match ? toInt(match[1]) : 0;
-    }
-
-    function parseTwStatsPlayerName(doc, profile) {
-        const directLink = Array.from(doc.querySelectorAll("a[href]")).find((link) => extractTwStatsPlayerId(link.getAttribute("href") || link.href) === profile.id);
-        if (directLink && cleanText(directLink.textContent)) return cleanText(directLink.textContent);
-
-        const heading = Array.from(doc.querySelectorAll("h1,h2,h3"))
-            .map((node) => cleanText(node.textContent))
-            .find((value) => value && !/tw stats|estatisticas|classifica/i.test(value));
-        return heading || profile.name || "";
-    }
-
-    function readDocumentRows(doc) {
-        return Array.from(doc.querySelectorAll("tr")).map((row) => {
-            const cells = Array.from(row.children).filter((cell) => /^(td|th)$/i.test(cell.tagName));
-            const headers = cells.map((cell) => cleanText(cell.textContent));
-            return {
-                row,
-                cells,
-                text: cleanText(row.textContent),
-                folded: fold(row.textContent),
-                headers,
-            };
-        });
-    }
-
-    function parseTwStatsStat(rows, text, labels) {
-        for (const row of rows) {
-            const first = fold(row.headers[0] || "");
-            if (labels.some((label) => first === label || first.includes(label))) {
-                const value = firstFinite(row.headers.slice(1).map(parseHumanNumber));
-                if (Number.isFinite(value)) return value;
-            }
-        }
-
-        return parseTextLabelNumber(text, labels);
-    }
-
-    function parseTwStatsRank(rows, text) {
-        return parseTwStatsStat(rows, text, ["posicao na classificacao", "classificacao", "rank", "posicao"]);
-    }
-
-    function parseTwStatsTribe(rows, text) {
-        for (const row of rows) {
-            const first = fold(row.headers[0] || "");
-            if (first.includes("tribo") || first.includes("tribe")) {
-                const value = cleanText(row.headers[1] || "");
-                if (value && !/tribo|tribe/i.test(value)) return value;
-            }
-        }
-
-        const match = text.match(/(?:Tribo|Tribe)\s*:?\s*([^\n\r|]+)/i);
-        return match ? cleanText(match[1]).split(/\s{2,}/)[0] : "";
-    }
-
-    function parseTwStatsOd(rows) {
-        const od = emptyOd("TWStats");
-        for (const row of rows) {
-            const label = row.folded;
-            if (!/oponentes derrotados|od|off|def|apoio|support/i.test(label)) continue;
-
-            const entry = parseOdEntryFromRow(row);
-            if (!entry) continue;
-
-            if (label.includes("ofens") || label.includes("ataque") || /\boff\b/.test(label)) od.off = entry;
-            else if (label.includes("defens") || label.includes("defesa") || /\bdef\b/.test(label)) od.def = entry;
-            else if (label.includes("apoio") || label.includes("support")) od.support = entry;
-            else if (label.includes("oponentes derrotados") || label.includes("total") || label === "od") od.total = entry;
-        }
-        return od;
-    }
-
-    function parseOdEntryFromRow(row) {
-        const nums = row.headers.slice(1).map(parseHumanNumber).filter(Number.isFinite);
-        if (!nums.length) return null;
-        const rank = parseRankFromTexts(row.headers);
-        const score = nums.reduce((max, value) => Math.max(max, value), 0);
-        return {
-            rank: Number.isFinite(rank) ? rank : null,
-            score,
-        };
-    }
-
-    function parseRankFromTexts(values) {
-        for (const value of values) {
-            const match = String(value || "").match(/#\s*([\d.,\s]+)/);
-            if (match) return parseHumanNumber(match[1]);
-        }
-        return null;
-    }
-
-    function emptyOd(source) {
-        return {
-            total: null,
-            off: null,
-            def: null,
-            support: null,
-            supportSource: source || "TWStats",
-        };
-    }
-
-    function mergeOd(base, extra) {
-        return {
-            total: base.total || extra.total || null,
-            off: base.off || extra.off || null,
-            def: base.def || extra.def || null,
-            support: base.support || extra.support || null,
-            supportSource: "TWStats",
-        };
-    }
-
-    function parseTwStatsVillageRows(doc, playerId) {
-        const rows = [];
-        Array.from(doc.querySelectorAll("tr")).forEach((row, index) => {
-            const text = cleanText(row.textContent);
-            const coord = parseCoords(text);
-            if (!coord) return;
-
-            const cells = Array.from(row.children).map((cell) => cleanText(cell.textContent));
-            const villageLink = Array.from(row.querySelectorAll("a[href]")).find((link) => /village|aldeia|info_village/i.test(link.href || link.getAttribute("href")));
-            const name = cleanText(villageLink ? villageLink.textContent : cells.find((cell) => !cell.includes(coord.coords) && /[A-Za-zÀ-ÿ]/.test(cell)) || `Aldeia ${coord.coords}`);
-            const points = firstFinite(cells.map(parseHumanNumber).filter((value) => value !== coord.x && value !== coord.y));
-
-            rows.push({
-                id: index + 1,
-                name,
-                x: coord.x,
-                y: coord.y,
-                coords: coord.coords,
-                playerId,
-                points: Number.isFinite(points) ? points : 0,
-            });
-        });
-        return rows;
-    }
-
-    function parseTwStatsConquestRows(doc, profile) {
-        const rows = [];
-        Array.from(doc.querySelectorAll("table")).forEach((table) => {
-            const headerCells = Array.from(table.querySelectorAll("tr:first-child th, tr:first-child td")).map((cell) => fold(cell.textContent));
-            Array.from(table.querySelectorAll("tr")).forEach((row) => {
-                const text = cleanText(row.textContent);
-                const coord = parseCoords(text);
-                if (!coord) return;
-
-                const links = Array.from(row.querySelectorAll("a[href]"))
-                    .map((link) => ({
-                        id: extractTwStatsPlayerId(link.getAttribute("href") || link.href),
-                        name: cleanText(link.textContent),
-                    }))
-                    .filter((link) => link.id);
-                if (!links.length) return;
-
-                const ownership = inferTwStatsConquestOwners(row, headerCells, links, profile);
-                if (!ownership || (ownership.newOwnerId !== profile.id && ownership.oldOwnerId !== profile.id)) return;
-
-                const timestamp = parseTwStatsTimestamp(text);
-                const cells = Array.from(row.children).map((cell) => cleanText(cell.textContent));
-                const points = firstFinite(cells.map(parseHumanNumber).filter((value) => value !== coord.x && value !== coord.y));
-                rows.push({
-                    villageId: `${coord.x}${coord.y}`,
-                    village: {
-                        id: `${coord.x}${coord.y}`,
-                        name: cells.find((cell) => cell.includes(coord.coords)) || `Aldeia ${coord.coords}`,
-                        x: coord.x,
-                        y: coord.y,
-                        coords: coord.coords,
-                        playerId: ownership.newOwnerId,
-                        points: Number.isFinite(points) ? points : 0,
-                    },
-                    timestamp,
-                    date: new Date(timestamp * 1000),
-                    newOwner: ownership.newOwnerName,
-                    oldOwner: ownership.oldOwnerName,
-                    newOwnerId: ownership.newOwnerId,
-                    oldOwnerId: ownership.oldOwnerId,
-                });
-            });
-        });
-        return rows;
-    }
-
-    function inferTwStatsConquestOwners(row, headerCells, links, profile) {
-        if (links.length >= 2) {
-            const cells = Array.from(row.children);
-            const cellLinks = cells.map((cell) => Array.from(cell.querySelectorAll("a[href]"))
-                .map((link) => ({
-                    id: extractTwStatsPlayerId(link.getAttribute("href") || link.href),
-                    name: cleanText(link.textContent),
-                }))
-                .filter((link) => link.id));
-
-            const newIndex = headerCells.findIndex((header) => /ganhou|novo|conquist|para|new/.test(header));
-            const oldIndex = headerCells.findIndex((header) => /perdeu|antigo|de |from|old/.test(header));
-            const newLink = newIndex >= 0 && cellLinks[newIndex] && cellLinks[newIndex][0] ? cellLinks[newIndex][0] : links[0];
-            const oldLink = oldIndex >= 0 && cellLinks[oldIndex] && cellLinks[oldIndex][0] ? cellLinks[oldIndex][0] : links[1];
-            return {
-                newOwnerId: newLink.id,
-                newOwnerName: newLink.name,
-                oldOwnerId: oldLink.id,
-                oldOwnerName: oldLink.name,
-            };
-        }
-
-        const only = links[0];
-        const text = fold(row.textContent);
-        if (only.id === profile.id && /ganhou|conquist/.test(text)) {
-            return { newOwnerId: only.id, newOwnerName: only.name, oldOwnerId: 0, oldOwnerName: "-" };
-        }
-        if (only.id === profile.id && /perdeu|perdid/.test(text)) {
-            return { newOwnerId: 0, newOwnerName: "-", oldOwnerId: only.id, oldOwnerName: only.name };
-        }
-        return null;
-    }
-
-    function filterTwStatsConquests(rows, player, since) {
-        const gained = [];
-        const lost = [];
-        for (const row of rows || []) {
-            if (row.timestamp < since) continue;
-            if (row.newOwnerId === player.id) gained.push(row);
-            if (row.oldOwnerId === player.id) lost.push(row);
-        }
-        gained.sort((a, b) => b.timestamp - a.timestamp);
-        lost.sort((a, b) => b.timestamp - a.timestamp);
-        return {
-            gained,
-            lost,
-            net: gained.length - lost.length,
-        };
-    }
-
-    function buildAllTimeFromTwStatsConquests(rows, player) {
-        const daily = new Map();
-        const opponents = new Map();
-        let gained = 0;
-        let lost = 0;
-        let firstTs = 0;
-        let lastTs = 0;
-
-        for (const row of rows || []) {
-            const dayKey = dateKey(row.timestamp);
-            const day = daily.get(dayKey) || { key: dayKey, ts: startOfDayTs(row.timestamp), gained: 0, lost: 0 };
-            if (row.newOwnerId === player.id) {
-                gained += 1;
-                day.gained += 1;
-            }
-            if (row.oldOwnerId === player.id) {
-                lost += 1;
-                day.lost += 1;
-            }
-            daily.set(dayKey, day);
-            firstTs = firstTs ? Math.min(firstTs, row.timestamp) : row.timestamp;
-            lastTs = Math.max(lastTs, row.timestamp);
-        }
-
-        const days = Array.from(daily.values()).sort((a, b) => a.ts - b.ts);
-        let runningGained = 0;
-        let runningLost = 0;
-        const cumulative = days.map((day) => {
-            runningGained += day.gained;
-            runningLost += day.lost;
-            return {
-                key: day.key,
-                ts: day.ts,
-                value: runningGained - runningLost,
-                gained: runningGained,
-                lost: runningLost,
-            };
-        });
-
-        return {
-            gained,
-            lost,
-            net: gained - lost,
-            firstTs,
-            lastTs,
-            days,
-            cumulative,
-            opponents: Array.from(opponents.values()),
-        };
-    }
-
-    function buildTwStatsVillagesSummary(rows) {
-        const list = (rows || []).sort((a, b) => a.x - b.x || a.y - b.y || a.name.localeCompare(b.name));
-        const continents = new Map();
-        for (const village of list) {
-            const continent = continentFromVillage(village);
-            const group = continents.get(continent) || [];
-            group.push(village);
-            continents.set(continent, group);
-        }
-        return {
-            rows: list,
-            coords: list.map((village) => village.coords),
-            continents: Array.from(continents.entries())
-                .sort((a, b) => a[0].localeCompare(b[0]))
-                .map(([continent, villages]) => ({
-                    continent,
-                    rows: villages,
-                    coords: villages.map((village) => village.coords),
-                })),
         };
     }
 
@@ -803,12 +272,12 @@
             order: 35,
             run: openPanel,
         };
-        pageWindow.TWHubQueue = pageWindow.TWHubQueue || [];
-        pageWindow.TWHubQueue.push(item);
+        window.TWHubQueue = window.TWHubQueue || [];
+        window.TWHubQueue.push(item);
     }
 
     function openPanel() {
-        if (pageWindow.Dialog && typeof pageWindow.Dialog.show === "function") {
+        if (window.Dialog && typeof window.Dialog.show === "function") {
             openNativeDialogPanel();
             return;
         }
@@ -835,7 +304,7 @@
             "",
         );
 
-        pageWindow.Dialog.show(APP.dialogId, html);
+        window.Dialog.show(APP.dialogId, html);
         const dialog = document.querySelector(`#popup_box_${APP.dialogId} .${APP.id}-dialog`) ||
             document.querySelector(`.${APP.id}-dialog`);
         if (!dialog) return;
@@ -866,8 +335,8 @@
     }
 
     function closePanel() {
-        if (state.nativeDialog && pageWindow.Dialog && typeof pageWindow.Dialog.close === "function") {
-            pageWindow.Dialog.close(APP.dialogId);
+        if (state.nativeDialog && window.Dialog && typeof window.Dialog.close === "function") {
+            window.Dialog.close(APP.dialogId);
             state.nativeDialog = false;
             state.panel = null;
             state.controls = {};
@@ -948,7 +417,7 @@
                             </div>
                             <div class="${APP.id}-footerLine">
                                 <span class="${APP.id}-status">Pronto.</span>
-                                <span>Dados do TWStats. <a href="${APP.githubUrl}" target="_blank" rel="noopener">GitHub</a></span>
+                                <span>Dados publicos do mapa. <a href="${APP.githubUrl}" target="_blank" rel="noopener">GitHub</a></span>
                             </div>
                         </div>
                     </section>
@@ -991,6 +460,12 @@
         });
 
         if (state.controls.body) state.controls.body.addEventListener("click", (event) => {
+            const exportButton = event.target.closest(`[data-${APP.id}-export]`);
+            if (exportButton) {
+                exportDailyArchive(exportButton.getAttribute(`data-${APP.id}-export`));
+                return;
+            }
+
             const toggle = event.target.closest(`[data-${APP.id}-toggle]`);
             if (toggle) togglePanelRow(toggle);
         });
@@ -1080,7 +555,7 @@
 
         state.busy = true;
         setBusy(true);
-        setStatus(force ? "A atualizar dados do TWStats..." : "A carregar dados do TWStats...");
+        setStatus(force ? "A atualizar ficheiros do mundo..." : "A carregar dados do mundo...");
 
         try {
             const result = await buildSummary(query, force);
@@ -1104,21 +579,47 @@
         const periodMs = periodToMs(periodHours);
         const since = Math.floor((now - periodMs) / 1000);
 
-        const twstatsData = await loadTwStatsPlayerData(query, since, force);
-        const player = twstatsData.player;
-        const od = twstatsData.od;
-        const conquests = twstatsData.conquests;
-        const allTime = twstatsData.allTime;
-        const villagesSummary = twstatsData.villagesSummary;
+        const playersText = await fetchCachedText("players", "/map/player.txt", APP.mapCacheMs, force);
+        const players = parsePlayers(playersText);
+        const player = findPlayer(players, query);
+        if (!player) throw new Error("Jogador nao encontrado no player.txt.");
+
+        const conquerPromise = fetchConquestsSince(since, force, periodHours);
+        const conquerAllPromise = fetchCachedText("conquerAll", "/map/conquer.txt", APP.conquerAllCacheMs, force);
+        const villagePromise = fetchCachedText("villages", "/map/village.txt", APP.mapCacheMs, force);
+        const tribePromise = fetchCachedText("tribes", "/map/ally.txt", APP.mapCacheMs, force, true);
+        const odPromise = loadOdEntries(player.id, force);
+
+        const [conquerText, conquerAllText, villagesText, tribesText, od] = await Promise.all([
+            conquerPromise,
+            conquerAllPromise,
+            villagePromise,
+            tribePromise,
+            odPromise,
+        ]);
+
+        const tribes = parseTribes(tribesText || "");
+        player.tribe = tribeInfo(tribes, player.tribeId);
+        const villages = parseVillages(villagesText);
+        const conquests = summarizeConquests(conquerText, villages, players.byId, player.id, since);
+        const todayConquests = summarizeConquests(conquerAllText, villages, players.byId, player.id, startOfDayTs(Math.floor(now / 1000)));
+        const allTime = summarizeAllTimeConquests(conquerAllText, villages, players.byId, player.id);
+        const villagesSummary = summarizePlayerVillages(villages, player.id);
+        const metrics = buildEvaluationMetrics(player, villagesSummary, od, allTime);
 
         const current = {
             ts: now,
             playerId: player.id,
             name: player.name,
+            tribe: player.tribe,
             points: player.points,
             villages: player.villages,
             rank: player.rank,
             od,
+            metrics,
+            villagesArchive: compactVillageArchive(villagesSummary),
+            conquestsDay: compactConquestArchive(todayConquests),
+            allTimeSummary: compactAllTimeArchive(allTime),
         };
 
         const dailyHistory = loadDailySnapshots(player.id);
@@ -1149,7 +650,7 @@
             villagesSummary,
             twstats: buildTwStatsLinks(player.id),
             odSupportAvailable: od.support !== null,
-            supportSource: od.supportSource || "TWStats",
+            supportSource: od.supportSource || "",
         };
     }
 
@@ -1173,6 +674,75 @@
         if (hours < 24) return `${hours}H`;
         if (hours === 24) return "24H";
         return `${hours / 24}D`;
+    }
+
+    async function fetchConquestsSince(since, force, periodHours) {
+        const recentPath = `/interface.php?func=get_conquer&since=${since}`;
+        try {
+            return await fetchCachedText(`conquer:${periodHours}h`, recentPath, APP.conquerCacheMs, force);
+        } catch (error) {
+            console.warn(`[${APP.id}] interface conquer falhou; a usar /map/conquer.txt`, error);
+            return fetchCachedText("conquerFull", "/map/conquer.txt", APP.conquerCacheMs, force);
+        }
+    }
+
+    async function loadOdEntries(playerId, force) {
+        const [totalText, offText, defText, supportData] = await Promise.all([
+            fetchFirstAvailable("odTotal", OD_FILES.total, APP.mapCacheMs, force, true),
+            fetchFirstAvailable("odOff", OD_FILES.off, APP.mapCacheMs, force, true),
+            fetchFirstAvailable("odDef", OD_FILES.def, APP.mapCacheMs, force, true),
+            fetchFirstAvailable("odSupport", OD_FILES.support, APP.mapCacheMs, force, true),
+        ]);
+
+        return {
+            total: findKillEntry(totalText.text, playerId),
+            off: findKillEntry(offText.text, playerId),
+            def: findKillEntry(defText.text, playerId),
+            support: supportData.text ? findKillEntry(supportData.text, playerId) : null,
+            supportSource: supportData.path || "",
+        };
+    }
+
+    async function fetchFirstAvailable(name, paths, ttlMs, force, optional) {
+        let lastError = null;
+        for (const path of paths) {
+            try {
+                const text = await fetchCachedText(`${name}:${path}`, path, ttlMs, force, optional);
+                if (text !== null) return { path, text };
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        if (!optional && lastError) throw lastError;
+        return { path: "", text: null };
+    }
+
+    async function fetchCachedText(name, path, ttlMs, force, optional) {
+        const now = Date.now();
+        const cached = state.memoryCache.get(name);
+        if (!force && cached && now - cached.time < ttlMs) {
+            if (cached.missing) return null;
+            return cached.text;
+        }
+
+        const response = await fetch(path, {
+            credentials: "same-origin",
+            cache: "no-store",
+            headers: { "Accept": "text/plain,*/*" },
+        });
+
+        if (!response.ok) {
+            if (optional && (response.status === 404 || response.status === 403)) {
+                state.memoryCache.set(name, { time: now, missing: true, text: null });
+                return null;
+            }
+            throw new Error(`${path} (${response.status})`);
+        }
+
+        const text = await response.text();
+        state.memoryCache.set(name, { time: now, text });
+        return text;
     }
 
     function parsePlayers(text) {
@@ -1206,6 +776,53 @@
         }
 
         return { byId, rows };
+    }
+
+    function parseTribes(text) {
+        const byId = new Map();
+        byId.set(0, {
+            id: 0,
+            name: "-",
+            tag: "-",
+            members: 0,
+            villages: 0,
+            points: 0,
+            allPoints: 0,
+            rank: 0,
+        });
+
+        for (const line of splitLines(text)) {
+            const cols = line.split(",");
+            if (cols.length < 8) continue;
+
+            const tribe = {
+                id: toInt(cols[0]),
+                name: decodeTW(cols[1]) || `Tribo #${toInt(cols[0])}`,
+                tag: decodeTW(cols[2]) || "-",
+                members: toInt(cols[3]),
+                villages: toInt(cols[4]),
+                points: toInt(cols[5]),
+                allPoints: toInt(cols[6]),
+                rank: toInt(cols[7]),
+            };
+            byId.set(tribe.id, tribe);
+        }
+
+        return { byId };
+    }
+
+    function tribeInfo(tribes, tribeId) {
+        const tribe = tribes && tribes.byId ? tribes.byId.get(tribeId) : null;
+        return tribe || {
+            id: tribeId || 0,
+            name: "-",
+            tag: "-",
+            members: 0,
+            villages: 0,
+            points: 0,
+            allPoints: 0,
+            rank: 0,
+        };
     }
 
     function parseVillages(text) {
@@ -1344,8 +961,102 @@
                     continent,
                     rows: list,
                     coords: list.map((village) => village.coords),
-                })),
+            })),
         };
+    }
+
+    function buildEvaluationMetrics(player, villagesSummary, od, allTime) {
+        const villageRows = villagesSummary && villagesSummary.rows ? villagesSummary.rows : [];
+        const villagePoints = villageRows.reduce((total, village) => total + (Number.isFinite(village.points) ? village.points : 0), 0);
+        const villageCount = villageRows.length || player.villages || 0;
+        const odTotal = od && od.total && Number.isFinite(od.total.score) ? od.total.score : null;
+        const odOff = od && od.off && Number.isFinite(od.off.score) ? od.off.score : null;
+        const odDef = od && od.def && Number.isFinite(od.def.score) ? od.def.score : null;
+        const odSupport = od && od.support && Number.isFinite(od.support.score) ? od.support.score : null;
+
+        return {
+            pointsPerVillage: villageCount ? Math.round(player.points / villageCount) : null,
+            villagePoints,
+            averageVillagePoints: villageCount ? Math.round(villagePoints / villageCount) : null,
+            odTotal,
+            odOff,
+            odDef,
+            odSupport,
+            odPerPoint: odTotal && player.points ? roundMetric(odTotal / player.points) : null,
+            offensiveShare: odTotal ? roundMetric((odOff || 0) * 100 / odTotal) : null,
+            defensiveShare: odTotal ? roundMetric((odDef || 0) * 100 / odTotal) : null,
+            supportShare: odTotal ? roundMetric((odSupport || 0) * 100 / odTotal) : null,
+            allTimeGained: allTime ? allTime.gained : 0,
+            allTimeLost: allTime ? allTime.lost : 0,
+            allTimeNet: allTime ? allTime.net : 0,
+        };
+    }
+
+    function compactVillageArchive(summary) {
+        const rows = summary && summary.rows ? summary.rows : [];
+        const continents = summary && summary.continents ? summary.continents : [];
+        return {
+            count: rows.length,
+            coords: rows.map((village) => village.coords),
+            rows: rows.map((village) => ({
+                id: village.id,
+                name: village.name,
+                coords: village.coords,
+                x: village.x,
+                y: village.y,
+                points: village.points,
+                continent: continentFromVillage(village),
+            })),
+            continents: continents.map((group) => ({
+                continent: group.continent,
+                count: group.rows.length,
+                coords: group.coords,
+                points: group.rows.reduce((total, village) => total + (Number.isFinite(village.points) ? village.points : 0), 0),
+            })),
+        };
+    }
+
+    function compactConquestArchive(conquests) {
+        const gained = conquests && conquests.gained ? conquests.gained : [];
+        const lost = conquests && conquests.lost ? conquests.lost : [];
+        return {
+            gained: gained.length,
+            lost: lost.length,
+            net: (conquests && conquests.net) || 0,
+            rows: [...gained.map((row) => compactConquestRow(row, "gain")), ...lost.map((row) => compactConquestRow(row, "loss"))]
+                .sort((a, b) => b.timestamp - a.timestamp)
+                .slice(0, APP.maxDailyConquestRows),
+        };
+    }
+
+    function compactConquestRow(row, mode) {
+        return {
+            mode,
+            timestamp: row.timestamp,
+            date: formatDateTime(row.date),
+            villageId: row.villageId,
+            village: row.village ? row.village.name : "",
+            coords: row.village ? row.village.coords : "-",
+            points: row.village ? row.village.points : 0,
+            continent: row.village ? continentFromVillage(row.village) : "-",
+            oldOwner: row.oldOwner,
+            newOwner: row.newOwner,
+        };
+    }
+
+    function compactAllTimeArchive(allTime) {
+        return {
+            gained: allTime ? allTime.gained : 0,
+            lost: allTime ? allTime.lost : 0,
+            net: allTime ? allTime.net : 0,
+            firstTs: allTime ? allTime.firstTs : 0,
+            lastTs: allTime ? allTime.lastTs : 0,
+            opponents: allTime && allTime.opponents ? allTime.opponents : [],
+        };
+    }
+
+    function roundMetric(value) {
+        return Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
     }
 
     function summarizeAllTimeConquests(text, villages, playersById, playerId) {
@@ -1459,99 +1170,6 @@
             historyUrl: `${profileUrl}&mode=history`,
             graphs,
         };
-    }
-
-    function twStatsBaseUrl() {
-        return `https://pt.twstats.com/${encodeURIComponent(twStatsWorldKey())}/`;
-    }
-
-    function twStatsPlayerUrl(playerId) {
-        return `${twStatsBaseUrl()}index.php?id=${encodeURIComponent(playerId)}&page=player`;
-    }
-
-    function absoluteTwStatsUrl(url) {
-        try {
-            return new URL(String(url || ""), twStatsBaseUrl()).href;
-        } catch (_) {
-            return twStatsBaseUrl();
-        }
-    }
-
-    function uniqueList(values) {
-        return Array.from(new Set((values || []).filter(Boolean)));
-    }
-
-    function parseHumanNumber(value) {
-        const text = String(value == null ? "" : value).replace(/&nbsp;/g, " ");
-        const match = text.match(/#?\s*[-+]?\d[\d.,\s]*/);
-        if (!match) return null;
-        const clean = match[0].replace(/[^\d-]/g, "");
-        if (!clean || clean === "-") return null;
-        const number = Number.parseInt(clean, 10);
-        return Number.isFinite(number) ? number : null;
-    }
-
-    function firstFinite(values) {
-        return (values || []).find((value) => Number.isFinite(value));
-    }
-
-    function parseTextLabelNumber(text, labels) {
-        const folded = fold(text);
-        for (const label of labels) {
-            const index = folded.indexOf(fold(label));
-            if (index < 0) continue;
-            const segment = folded.slice(index, index + 120);
-            const number = parseHumanNumber(segment.replace(fold(label), ""));
-            if (Number.isFinite(number)) return number;
-        }
-        return null;
-    }
-
-    function parseCoords(text) {
-        const match = String(text || "").match(/\b(\d{3})[|\/](\d{3})\b/);
-        if (!match) return null;
-        const x = toInt(match[1]);
-        const y = toInt(match[2]);
-        return {
-            x,
-            y,
-            coords: `${x}|${y}`,
-        };
-    }
-
-    function parseTwStatsTimestamp(text) {
-        const value = String(text || "");
-        const match = value.match(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?(?:,?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-        if (!match) return Math.floor(Date.now() / 1000);
-
-        const now = new Date();
-        let year = match[3] ? toInt(match[3]) : now.getFullYear();
-        if (year < 100) year += 2000;
-        const month = Math.max(0, toInt(match[2]) - 1);
-        const day = toInt(match[1]);
-        const hour = match[4] ? toInt(match[4]) : 0;
-        const minute = match[5] ? toInt(match[5]) : 0;
-        const second = match[6] ? toInt(match[6]) : 0;
-        const date = new Date(year, month, day, hour, minute, second);
-        return Math.floor(date.getTime() / 1000);
-    }
-
-    function dedupeTwStatsVillages(rows) {
-        const byCoord = new Map();
-        for (const row of rows || []) {
-            if (row && row.coords && !byCoord.has(row.coords)) byCoord.set(row.coords, row);
-        }
-        return Array.from(byCoord.values());
-    }
-
-    function dedupeTwStatsConquests(rows) {
-        const byKey = new Map();
-        for (const row of rows || []) {
-            if (!row) continue;
-            const key = [row.timestamp, row.village && row.village.coords, row.newOwnerId, row.oldOwnerId].join(":");
-            if (!byKey.has(key)) byKey.set(key, row);
-        }
-        return Array.from(byKey.values());
     }
 
     function twStatsWorldKey() {
@@ -1724,11 +1342,35 @@
 
         byDay.set(entry.day, entry);
 
+        const values = Array.from(byDay.values()).sort((a, b) => a.ts - b.ts);
+
         try {
-            window.localStorage.setItem(key, JSON.stringify(Array.from(byDay.values()).sort((a, b) => a.ts - b.ts)));
+            window.localStorage.setItem(key, JSON.stringify(values));
         } catch (_) {
-            // O resumo atual continua funcional mesmo sem historico diario local.
+            try {
+                window.localStorage.setItem(key, JSON.stringify(values.map(compactStoredDailyEntry)));
+            } catch (_) {
+                // O resumo atual continua funcional mesmo sem historico diario local.
+            }
         }
+    }
+
+    function compactStoredDailyEntry(entry) {
+        return {
+            ...entry,
+            villagesArchive: entry.villagesArchive ? {
+                count: entry.villagesArchive.count,
+                coords: entry.villagesArchive.coords,
+                continents: entry.villagesArchive.continents,
+                rows: [],
+            } : null,
+            conquestsDay: entry.conquestsDay ? {
+                gained: entry.conquestsDay.gained,
+                lost: entry.conquestsDay.lost,
+                net: entry.conquestsDay.net,
+                rows: (entry.conquestsDay.rows || []).slice(0, 20),
+            } : null,
+        };
     }
 
     function buildDailyStats(history, current) {
@@ -1752,7 +1394,12 @@
             points: entry.points,
             villages: entry.villages,
             rank: entry.rank,
+            tribe: entry.tribe || {},
             od: entry.od || {},
+            metrics: entry.metrics || {},
+            villagesArchive: entry.villagesArchive || null,
+            conquestsDay: entry.conquestsDay || null,
+            allTimeSummary: entry.allTimeSummary || null,
             diff: {
                 points: previous ? diffNumber(entry.points, previous.points) : null,
                 villages: previous ? diffNumber(entry.villages, previous.villages) : null,
@@ -1773,10 +1420,15 @@
             ts: snapshot.ts,
             playerId: snapshot.playerId,
             name: snapshot.name,
+            tribe: snapshot.tribe || {},
             points: snapshot.points,
             villages: snapshot.villages,
             rank: snapshot.rank,
             od: snapshot.od || {},
+            metrics: snapshot.metrics || {},
+            villagesArchive: snapshot.villagesArchive || null,
+            conquestsDay: snapshot.conquestsDay || null,
+            allTimeSummary: snapshot.allTimeSummary || null,
         };
     }
 
@@ -1789,7 +1441,7 @@
             <div class="${APP.id}-playerHead">
                 <div>
                     <a href="/game.php?screen=info_player&id=${result.player.id}" target="_blank" rel="noopener">${escapeHTML(result.player.name)}</a>
-                    <span>#${result.player.id} - ${escapeHTML(result.period.label)}</span>
+                    <span>#${result.player.id} - ${escapeHTML(result.period.label)} - Tribo: ${escapeHTML(result.player.tribe && result.player.tribe.tag ? result.player.tribe.tag : "-")}</span>
                 </div>
             </div>
 
@@ -1826,6 +1478,7 @@
         state.controls.body.innerHTML = `
             ${panelRow("RESUMO", `Totais do periodo selecionado: ${result.period.label}.`, summaryContent, "summaryRow", true)}
             ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.period.hours === 24 ? result.diffs : null), "dailyRow", true)}
+            ${panelRow("ARQUIVO", "Historico diario guardado para avaliacao do jogador.", renderDailyArchive(result.dailyStats.rows), "archiveRow", false)}
             ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow", false)}
             ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow", false)}
             ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow", false)}
@@ -1859,6 +1512,7 @@
             jogador: "&#9817;",
             resumo: "&#9638;",
             "1 dia": "1D",
+            arquivo: "&#9776;",
             aldeias: "&#8962;",
             mundo: "&#9673;",
             twstats: "TW",
@@ -1891,6 +1545,7 @@
         const odOffDelta = coalesceNumber(today && today.diff.od.off, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.off);
         const odDefDelta = coalesceNumber(today && today.diff.od.def, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.def);
         const odSupportDelta = coalesceNumber(today && today.diff.od.support, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.support);
+        const conquestDelta = today && today.conquestsDay ? today.conquestsDay.net : dailyConquestNet(conquests);
 
         return `
             <div class="${APP.id}-dailyHead">
@@ -1901,7 +1556,7 @@
                 ${dailyMetricCard("Pontos", pointsDelta)}
                 ${dailyMetricCard("Aldeias", villagesDelta)}
                 ${dailyMetricCard("Rank", rankDelta, true)}
-                ${dailyMetricCard("Conquistas", dailyConquestNet(conquests))}
+                ${dailyMetricCard("Conquistas", conquestDelta)}
             </div>
             <div class="${APP.id}-grid ${APP.id}-dailyGrid ${APP.id}-dailyOdGrid">
                 ${dailyMetricCard("OD Total", odTotalDelta)}
@@ -1911,6 +1566,161 @@
             </div>
             ${renderDailyOdHistory(rows)}
         `;
+    }
+
+    function renderDailyArchive(rows) {
+        if (!rows || !rows.length) {
+            return `<div class="${APP.id}-emptyList">Ainda nao existe arquivo diario para este jogador.</div>`;
+        }
+
+        const latest = rows[0];
+        const latestArchive = latest && latest.villagesArchive ? latest.villagesArchive : null;
+        return `
+            <div class="${APP.id}-archiveActions">
+                <button type="button" data-${APP.id}-export="json">Exportar JSON</button>
+                <button type="button" data-${APP.id}-export="csv">Exportar CSV</button>
+                <span>${formatNumber(rows.length)} registos diarios guardados</span>
+            </div>
+            <div class="${APP.id}-tableWrap ${APP.id}-archiveWrap">
+                <table class="${APP.id}-table ${APP.id}-archiveTable">
+                    <thead>
+                        <tr>
+                            <th>DIA</th>
+                            <th>TRIBO</th>
+                            <th>PONTOS</th>
+                            <th>+PTS</th>
+                            <th>ALD</th>
+                            <th>RANK</th>
+                            <th>OD</th>
+                            <th>OD OF</th>
+                            <th>OD DEF</th>
+                            <th>OD APOIO</th>
+                            <th>G/P DIA</th>
+                            <th>MEDIA ALD</th>
+                            <th>OD/PTS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((row) => `
+                            <tr>
+                                <td>${escapeHTML(formatDateOnly(new Date(row.ts)))}</td>
+                                <td>${escapeHTML(row.tribe && row.tribe.tag ? row.tribe.tag : "-")}</td>
+                                <td>${formatNumber(row.points)}</td>
+                                <td><em class="${deltaClass(row.diff.points, false)}">${escapeHTML(formatDelta(row.diff.points))}</em></td>
+                                <td>${formatNumber(row.villages)}</td>
+                                <td>#${formatNumber(row.rank)}</td>
+                                <td>${formatNumber(row.metrics && row.metrics.odTotal)}</td>
+                                <td>${formatNumber(row.metrics && row.metrics.odOff)}</td>
+                                <td>${formatNumber(row.metrics && row.metrics.odDef)}</td>
+                                <td>${formatNumber(row.metrics && row.metrics.odSupport)}</td>
+                                <td>${formatNumber(row.conquestsDay && row.conquestsDay.gained)} / ${formatNumber(row.conquestsDay && row.conquestsDay.lost)}</td>
+                                <td>${formatNumber(row.metrics && row.metrics.averageVillagePoints)}</td>
+                                <td>${formatMetric(row.metrics && row.metrics.odPerPoint)}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </div>
+            ${renderLatestArchiveDetails(latestArchive)}
+        `;
+    }
+
+    function renderLatestArchiveDetails(archive) {
+        if (!archive || !archive.continents || !archive.continents.length) return "";
+        return `
+            <div class="${APP.id}-archiveDetails">
+                <label class="${APP.id}-coordsField ${APP.id}-coordsAll">
+                    <span>Ultimo registo - todas as coordenadas (${formatNumber(archive.count)})</span>
+                    <textarea readonly rows="3">${escapeTextArea((archive.coords || []).join(" "))}</textarea>
+                </label>
+                <div class="${APP.id}-continentGrid">
+                    ${archive.continents.map((group) => `
+                        <label class="${APP.id}-coordsField">
+                            <span>${escapeHTML(group.continent)} (${formatNumber(group.count)}) - ${formatNumber(group.points)} pts</span>
+                            <textarea readonly rows="3">${escapeTextArea((group.coords || []).join(" "))}</textarea>
+                        </label>
+                    `).join("")}
+                </div>
+            </div>
+        `;
+    }
+
+    function exportDailyArchive(format) {
+        if (!state.lastResult || !state.lastResult.player) {
+            showNotice("Carrega primeiro um jogador para exportar o arquivo.", "warn");
+            return;
+        }
+
+        const player = state.lastResult.player;
+        const entries = loadDailySnapshots(player.id);
+        if (!entries.length) {
+            showNotice("Ainda nao existe arquivo diario para exportar.", "warn");
+            return;
+        }
+
+        const safeName = String(player.name || player.id).replace(/[^\w.-]+/g, "_");
+        if (format === "csv") {
+            downloadTextFile(`${APP.displayTitle} - ${safeName} - diario.csv`, dailyArchiveToCsv(entries), "text/csv;charset=utf-8");
+            return;
+        }
+
+        downloadTextFile(`${APP.displayTitle} - ${safeName} - diario.json`, JSON.stringify(entries, null, 2), "application/json;charset=utf-8");
+    }
+
+    function dailyArchiveToCsv(entries) {
+        const headers = [
+            "dia", "data", "jogador_id", "nome", "tribo", "pontos", "aldeias", "rank",
+            "od_total", "od_ofensivo", "od_defensivo", "od_apoio", "pontos_por_aldeia",
+            "media_pontos_aldeia", "od_por_ponto", "conquistas_ganhas_dia", "conquistas_perdidas_dia",
+            "conquistas_saldo_dia", "conquistas_total_ganhas", "conquistas_total_perdidas",
+            "conquistas_total_saldo", "coordenadas",
+        ];
+        const rows = entries.map((entry) => [
+            entry.day,
+            formatDateTime(new Date(entry.ts)),
+            entry.playerId,
+            entry.name,
+            entry.tribe && entry.tribe.tag,
+            entry.points,
+            entry.villages,
+            entry.rank,
+            entry.metrics && entry.metrics.odTotal,
+            entry.metrics && entry.metrics.odOff,
+            entry.metrics && entry.metrics.odDef,
+            entry.metrics && entry.metrics.odSupport,
+            entry.metrics && entry.metrics.pointsPerVillage,
+            entry.metrics && entry.metrics.averageVillagePoints,
+            entry.metrics && entry.metrics.odPerPoint,
+            entry.conquestsDay && entry.conquestsDay.gained,
+            entry.conquestsDay && entry.conquestsDay.lost,
+            entry.conquestsDay && entry.conquestsDay.net,
+            entry.allTimeSummary && entry.allTimeSummary.gained,
+            entry.allTimeSummary && entry.allTimeSummary.lost,
+            entry.allTimeSummary && entry.allTimeSummary.net,
+            entry.villagesArchive && entry.villagesArchive.coords ? entry.villagesArchive.coords.join(" ") : "",
+        ]);
+        return [headers, ...rows].map((row) => row.map(csvCell).join(";")).join("\n");
+    }
+
+    function csvCell(value) {
+        const text = String(value == null ? "" : value);
+        return `"${text.replace(/"/g, '""')}"`;
+    }
+
+    function downloadTextFile(filename, content, type) {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 500);
+    }
+
+    function formatMetric(value) {
+        return Number.isFinite(value) ? String(value).replace(".", ",") : "N/D";
     }
 
     function dailyMetricCard(label, delta, inverse) {
@@ -2315,14 +2125,14 @@
         const params = new URLSearchParams(window.location.search);
         if (params.get("screen") === "info_player" && params.get("id")) return params.get("id");
 
-        const gameData = pageWindow.game_data || {};
+        const gameData = window.game_data || {};
         if (gameData.player && gameData.player.name) return gameData.player.name;
         if (gameData.player && gameData.player.id) return String(gameData.player.id);
         return "";
     }
 
     function worldLabel() {
-        const gameData = pageWindow.game_data || {};
+        const gameData = window.game_data || {};
         const world = String(gameData.world || window.location.hostname.split(".")[0] || "").toUpperCase();
         return `${world} - ${window.location.host}`;
     }
@@ -2435,7 +2245,7 @@
     }
 
     function pageGameData() {
-        return pageWindow.game_data || {};
+        return window.game_data || {};
     }
 
     function startOfDayTs(timestamp) {
@@ -3124,6 +2934,10 @@
                 border-left-color: #1f9ac5;
             }
 
+            .${APP.id}-archiveRow .${APP.id}-rowLabel {
+                border-left-color: #6b7d2d;
+            }
+
             .${APP.id}-odSectionRow .${APP.id}-rowLabel {
                 border-left-color: #8f69d3;
             }
@@ -3341,6 +3155,42 @@
 
             .${APP.id}-dailyOdWrap {
                 margin-top: 10px;
+            }
+
+            .${APP.id}-archiveActions {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 8px;
+                color: #5a2f13;
+                font-size: 11px;
+            }
+
+            .${APP.id}-archiveActions button {
+                height: 24px;
+                min-width: 94px;
+                padding: 0 10px;
+                border: 1px solid #7b201c;
+                border-radius: 3px;
+                background: linear-gradient(#b43a34, #8c1713);
+                color: #fff8dc;
+                cursor: pointer;
+                font: 700 11px Verdana, Arial, sans-serif;
+                text-shadow: 0 1px 0 #40100d;
+            }
+
+            .${APP.id}-archiveActions button:hover {
+                background: linear-gradient(#c64a43, #971d18);
+            }
+
+            .${APP.id}-archiveWrap {
+                max-height: 320px;
+            }
+
+            .${APP.id}-archiveDetails {
+                display: grid;
+                gap: 8px;
+                margin-top: 9px;
             }
 
             .${APP.id}-metric {
