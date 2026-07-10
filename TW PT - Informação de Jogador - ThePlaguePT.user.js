@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.9
+// @version      1.0.12
 // @description  Painel com resumo das ultimas 24h de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.9",
+        version: "1.0.12",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -118,33 +118,59 @@
             return;
         }
 
-        if (existing && existing.dataset.playerId === String(playerId)) return;
+        const archiveRow = findProfileArchiveRow();
+        if (existing && existing.dataset.playerId === String(playerId) && isProfileButtonInRightPlace(existing, archiveRow)) {
+            removeOldProfileStatsButtons(existing);
+            return;
+        }
         if (existing) existing.remove();
+        removeOldProfileStatsButtons(null);
 
         const holder = createProfileStatsHolder(playerId);
-        const archiveRow = findProfileArchiveRow();
 
-        if (archiveRow && archiveRow.parentNode) {
-            archiveRow.parentNode.insertBefore(holder, archiveRow.nextSibling);
-        } else {
-            const fallbackTarget = findVillageTable();
-            const content = document.querySelector("#content_value") || document.querySelector("#contentContainer") || document.body;
-            if (fallbackTarget && fallbackTarget.parentNode) {
-                fallbackTarget.parentNode.insertBefore(holder, fallbackTarget);
-            } else {
-                content.appendChild(holder);
-            }
-        }
+        insertProfileStatsHolder(holder, archiveRow);
 
         state.profileButton = holder.querySelector("button");
         state.profileButton.addEventListener("click", () => openPlayerProfileStats(playerId));
+    }
+
+    function isProfileButtonInRightPlace(existing, archiveRow) {
+        if (!existing || !archiveRow) return false;
+        return existing.classList.contains(`${APP.id}-profileStatsRow`) &&
+            existing.previousElementSibling === archiveRow &&
+            existing.parentNode === archiveRow.parentNode;
+    }
+
+    function removeOldProfileStatsButtons(keep) {
+        const nodes = Array.from(document.querySelectorAll(
+            `#${APP.id}-profileStats, .${APP.id}-profileStatsRow, .${APP.id}-profileStatsWrap`
+        ));
+        nodes.forEach((node) => {
+            if (node !== keep) node.remove();
+        });
+    }
+
+    function insertProfileStatsHolder(holder, archiveRow) {
+        if (archiveRow && archiveRow.parentNode) {
+            archiveRow.parentNode.insertBefore(holder, archiveRow.nextSibling);
+            return;
+        }
+
+        const fallbackTarget = findVillageTable();
+        const content = document.querySelector("#content_value") || document.querySelector("#contentContainer") || document.body;
+        if (fallbackTarget && fallbackTarget.parentNode) {
+            fallbackTarget.parentNode.insertBefore(holder, fallbackTarget);
+            return;
+        }
+
+        content.insertBefore(holder, content.firstChild);
     }
 
     function createProfileStatsHolder(playerId) {
         const archiveRow = findProfileArchiveRow();
         if (archiveRow) {
             const row = document.createElement("tr");
-            const colSpan = Math.max(1, archiveRow.children.length || 1);
+            const colSpan = Math.max(1, Array.from(archiveRow.children).reduce((total, cell) => total + (cell.colSpan || 1), 0));
             row.id = `${APP.id}-profileStats`;
             row.dataset.playerId = String(playerId);
             row.className = `${APP.id}-profileStatsRow`;
@@ -192,7 +218,12 @@
     function findVillageTable() {
         const content = document.querySelector("#content_value") || document;
         const header = Array.from(content.querySelectorAll("th, td")).find((cell) => /^aldeias\s*\(/i.test(cleanText(cell.textContent)));
-        return header ? header.closest("table") : null;
+        if (header) return header.closest("table");
+
+        return Array.from(content.querySelectorAll("table")).find((table) => {
+            const text = fold(table.textContent);
+            return text.includes("aldeias") && text.includes("coordenadas") && text.includes("pontos");
+        }) || null;
     }
 
     function setupLauncherPosition() {
@@ -2167,7 +2198,7 @@
                 align-items: center;
                 justify-content: center;
                 overflow: hidden;
-                padding: 22px;
+                padding: 34px 40px 30px;
                 border: 0;
                 border-radius: 0;
                 background: rgba(0, 0, 0, 0.42);
@@ -2183,10 +2214,10 @@
 
             .${APP.id}-dialog {
                 position: relative;
-                width: min(1260px, calc(100vw - 56px));
-                max-width: calc(100vw - 56px);
+                width: min(1320px, calc(100vw - 80px));
+                max-width: calc(100vw - 80px);
                 min-width: 0;
-                max-height: calc(100vh - 56px);
+                max-height: calc(100vh - 64px);
                 overflow-y: auto;
                 overflow-x: hidden;
                 margin: 0 auto;
