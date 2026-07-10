@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.16
+// @version      1.0.18
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.16",
+        version: "1.0.18",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -62,7 +62,6 @@
         memoryCache: new Map(),
         controls: {},
         lastResult: null,
-        profileButton: null,
         nativeDialog: false,
         launcherPositionFrame: 0,
         launcherResizeObserver: null,
@@ -75,7 +74,7 @@
     function init() {
         injectStyle();
         createLauncher();
-        ensureProfileStatsButton();
+        removeOldProfileStatsButtons(null);
         registerHubShortcut();
 
         document.addEventListener("keydown", (event) => {
@@ -83,9 +82,6 @@
                 closePanel();
             }
         });
-
-        window.setInterval(ensureProfileStatsButton, 1500);
-        window.addEventListener("scroll", ensureProfileStatsButton, true);
 
         window.TPResumo24hJogador = {
             open: openPanel,
@@ -112,44 +108,6 @@
         setupLauncherPosition();
     }
 
-    function ensureProfileStatsButton() {
-        const playerId = currentProfilePlayerId();
-        const existing = document.getElementById(`${APP.id}-profileStats`);
-
-        if (!playerId) {
-            if (existing) existing.remove();
-            removeOldProfileStatsButtons(null);
-            state.profileButton = null;
-            return;
-        }
-
-        const archiveRow = findProfileArchiveRow();
-        if (existing && existing.dataset.playerId === String(playerId) && isProfileButtonInRightPlace(existing, archiveRow)) {
-            removeOldProfileStatsButtons(existing);
-            return;
-        }
-        if (existing) existing.remove();
-        removeOldProfileStatsButtons(null);
-
-        if (!archiveRow || !archiveRow.parentNode) {
-            state.profileButton = null;
-            return;
-        }
-
-        const holder = createProfileStatsHolder(playerId, archiveRow);
-        archiveRow.parentNode.insertBefore(holder, archiveRow.nextSibling);
-
-        state.profileButton = holder.querySelector("button");
-        state.profileButton.addEventListener("click", () => openPlayerProfileStats(playerId));
-    }
-
-    function isProfileButtonInRightPlace(existing, archiveRow) {
-        if (!existing || !archiveRow) return false;
-        return existing.classList.contains(`${APP.id}-profileStatsRow`) &&
-            existing.previousElementSibling === archiveRow &&
-            existing.parentNode === archiveRow.parentNode;
-    }
-
     function removeOldProfileStatsButtons(keep) {
         const wrappers = Array.from(document.querySelectorAll(
             `#${APP.id}-profileStats, .${APP.id}-profileStatsRow, .${APP.id}-profileStatsWrap, .${APP.id}-profileStatsButton`
@@ -165,58 +123,6 @@
             if (keep && (container === keep || keep.contains(container))) return;
             container.remove();
         });
-    }
-
-    function createProfileStatsHolder(playerId, archiveRow) {
-        const row = document.createElement("tr");
-        const colSpan = Math.max(1, Array.from(archiveRow.children).reduce((total, cell) => total + (cell.colSpan || 1), 0));
-        row.id = `${APP.id}-profileStats`;
-        row.dataset.playerId = String(playerId);
-        row.className = `${APP.id}-profileStatsRow`;
-        row.innerHTML = `
-            <td class="${APP.id}-profileStatsCell" colspan="${colSpan}">
-                ${profileStatsButtonHTML()}
-            </td>
-        `;
-        return row;
-    }
-
-    function profileStatsButtonHTML() {
-        return `<button type="button" class="${APP.id}-profileStatsButton">Info - Stats</button>`;
-    }
-
-    function openPlayerProfileStats(playerId) {
-        openPanel();
-        if (state.controls.playerInput) state.controls.playerInput.value = String(playerId);
-        runSummary(false);
-    }
-
-    function currentProfilePlayerId() {
-        const params = new URLSearchParams(window.location.search);
-        if (params.get("screen") !== "info_player") return "";
-        const id = params.get("id") || "";
-        return /^\d+$/.test(id) ? id : "";
-    }
-
-    function findProfileArchiveRow() {
-        const content = document.querySelector("#content_value") || document;
-        return Array.from(content.querySelectorAll("tr")).find((row) => {
-            const text = fold(row.textContent);
-            return (text.includes("arquivo") && text.includes("jogador")) ||
-                text.includes("ligacao externa") ||
-                text.includes("player archive");
-        }) || null;
-    }
-
-    function findVillageTable() {
-        const content = document.querySelector("#content_value") || document;
-        const header = Array.from(content.querySelectorAll("th, td")).find((cell) => /^aldeias\s*\(/i.test(cleanText(cell.textContent)));
-        if (header) return header.closest("table");
-
-        return Array.from(content.querySelectorAll("table")).find((table) => {
-            const text = fold(table.textContent);
-            return text.includes("aldeias") && text.includes("coordenadas") && text.includes("pontos");
-        }) || null;
     }
 
     function setupLauncherPosition() {
@@ -584,14 +490,12 @@
         const player = findPlayer(players, query);
         if (!player) throw new Error("Jogador nao encontrado no player.txt.");
 
-        const conquerPromise = fetchConquestsSince(since, force, periodHours);
         const conquerAllPromise = fetchCachedText("conquerAll", "/map/conquer.txt", APP.conquerAllCacheMs, force);
         const villagePromise = fetchCachedText("villages", "/map/village.txt", APP.mapCacheMs, force);
         const tribePromise = fetchCachedText("tribes", "/map/ally.txt", APP.mapCacheMs, force, true);
         const odPromise = loadOdEntries(player.id, force);
 
-        const [conquerText, conquerAllText, villagesText, tribesText, od] = await Promise.all([
-            conquerPromise,
+        const [conquerAllText, villagesText, tribesText, od] = await Promise.all([
             conquerAllPromise,
             villagePromise,
             tribePromise,
@@ -601,7 +505,7 @@
         const tribes = parseTribes(tribesText || "");
         player.tribe = tribeInfo(tribes, player.tribeId);
         const villages = parseVillages(villagesText);
-        const conquests = summarizeConquests(conquerText, villages, players.byId, player.id, since);
+        const conquests = summarizeConquests(conquerAllText, villages, players.byId, player.id, since);
         const todayConquests = summarizeConquests(conquerAllText, villages, players.byId, player.id, startOfDayTs(Math.floor(now / 1000)));
         const allTime = summarizeAllTimeConquests(conquerAllText, villages, players.byId, player.id);
         const villagesSummary = summarizePlayerVillages(villages, player.id);
@@ -626,6 +530,7 @@
         const history = mergeBaselineHistory(loadSnapshots(player.id), dailyHistory);
         const baseline = chooseBaseline(history, now, periodHours);
         const diffs = buildDiffs(current, baseline);
+        const precision = buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests);
         const dailyStats = buildDailyStats(dailyHistory, current);
         saveSnapshot(current);
         saveDailySnapshot(current);
@@ -644,6 +549,7 @@
             current,
             baseline,
             diffs,
+            precision,
             dailyStats,
             conquests,
             allTime,
@@ -674,16 +580,6 @@
         if (hours < 24) return `${hours}H`;
         if (hours === 24) return "24H";
         return `${hours / 24}D`;
-    }
-
-    async function fetchConquestsSince(since, force, periodHours) {
-        const recentPath = `/interface.php?func=get_conquer&since=${since}`;
-        try {
-            return await fetchCachedText(`conquer:${periodHours}h`, recentPath, APP.conquerCacheMs, force);
-        } catch (error) {
-            console.warn(`[${APP.id}] interface conquer falhou; a usar /map/conquer.txt`, error);
-            return fetchCachedText("conquerFull", "/map/conquer.txt", APP.conquerCacheMs, force);
-        }
     }
 
     async function loadOdEntries(playerId, force) {
@@ -1229,6 +1125,24 @@
         };
     }
 
+    function buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests) {
+        const targetAgeMs = periodToMs(periodHours);
+        const baselineAgeMs = baseline && Number.isFinite(baseline.ts) ? now - baseline.ts : null;
+        const offsetMs = baselineAgeMs === null ? null : baselineAgeMs - targetAgeMs;
+        return {
+            periodHours,
+            baselineTs: baseline && Number.isFinite(baseline.ts) ? baseline.ts : null,
+            baselineAgeMs,
+            baselineOffsetMs: offsetMs,
+            baselineExact: offsetMs !== null && Math.abs(offsetMs) <= APP.minSnapshotGapMs,
+            hasBaseline: !!baseline,
+            conquestsExact: true,
+            conquestsRows: (conquests && conquests.gained ? conquests.gained.length : 0) + (conquests && conquests.lost ? conquests.lost.length : 0),
+            todayConquestsExact: true,
+            todayConquestsRows: (todayConquests && todayConquests.gained ? todayConquests.gained.length : 0) + (todayConquests && todayConquests.lost ? todayConquests.lost.length : 0),
+        };
+    }
+
     function diffNumber(current, previous) {
         if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
         return current - previous;
@@ -1400,6 +1314,11 @@
             villagesArchive: entry.villagesArchive || null,
             conquestsDay: entry.conquestsDay || null,
             allTimeSummary: entry.allTimeSummary || null,
+            precision: {
+                previousTs: previous && Number.isFinite(previous.ts) ? previous.ts : null,
+                gapMs: previous && Number.isFinite(previous.ts) ? entry.ts - previous.ts : null,
+                exactDay: previous && Number.isFinite(previous.ts) ? Math.abs((entry.ts - previous.ts) - APP.dayMs) <= APP.baselineToleranceMs : false,
+            },
             diff: {
                 points: previous ? diffNumber(entry.points, previous.points) : null,
                 villages: previous ? diffNumber(entry.villages, previous.villages) : null,
@@ -1445,12 +1364,17 @@
                 </div>
             </div>
 
-            <div class="${APP.id}-grid">
+            <div class="${APP.id}-grid ${APP.id}-summaryGrid">
                 ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points)}
                 ${metricCard("Aldeias", formatNumber(result.current.villages), result.diffs.villages)}
                 ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true)}
                 ${metricCard("Ganhas / Perdidas", `${formatNumber(result.conquests.gained.length)} / ${formatNumber(result.conquests.lost.length)}`, result.conquests.net)}
+                ${metricCard("OD Total", formatNumber(result.current.od.total && result.current.od.total.score), result.diffs.od.total)}
+                ${metricCard("OD Ofensivo", formatNumber(result.current.od.off && result.current.od.off.score), result.diffs.od.off)}
+                ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def)}
+                ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support)}
             </div>
+            ${renderPrecisionNotice(result.precision)}
         `;
 
         const odContent = `
@@ -1477,7 +1401,7 @@
 
         state.controls.body.innerHTML = `
             ${panelRow("RESUMO", `Totais do periodo selecionado: ${result.period.label}.`, summaryContent, "summaryRow", true)}
-            ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.period.hours === 24 ? result.diffs : null), "dailyRow", true)}
+            ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.period.hours === 24 ? result.diffs : null), "dailyRow", false)}
             ${panelRow("ARQUIVO", "Historico diario guardado para avaliacao do jogador.", renderDailyArchive(result.dailyStats.rows), "archiveRow", false)}
             ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow", false)}
             ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow", false)}
@@ -1496,8 +1420,8 @@
                     <span>${escapeHTML(description)}</span>
                 </aside>
                 <div class="${APP.id}-rowContent">
-                    <button type="button" class="${APP.id}-sectionToggle" data-${APP.id}-toggle aria-expanded="${isExpanded}">
-                        ${expanded ? "Recolher" : "Expandir"}
+                    <button type="button" class="${APP.id}-sectionToggle" data-${APP.id}-toggle aria-expanded="${isExpanded}" aria-label="${expanded ? "Esconder detalhes" : "Mostrar detalhes"}" title="${expanded ? "Esconder detalhes" : "Mostrar detalhes"}">
+                        ${expanded ? "-" : "+"}
                     </button>
                     <div class="${APP.id}-sectionContent">
                         ${content}
@@ -1505,6 +1429,27 @@
                 </div>
             </section>
         `;
+    }
+
+    function renderPrecisionNotice(precision) {
+        if (!precision) return "";
+        const baselineText = precision.hasBaseline
+            ? `Pontos/rank/OD comparados com snapshot local de ${formatDuration(precision.baselineAgeMs)} atras (${formatOffset(precision.baselineOffsetMs)} do alvo).`
+            : "Pontos/rank/OD sem snapshot local suficiente para comparar este periodo.";
+        return `
+            <div class="${APP.id}-precisionBox">
+                <strong>Precisao dos dados</strong>
+                <span>Conquistas: exatas por timestamp do /map/conquer.txt completo.</span>
+                <span>${escapeHTML(baselineText)}</span>
+            </div>
+        `;
+    }
+
+    function formatOffset(ms) {
+        if (!Number.isFinite(ms)) return "sem desvio calculado";
+        if (Math.abs(ms) < 60000) return "sem desvio";
+        const text = formatDuration(Math.abs(ms));
+        return ms > 0 ? `+${text}` : `-${text}`;
     }
 
     function sectionIcon(title) {
@@ -1531,7 +1476,9 @@
         const open = !row.classList.contains(`${APP.id}-panelRowOpen`);
         row.classList.toggle(`${APP.id}-panelRowOpen`, open);
         button.setAttribute("aria-expanded", open ? "true" : "false");
-        button.textContent = open ? "Recolher" : "Expandir";
+        button.setAttribute("aria-label", open ? "Esconder detalhes" : "Mostrar detalhes");
+        button.title = open ? "Esconder detalhes" : "Mostrar detalhes";
+        button.textContent = open ? "-" : "+";
     }
 
     function renderDailyStats(dailyStats, conquests, fallbackDiffs) {
@@ -1586,6 +1533,7 @@
                     <thead>
                         <tr>
                             <th>DIA</th>
+                            <th>BASE</th>
                             <th>TRIBO</th>
                             <th>PONTOS</th>
                             <th>+PTS</th>
@@ -1604,6 +1552,7 @@
                         ${rows.map((row) => `
                             <tr>
                                 <td>${escapeHTML(formatDateOnly(new Date(row.ts)))}</td>
+                                <td>${escapeHTML(formatDailyPrecision(row.precision))}</td>
                                 <td>${escapeHTML(row.tribe && row.tribe.tag ? row.tribe.tag : "-")}</td>
                                 <td>${formatNumber(row.points)}</td>
                                 <td><em class="${deltaClass(row.diff.points, false)}">${escapeHTML(formatDelta(row.diff.points))}</em></td>
@@ -1645,6 +1594,11 @@
         `;
     }
 
+    function formatDailyPrecision(precision) {
+        if (!precision || !Number.isFinite(precision.gapMs)) return "N/D";
+        return `${formatDuration(precision.gapMs)}${precision.exactDay ? "" : "*"}`;
+    }
+
     function exportDailyArchive(format) {
         if (!state.lastResult || !state.lastResult.player) {
             showNotice("Carrega primeiro um jogador para exportar o arquivo.", "warn");
@@ -1668,16 +1622,21 @@
     }
 
     function dailyArchiveToCsv(entries) {
+        const rowsWithPrecision = (entries || [])
+            .slice()
+            .sort((a, b) => a.ts - b.ts)
+            .map((entry, index, list) => dailyRowWithDiff(entry, list[index - 1] || null));
         const headers = [
-            "dia", "data", "jogador_id", "nome", "tribo", "pontos", "aldeias", "rank",
+            "dia", "data", "base_intervalo", "jogador_id", "nome", "tribo", "pontos", "aldeias", "rank",
             "od_total", "od_ofensivo", "od_defensivo", "od_apoio", "pontos_por_aldeia",
             "media_pontos_aldeia", "od_por_ponto", "conquistas_ganhas_dia", "conquistas_perdidas_dia",
             "conquistas_saldo_dia", "conquistas_total_ganhas", "conquistas_total_perdidas",
             "conquistas_total_saldo", "coordenadas",
         ];
-        const rows = entries.map((entry) => [
+        const rows = rowsWithPrecision.map((entry) => [
             entry.day,
             formatDateTime(new Date(entry.ts)),
+            formatDailyPrecision(entry.precision),
             entry.playerId,
             entry.name,
             entry.tribe && entry.tribe.tag,
@@ -2735,35 +2694,6 @@
                 transform: translateX(0) !important;
             }
 
-            .${APP.id}-profileStatsRow td,
-            .${APP.id}-profileStatsCell,
-            .${APP.id}-profileStatsWrap {
-                padding: 5px 0 6px !important;
-                background: transparent !important;
-                border: 0 !important;
-            }
-
-            .${APP.id}-profileStatsCell {
-                padding-left: 0 !important;
-            }
-
-            .${APP.id}-profileStatsButton {
-                width: 166px;
-                height: 29px;
-                border: 1px solid #7b201c;
-                border-radius: 3px;
-                background: linear-gradient(#b43a34, #8c1713);
-                color: #fff8dc;
-                cursor: pointer;
-                font: 700 12px Verdana, Arial, sans-serif;
-                text-shadow: 0 1px 0 #40100d;
-                box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 1px 2px rgba(0,0,0,.25);
-            }
-
-            .${APP.id}-profileStatsButton:hover {
-                background: linear-gradient(#c64a43, #971d18);
-            }
-
             #${APP.id}-panel {
                 position: fixed;
                 z-index: ${APP.zIndex + 1};
@@ -2906,7 +2836,7 @@
 
             .${APP.id}-panelRow {
                 display: grid;
-                grid-template-columns: 300px minmax(0, 1fr);
+                grid-template-columns: 258px minmax(0, 1fr);
                 border-top: 1px solid #d2b873;
                 background: rgba(255, 255, 255, 0.08);
             }
@@ -2916,8 +2846,8 @@
             }
 
             .${APP.id}-rowLabel {
-                min-height: 58px;
-                padding: 12px 14px 10px 12px;
+                min-height: 48px;
+                padding: 9px 12px 8px 11px;
                 border-left: 4px solid #b42522;
                 box-sizing: border-box;
             }
@@ -2961,9 +2891,9 @@
             .${APP.id}-rowLabel strong {
                 display: flex;
                 align-items: center;
-                gap: 7px;
+                gap: 6px;
                 color: #9f1d19;
-                font-size: 14px;
+                font-size: 13px;
                 line-height: 1.15;
                 text-transform: uppercase;
             }
@@ -2988,27 +2918,30 @@
 
             .${APP.id}-rowLabel > span {
                 display: block;
-                margin-top: 4px;
+                margin-top: 3px;
                 color: #4d250f;
                 line-height: 1.25;
             }
 
             .${APP.id}-rowContent {
                 min-width: 0;
-                padding: 9px 14px 10px;
+                padding: 7px 12px 8px;
                 box-sizing: border-box;
             }
 
             .${APP.id}-sectionToggle {
-                min-width: 78px;
-                height: 23px;
-                padding: 0 8px;
+                display: block;
+                width: 24px;
+                min-width: 24px;
+                height: 22px;
+                margin-left: auto;
+                padding: 0;
                 border: 1px solid #7b201c;
                 border-radius: 3px;
                 background: linear-gradient(#b43a34, #8c1713);
                 color: #fff8dc;
                 cursor: pointer;
-                font: 700 11px Verdana, Arial, sans-serif;
+                font: 700 16px/19px Verdana, Arial, sans-serif;
                 text-shadow: 0 1px 0 #40100d;
                 box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.3);
             }
@@ -3019,7 +2952,7 @@
 
             .${APP.id}-sectionContent {
                 display: none;
-                margin-top: 8px;
+                margin-top: 6px;
             }
 
             .${APP.id}-panelRowOpen .${APP.id}-sectionContent {
@@ -3085,12 +3018,12 @@
                 align-items: flex-end;
                 justify-content: space-between;
                 gap: 16px;
-                margin-bottom: 8px;
+                margin-bottom: 6px;
             }
 
             .${APP.id}-playerHead a {
                 color: #2b1508;
-                font-size: 17px;
+                font-size: 16px;
                 font-weight: 700;
                 text-decoration: none;
             }
@@ -3102,6 +3035,27 @@
             .${APP.id}-playerHead span,
             .${APP.id}-playerHead small {
                 color: #6b3a15;
+            }
+
+            .${APP.id}-precisionBox {
+                display: grid;
+                gap: 3px;
+                margin: 6px 0 0;
+                padding: 6px 8px;
+                border: 1px solid #c89042;
+                border-radius: 2px;
+                background: #fff1bd;
+                color: #4d250f;
+                font-size: 11px;
+            }
+
+            .${APP.id}-precisionBox strong {
+                color: #9d1714;
+                text-transform: uppercase;
+            }
+
+            .${APP.id}-precisionBox span {
+                display: block;
             }
 
             .${APP.id}-empty,
@@ -3130,7 +3084,7 @@
             .${APP.id}-grid {
                 display: grid;
                 grid-template-columns: repeat(4, minmax(0, 1fr));
-                gap: 8px;
+                gap: 6px;
                 margin: 0;
             }
 
@@ -3139,7 +3093,7 @@
                 align-items: center;
                 justify-content: space-between;
                 gap: 10px;
-                margin-bottom: 8px;
+                margin-bottom: 6px;
                 color: #5a2f13;
             }
 
@@ -3150,7 +3104,7 @@
             }
 
             .${APP.id}-dailyOdGrid {
-                margin-top: 8px;
+                margin-top: 6px;
             }
 
             .${APP.id}-dailyOdWrap {
@@ -3194,8 +3148,8 @@
             }
 
             .${APP.id}-metric {
-                min-height: 48px;
-                padding: 7px 9px;
+                min-height: 43px;
+                padding: 6px 8px;
                 border: 1px solid #c89042;
                 border-radius: 2px;
                 background: #fff6d7;
@@ -3204,9 +3158,9 @@
 
             .${APP.id}-metric span {
                 display: block;
-                margin: 0 0 3px;
+                margin: 0 0 2px;
                 color: #6a340f;
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 700;
                 text-transform: uppercase;
             }
@@ -3214,14 +3168,14 @@
             .${APP.id}-metric strong {
                 display: block;
                 color: #120b05;
-                font-size: 17px;
+                font-size: 16px;
                 line-height: 1.15;
                 overflow-wrap: anywhere;
             }
 
             .${APP.id}-metric em {
                 display: block;
-                margin-top: 3px;
+                margin-top: 2px;
                 font-style: normal;
                 font-weight: 700;
             }
