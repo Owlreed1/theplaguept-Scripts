@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.25
+// @version      1.0.26
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -28,7 +28,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.25",
+        version: "1.0.26",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -191,13 +191,15 @@
     }
 
     function openPanel() {
-        const dialogApi = gameWindow().Dialog;
-        if (dialogApi && typeof dialogApi.show === "function") {
-            openNativeDialogPanel();
-            return;
+        if (state.nativeDialog) {
+            const dialogApi = gameWindow().Dialog;
+            if (dialogApi && typeof dialogApi.close === "function") dialogApi.close(APP.dialogId);
+            state.nativeDialog = false;
+            state.panel = null;
+            state.controls = {};
         }
 
-        if (!state.panel || !state.panel.isConnected || state.nativeDialog) createPanel();
+        if (!state.panel || !state.panel.isConnected) createPanel();
         state.nativeDialog = false;
         state.panel.classList.remove(`${APP.id}-hidden`);
         hydratePanelAfterOpen();
@@ -1376,13 +1378,13 @@
     function twStatsHeaderKey(header) {
         const text = fold(header);
         if (!text) return "";
-        if (text.includes("pontos") || text === "points") return "points";
-        if (text.includes("aldeias") || text.includes("villages")) return "villages";
-        if (text.includes("rank") || text.includes("classificacao") || text.includes("posicao")) return "rank";
+        if (text.includes("pontos") || text === "points" || text.includes("score")) return "points";
+        if (text.includes("aldeias") || text.includes("villages") || text === "vills" || text === "vill") return "villages";
+        if (text.includes("rank") || text.includes("ranking") || text.includes("classificacao") || text.includes("posicao")) return "rank";
         if (text === "oda" || text.includes("od ataque") || text.includes("od ofens") || text.includes("ofensivo") || text.includes("offensive") || text.includes("attack")) return "odOff";
         if (text === "odd" || text.includes("od defesa") || text.includes("od defens") || text.includes("defensivo") || text.includes("defensive")) return "odDef";
         if (text === "ods" || text.includes("od apoio") || text.includes("apoio") || text.includes("support")) return "odSupport";
-        if (text === "od" || text.includes("od total") || text.includes("oponentes") || text.includes("derrotados") || text.includes("total od")) return "odTotal";
+        if (text === "od" || text.includes("od total") || text.includes("bash") || text.includes("oponentes") || text.includes("derrotados") || text.includes("total od")) return "odTotal";
         return "";
     }
 
@@ -1398,6 +1400,12 @@
             return buildLocalTime(year, +match[2], +match[1], +match[4] || 0, +match[5] || 0, +match[6] || 0);
         }
 
+        match = value.match(/(\d{1,2})[-/.](\d{1,2})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (match) {
+            const year = new Date().getFullYear();
+            return normalizeTwStatsTime(buildLocalTime(year, +match[2], +match[1], +match[3] || 0, +match[4] || 0, +match[5] || 0));
+        }
+
         const folded = fold(value);
         match = folded.match(/(\d{1,2})\s+([a-z]+)\s+(\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
         if (match) {
@@ -1408,6 +1416,14 @@
             return buildLocalTime(year, month, +match[1], +match[4] || 0, +match[5] || 0, +match[6] || 0);
         }
 
+        match = folded.match(/(\d{1,2})\s+([a-z]+)(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (match) {
+            const month = twStatsMonthNumber(match[2]);
+            if (!month) return null;
+            const year = new Date().getFullYear();
+            return normalizeTwStatsTime(buildLocalTime(year, month, +match[1], +match[3] || 0, +match[4] || 0, +match[5] || 0));
+        }
+
         match = folded.match(/([a-z]+)\s+(\d{1,2}),?\s+(\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
         if (!match) return null;
         const month = twStatsMonthNumber(match[1]);
@@ -1415,6 +1431,17 @@
         let year = +match[3];
         if (year < 100) year += year < 70 ? 2000 : 1900;
         return buildLocalTime(year, month, +match[2], +match[4] || 0, +match[5] || 0, +match[6] || 0);
+    }
+
+    function normalizeTwStatsTime(time) {
+        if (!Number.isFinite(time)) return null;
+        const now = Date.now();
+        if (time > now + APP.dayMs) {
+            const date = new Date(time);
+            date.setFullYear(date.getFullYear() - 1);
+            return date.getTime();
+        }
+        return time;
     }
 
     function twStatsMonthNumber(monthText) {
@@ -1443,7 +1470,11 @@
     }
 
     function buildLocalTime(year, month, day, hour, minute, second) {
+        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+        if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return null;
         const date = new Date(year, month - 1, day, hour, minute, second);
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
         const time = date.getTime();
         return Number.isFinite(time) ? time : null;
     }
@@ -1773,7 +1804,7 @@
                     <a href="/game.php?screen=info_player&id=${result.player.id}" target="_blank" rel="noopener">${escapeHTML(result.player.name)}</a>
                     <span>#${result.player.id} - ${escapeHTML(result.period.label)} - Tribo: ${escapeHTML(result.player.tribe && result.player.tribe.tag ? result.player.tribe.tag : "-")}</span>
                 </div>
-                <small class="${APP.id}-sourceBadge">${escapeHTML(baselineStatusLabel(result.precision))}</small>
+                <small class="${APP.id}-sourceBadge" title="${escapeHTML(baselineStatusTitle(result.precision))}">${escapeHTML(baselineStatusLabel(result.precision))}</small>
             </div>
 
             <div class="${APP.id}-grid ${APP.id}-summaryGrid">
@@ -1863,10 +1894,23 @@
     }
 
     function baselineStatusLabel(precision) {
-        if (!precision || !precision.hasBaseline) return "sem base TWStats";
+        if (!precision || !precision.hasBaseline) {
+            if (precision && precision.externalMessage) {
+                const lines = String(precision.externalMessage).match(/TWStats lido \((\d+) linhas\)/i);
+                if (lines) return `TWStats ${lines[1]} linhas`;
+            }
+            return "sem base TWStats";
+        }
         if (precision.baselineSource === "twstats") return "TWStats";
         if (precision.localFallback) return "fallback local";
         return "local";
+    }
+
+    function baselineStatusTitle(precision) {
+        if (!precision) return "Sem informacao de origem para as ultimas 24h.";
+        if (precision.baselineSource === "twstats") return precision.externalMessage || "Dados das ultimas 24h calculados pelo historico TWStats.";
+        if (precision.localFallback) return precision.externalMessage || "TWStats indisponivel; usado fallback local.";
+        return precision.externalMessage || "Sem linha utilizavel do historico TWStats para as ultimas 24h.";
     }
 
     function formatOffset(ms) {
