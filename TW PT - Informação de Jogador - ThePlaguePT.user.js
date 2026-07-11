@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.31
+// @version      1.0.32
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -18,9 +18,6 @@
 // @grant        GM_setValue
 // @grant        GM.getValue
 // @grant        GM.setValue
-// @grant        GM_addValueChangeListener
-// @grant        GM_removeValueChangeListener
-// @grant        GM_openInTab
 // @grant        unsafeWindow
 // @connect      pt.twstats.com
 // @connect      twstats.com
@@ -40,7 +37,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.31",
+        version: "1.0.32",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -345,7 +342,7 @@
                         </aside>
                         <div class="${APP.id}-rowContent">
                             <div class="${APP.id}-actions">
-                                <button type="submit" form="${APP.id}-form">Resumo</button>
+                                <button type="submit" form="${APP.id}-form">Atualizar</button>
                                 <button type="button" data-action="clear">Limpar Cache</button>
                             </div>
                             <div class="${APP.id}-footerLine">
@@ -629,13 +626,36 @@
             fetchFirstAvailable("odSupport", OD_FILES.support, APP.mapCacheMs, force, true),
         ]);
 
-        return {
+        return normalizeOdEntries({
             total: findKillEntry(totalText.text, playerId),
             off: findKillEntry(offText.text, playerId),
             def: findKillEntry(defText.text, playerId),
             support: supportData.text ? findKillEntry(supportData.text, playerId) : null,
             supportSource: supportData.path || "",
-        };
+        });
+    }
+
+    function normalizeOdEntries(od) {
+        if (!od) return od;
+
+        if (!od.support) {
+            const supportScore = deriveSupportScore(od.total, od.off, od.def);
+            if (Number.isFinite(supportScore)) {
+                od.support = { score: supportScore, rank: null };
+                od.supportSource = od.supportSource || "calculado";
+            }
+        }
+
+        return od;
+    }
+
+    function deriveSupportScore(total, off, def) {
+        const totalScore = total && Number.isFinite(total.score) ? total.score : null;
+        const offScore = off && Number.isFinite(off.score) ? off.score : null;
+        const defScore = def && Number.isFinite(def.score) ? def.score : null;
+        if (!Number.isFinite(totalScore) || !Number.isFinite(offScore) || !Number.isFinite(defScore)) return null;
+
+        return Math.max(0, totalScore - offScore - defScore);
     }
 
     async function fetchFirstAvailable(name, paths, ttlMs, force, optional) {
@@ -1142,7 +1162,7 @@
         const notice = document.createElement("div");
         notice.id = `${APP.id}-twstatsBridge`;
         notice.textContent = count
-            ? `${APP.displayTitle}: ${count} linhas de historico guardadas. Volta ao Tribal Wars e carrega Resumo.`
+            ? `${APP.displayTitle}: ${count} linhas de historico guardadas. Volta ao Tribal Wars e carrega Atualizar.`
             : `${APP.displayTitle}: nao encontrei linhas de historico nesta pagina TWStats. Confirma se estas no separador Historico do jogador.`;
         notice.style.cssText = [
             "position:fixed",
@@ -1204,9 +1224,6 @@
             }
         }
 
-        const openedBaseline = await openTwStatsHistoryAndWait(links, playerId, current, now, periodHours, /cloudflare|verificacao|bloque/i.test(lastMessage));
-        if (openedBaseline && openedBaseline.snapshot) return openedBaseline;
-
         return {
             attempted: true,
             ok: false,
@@ -1238,64 +1255,6 @@
             currentSnapshot: parsed.currentSnapshot || null,
             message: `${parsed.message} Fonte: pagina TWStats aberta no browser.`,
         };
-    }
-
-    async function openTwStatsHistoryAndWait(links, playerId, current, now, periodHours, needsUserPage) {
-        if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
-
-        const key = twStatsBridgeKey(links.world, playerId);
-        let tab = null;
-        try {
-            setStatus(needsUserPage ? "TWStats bloqueou o request. Abri o historico para recolher dados..." : "A abrir historico TWStats para recolher dados...");
-            tab = GM_openInTab(links.historyUrl, { active: !!needsUserPage, insert: true, setParent: true });
-        } catch (_) {
-            return null;
-        }
-
-        const payload = await waitForTwStatsBridgeValue(key, needsUserPage ? 30000 : 9000);
-        if (!needsUserPage) {
-            try {
-                if (tab && typeof tab.close === "function") tab.close();
-            } catch (_) {}
-        }
-
-        if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
-        const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodHours);
-        if (!parsed.snapshot) return null;
-        return {
-            attempted: true,
-            ok: true,
-            source: "twstats",
-            url: payload.href || links.historyUrl,
-            snapshot: parsed.snapshot,
-            currentSnapshot: parsed.currentSnapshot || null,
-            message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
-        };
-    }
-
-    function waitForTwStatsBridgeValue(key, timeoutMs) {
-        return new Promise((resolve) => {
-            let finished = false;
-            let listenerId = null;
-            const finish = (value) => {
-                if (finished) return;
-                finished = true;
-                if (listenerId !== null && typeof GM_removeValueChangeListener === "function") {
-                    try { GM_removeValueChangeListener(listenerId); } catch (_) {}
-                }
-                resolve(value || null);
-            };
-
-            gmGetValue(key, null).then((value) => {
-                if (value && Array.isArray(value.records) && value.records.length) finish(value);
-            });
-
-            try {
-                listenerId = GM_addValueChangeListener(key, (_name, _oldValue, newValue) => finish(newValue));
-            } catch (_) {}
-
-            window.setTimeout(() => finish(null), timeoutMs);
-        });
     }
 
     async function fetchTwStatsText(url, force) {
@@ -1488,6 +1447,11 @@
     }
 
     function twStatsRecordToSnapshot(record, current) {
+        const total = twStatsOdEntry(record.odTotal);
+        const off = twStatsOdEntry(record.odOff);
+        const def = twStatsOdEntry(record.odDef);
+        const support = twStatsOdEntry(record.odSupport) || twStatsOdEntry(deriveSupportScore(total, off, def));
+
         return {
             ts: record.ts,
             playerId: current && current.playerId,
@@ -1496,10 +1460,10 @@
             villages: Number.isFinite(record.villages) ? record.villages : (current && current.villages),
             rank: Number.isFinite(record.rank) ? record.rank : (current && current.rank),
             od: {
-                total: twStatsOdEntry(record.odTotal),
-                off: twStatsOdEntry(record.odOff),
-                def: twStatsOdEntry(record.odDef),
-                support: twStatsOdEntry(record.odSupport),
+                total,
+                off,
+                def,
+                support,
             },
             source: "twstats",
         };
