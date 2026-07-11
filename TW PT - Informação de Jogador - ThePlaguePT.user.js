@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.20
+// @version      1.0.21
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.20",
+        version: "1.0.21",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -1394,7 +1394,6 @@
 
         state.controls.body.innerHTML = `
             ${panelRow("RESUMO", `Totais do periodo selecionado: ${result.period.label}.`, summaryContent, "summaryRow", true)}
-            ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.period.hours === 24 ? result.diffs : null), "dailyRow", false)}
             ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow", false)}
             ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow", false)}
             ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow", false)}
@@ -1448,7 +1447,6 @@
         const icons = {
             jogador: "&#9817;",
             resumo: "&#9638;",
-            "1 dia": "1D",
             aldeias: "&#8962;",
             mundo: "&#9673;",
             twstats: "TW",
@@ -1470,40 +1468,6 @@
         button.setAttribute("aria-label", open ? "Esconder detalhes" : "Mostrar detalhes");
         button.title = open ? "Esconder detalhes" : "Mostrar detalhes";
         button.textContent = open ? "-" : "+";
-    }
-
-    function renderDailyStats(dailyStats, conquests, fallbackDiffs) {
-        const today = dailyStats && dailyStats.today;
-        const todayLabel = today ? formatDateOnly(new Date(today.ts)) : "-";
-        const rows = dailyStats && dailyStats.rows ? dailyStats.rows : [];
-        const pointsDelta = coalesceNumber(today && today.diff.points, fallbackDiffs && fallbackDiffs.points);
-        const villagesDelta = coalesceNumber(today && today.diff.villages, fallbackDiffs && fallbackDiffs.villages);
-        const rankDelta = coalesceNumber(today && today.diff.rank, fallbackDiffs && fallbackDiffs.rank);
-        const odTotalDelta = coalesceNumber(today && today.diff.od.total, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.total);
-        const odOffDelta = coalesceNumber(today && today.diff.od.off, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.off);
-        const odDefDelta = coalesceNumber(today && today.diff.od.def, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.def);
-        const odSupportDelta = coalesceNumber(today && today.diff.od.support, fallbackDiffs && fallbackDiffs.od && fallbackDiffs.od.support);
-        const conquestDelta = today && today.conquestsDay ? today.conquestsDay.net : dailyConquestNet(conquests);
-
-        return `
-            <div class="${APP.id}-dailyHead">
-                <strong>Classificacao de 1 dia</strong>
-                <span>${escapeHTML(todayLabel)}</span>
-            </div>
-            <div class="${APP.id}-grid ${APP.id}-dailyGrid">
-                ${dailyMetricCard("Pontos", pointsDelta)}
-                ${dailyMetricCard("Aldeias", villagesDelta)}
-                ${dailyMetricCard("Rank", rankDelta, true)}
-                ${dailyMetricCard("Conquistas", conquestDelta)}
-            </div>
-            <div class="${APP.id}-grid ${APP.id}-dailyGrid ${APP.id}-dailyOdGrid">
-                ${dailyMetricCard("OD Total", odTotalDelta)}
-                ${dailyMetricCard("OD Ofensivo", odOffDelta)}
-                ${dailyMetricCard("OD Defensivo", odDefDelta)}
-                ${dailyMetricCard("OD Apoio", odSupportDelta)}
-            </div>
-            ${renderDailyOdHistory(rows)}
-        `;
     }
 
     function renderDailyArchive(rows) {
@@ -1671,62 +1635,6 @@
 
     function formatMetric(value) {
         return Number.isFinite(value) ? String(value).replace(".", ",") : "N/D";
-    }
-
-    function dailyMetricCard(label, delta, inverse) {
-        return `
-            <div class="${APP.id}-metric">
-                <span>${escapeHTML(label)}</span>
-                <strong class="${deltaClass(delta, inverse)}">${escapeHTML(formatDelta(delta))}</strong>
-            </div>
-        `;
-    }
-
-    function dailyConquestNet(conquests) {
-        if (!conquests) return null;
-        const todayStart = startOfDayTs(Math.floor(Date.now() / 1000));
-        const gained = (conquests.gained || []).filter((row) => row.timestamp >= todayStart).length;
-        const lost = (conquests.lost || []).filter((row) => row.timestamp >= todayStart).length;
-        return gained - lost;
-    }
-
-    function renderDailyOdHistory(rows) {
-        if (!rows || !rows.length) {
-            return `<div class="${APP.id}-emptyList">Sem historico diario local. O script comeca a guardar estes dados a partir de agora.</div>`;
-        }
-
-        return `
-            <div class="${APP.id}-tableWrap ${APP.id}-dailyOdWrap">
-                <table class="${APP.id}-table ${APP.id}-dailyOdTable">
-                    <thead>
-                        <tr>
-                            <th>DIA</th>
-                            <th>PONTOS</th>
-                            <th>ALDEIAS</th>
-                            <th>RANK</th>
-                            <th>OD TOTAL</th>
-                            <th>OD OF</th>
-                            <th>OD DEF</th>
-                            <th>OD APOIO</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${rows.map((row) => `
-                            <tr>
-                                <td>${escapeHTML(formatDateOnly(new Date(row.ts)))}</td>
-                                <td><em class="${deltaClass(row.diff.points, false)}">${escapeHTML(formatDelta(row.diff.points))}</em></td>
-                                <td><em class="${deltaClass(row.diff.villages, false)}">${escapeHTML(formatDelta(row.diff.villages))}</em></td>
-                                <td><em class="${deltaClass(row.diff.rank, true)}">${escapeHTML(formatDelta(row.diff.rank))}</em></td>
-                                <td><em class="${deltaClass(row.diff.od.total, false)}">${escapeHTML(formatDelta(row.diff.od.total))}</em></td>
-                                <td><em class="${deltaClass(row.diff.od.off, false)}">${escapeHTML(formatDelta(row.diff.od.off))}</em></td>
-                                <td><em class="${deltaClass(row.diff.od.def, false)}">${escapeHTML(formatDelta(row.diff.od.def))}</em></td>
-                                <td><em class="${deltaClass(row.diff.od.support, false)}">${escapeHTML(formatDelta(row.diff.od.support))}</em></td>
-                            </tr>
-                        `).join("")}
-                    </tbody>
-                </table>
-            </div>
-        `;
     }
 
     function renderVillageCoordinates(summary) {
@@ -2134,10 +2042,6 @@
 
     function formatDelta(value) {
         return Number.isFinite(value) ? formatSigned(value) : "N/D";
-    }
-
-    function coalesceNumber(primary, fallback) {
-        return Number.isFinite(primary) ? primary : fallback;
     }
 
     function formatDuration(ms) {
@@ -2850,10 +2754,6 @@
                 border-left-color: #3f8d2a;
             }
 
-            .${APP.id}-dailyRow .${APP.id}-rowLabel {
-                border-left-color: #1f9ac5;
-            }
-
             .${APP.id}-odSectionRow .${APP.id}-rowLabel {
                 border-left-color: #8f69d3;
             }
@@ -3072,29 +2972,6 @@
                 grid-template-columns: repeat(4, minmax(0, 1fr));
                 gap: 6px;
                 margin: 0;
-            }
-
-            .${APP.id}-dailyHead {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 10px;
-                margin-bottom: 6px;
-                color: #5a2f13;
-            }
-
-            .${APP.id}-dailyHead strong {
-                color: #9d1714;
-                font-size: 13px;
-                text-transform: uppercase;
-            }
-
-            .${APP.id}-dailyOdGrid {
-                margin-top: 6px;
-            }
-
-            .${APP.id}-dailyOdWrap {
-                margin-top: 10px;
             }
 
             .${APP.id}-archiveActions {
