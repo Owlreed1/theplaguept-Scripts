@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.27
+// @version      1.0.28
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
+// @match        https://pt.twstats.com/*
 // @include      *://*.tribalwars.*/game.php*
 // @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
@@ -12,6 +13,13 @@
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Informa%C3%A7%C3%A3o%20de%20Jogador%20-%20ThePlaguePT.user.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM.getValue
+// @grant        GM.setValue
+// @grant        GM_addValueChangeListener
+// @grant        GM_removeValueChangeListener
+// @grant        GM_openInTab
 // @grant        unsafeWindow
 // @connect      pt.twstats.com
 // @connect      twstats.com
@@ -24,11 +32,14 @@
     "use strict";
 
     if (window.top !== window.self) return;
-    if (!/tribalwars\./i.test(window.location.hostname)) return;
+
+    const IS_TWSTATS = /(^|\.)twstats\.com$/i.test(window.location.hostname);
+    const IS_TRIBALWARS = /tribalwars\./i.test(window.location.hostname);
+    if (!IS_TWSTATS && !IS_TRIBALWARS) return;
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.27",
+        version: "1.0.28",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -79,6 +90,11 @@
     init();
 
     function init() {
+        if (IS_TWSTATS) {
+            initTwStatsBridge();
+            return;
+        }
+
         injectStyle();
         createLauncher();
         removeOldProfileStatsButtons(null);
@@ -1076,12 +1092,67 @@
         };
     }
 
+    async function initTwStatsBridge() {
+        const info = currentTwStatsPageInfo();
+        if (!info.playerId || !info.world) return;
+
+        const records = parseTwStatsHistoryRecords(document.documentElement.outerHTML, null);
+        if (!records.length) return;
+
+        await gmSetValue(twStatsBridgeKey(info.world, info.playerId), {
+            world: info.world,
+            playerId: info.playerId,
+            href: window.location.href,
+            savedAt: Date.now(),
+            records: records.slice(-240),
+        });
+
+        showTwStatsBridgeNotice(records.length);
+    }
+
+    function currentTwStatsPageInfo() {
+        const params = new URLSearchParams(window.location.search);
+        const pathWorld = (window.location.pathname.match(/\/([^/]+)\//) || [])[1] || "";
+        return {
+            world: pathWorld.toLowerCase(),
+            playerId: /^\d+$/.test(params.get("id") || "") ? params.get("id") : "",
+        };
+    }
+
+    function showTwStatsBridgeNotice(count) {
+        if (document.getElementById(`${APP.id}-twstatsBridge`)) return;
+        const notice = document.createElement("div");
+        notice.id = `${APP.id}-twstatsBridge`;
+        notice.textContent = `${APP.displayTitle}: ${count} linhas de historico guardadas. Volta ao Tribal Wars e carrega Atualizar.`;
+        notice.style.cssText = [
+            "position:fixed",
+            "left:12px",
+            "bottom:12px",
+            "z-index:999999",
+            "max-width:520px",
+            "padding:8px 10px",
+            "border:1px solid #7b201c",
+            "background:#fff1bd",
+            "color:#7d1713",
+            "font:700 12px Verdana,Arial,sans-serif",
+            "box-shadow:0 2px 8px rgba(0,0,0,.35)",
+        ].join(";");
+        document.body.appendChild(notice);
+    }
+
+    function twStatsBridgeKey(world, playerId) {
+        return `${APP.id}:twstats-history:${String(world || "").toLowerCase()}:${playerId}`;
+    }
+
     async function loadTwStatsBaseline(playerId, current, now, periodHours, force) {
         if (periodHours !== 24) {
             return { attempted: false, reason: "period" };
         }
 
         const links = buildTwStatsLinks(playerId);
+        const storedBaseline = await loadStoredTwStatsBaseline(links.world, playerId, current, now, periodHours);
+        if (storedBaseline && storedBaseline.snapshot) return storedBaseline;
+
         const urls = [
             links.historyUrl,
             `${links.profileUrl}&mode=history`,
@@ -1091,7 +1162,7 @@
 
         for (const url of urls) {
             try {
-                setStatus("Sem snapshot local. A tentar historico TWStats...");
+                setStatus("A tentar historico TWStats...");
                 const html = await fetchTwStatsText(url, force);
                 const parsed = parseTwStatsBaselineFromHtml(html, current, now, periodHours);
                 if (parsed.snapshot) {
@@ -1120,6 +1191,9 @@
             }
         }
 
+        const openedBaseline = await openTwStatsHistoryAndWait(links, playerId, current, now, periodHours);
+        if (openedBaseline && openedBaseline.snapshot) return openedBaseline;
+
         return {
             attempted: true,
             ok: false,
@@ -1127,6 +1201,84 @@
             url: links.historyUrl,
             message: lastMessage || "TWStats nao devolveu um registo historico utilizavel perto das ultimas 24h.",
         };
+    }
+
+    async function loadStoredTwStatsBaseline(world, playerId, current, now, periodHours) {
+        const payload = await gmGetValue(twStatsBridgeKey(world, playerId), null);
+        if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
+        const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodHours);
+        if (!parsed.snapshot) {
+            return {
+                attempted: true,
+                ok: false,
+                source: "twstats",
+                url: payload.href || "",
+                message: `TWStats guardado (${payload.records.length} linhas), sem base utilizavel.`,
+            };
+        }
+        return {
+            attempted: true,
+            ok: true,
+            source: "twstats",
+            url: payload.href || "",
+            snapshot: parsed.snapshot,
+            message: `${parsed.message} Fonte: pagina TWStats aberta no browser.`,
+        };
+    }
+
+    async function openTwStatsHistoryAndWait(links, playerId, current, now, periodHours) {
+        if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
+
+        const key = twStatsBridgeKey(links.world, playerId);
+        let tab = null;
+        try {
+            setStatus("A abrir historico TWStats para recolher dados...");
+            tab = GM_openInTab(links.historyUrl, { active: false, insert: true, setParent: true });
+        } catch (_) {
+            return null;
+        }
+
+        const payload = await waitForTwStatsBridgeValue(key, 9000);
+        try {
+            if (tab && typeof tab.close === "function") tab.close();
+        } catch (_) {}
+
+        if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
+        const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodHours);
+        if (!parsed.snapshot) return null;
+        return {
+            attempted: true,
+            ok: true,
+            source: "twstats",
+            url: payload.href || links.historyUrl,
+            snapshot: parsed.snapshot,
+            message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
+        };
+    }
+
+    function waitForTwStatsBridgeValue(key, timeoutMs) {
+        return new Promise((resolve) => {
+            let finished = false;
+            let listenerId = null;
+            const finish = (value) => {
+                if (finished) return;
+                finished = true;
+                if (listenerId !== null && typeof GM_removeValueChangeListener === "function") {
+                    try { GM_removeValueChangeListener(listenerId); } catch (_) {}
+                }
+                resolve(value || null);
+            };
+
+            gmGetValue(key, null).then((value) => {
+                if (value && Array.isArray(value.records) && value.records.length) finish(value);
+            });
+
+            try {
+                listenerId = GM_addValueChangeListener(key, (_name, _oldValue, newValue) => finish(newValue));
+            } catch (_) {}
+
+            window.setTimeout(() => finish(null), timeoutMs);
+        });
     }
 
     async function fetchTwStatsText(url, force) {
@@ -1198,12 +1350,38 @@
         });
     }
 
+    async function gmGetValue(key, fallback) {
+        try {
+            if (typeof GM_getValue === "function") return GM_getValue(key, fallback);
+            if (typeof GM !== "undefined" && GM && typeof GM.getValue === "function") return await GM.getValue(key, fallback);
+        } catch (_) {}
+        return fallback;
+    }
+
+    async function gmSetValue(key, value) {
+        try {
+            if (typeof GM_setValue === "function") {
+                GM_setValue(key, value);
+                return true;
+            }
+            if (typeof GM !== "undefined" && GM && typeof GM.setValue === "function") {
+                await GM.setValue(key, value);
+                return true;
+            }
+        } catch (_) {}
+        return false;
+    }
+
     function isTwStatsChallenge(text) {
         return /just a moment|cf_chl|cloudflare|enable javascript and cookies/i.test(String(text || ""));
     }
 
     function parseTwStatsBaselineFromHtml(html, current, now, periodHours) {
         const records = parseTwStatsHistoryRecords(html, current);
+        return chooseTwStatsBaselineFromRecords(records, current, now, periodHours);
+    }
+
+    function chooseTwStatsBaselineFromRecords(records, current, now, periodHours) {
         const target = now - periodToMs(periodHours);
         const candidatePool = records
             .filter((record) => record && Number.isFinite(record.ts))
@@ -1242,8 +1420,8 @@
         const record = candidates[0].record;
         const snapshot = {
             ts: record.ts,
-            playerId: current.playerId,
-            name: current.name,
+            playerId: current && current.playerId,
+            name: current && current.name,
             points: record.points,
             villages: record.villages,
             rank: record.rank,
@@ -1355,13 +1533,13 @@
         const values = {};
         const used = new Set();
 
-        values.points = pickClosestNumber(numbers, current.points, used);
-        values.villages = pickClosestNumber(numbers, current.villages, used);
-        values.rank = pickClosestNumber(numbers, current.rank, used);
-        values.odTotal = pickClosestNumber(numbers, current.od && current.od.total && current.od.total.score, used);
-        values.odOff = pickClosestNumber(numbers, current.od && current.od.off && current.od.off.score, used);
-        values.odDef = pickClosestNumber(numbers, current.od && current.od.def && current.od.def.score, used);
-        values.odSupport = pickClosestNumber(numbers, current.od && current.od.support && current.od.support.score, used);
+        values.points = pickClosestNumber(numbers, current && current.points, used);
+        values.villages = pickClosestNumber(numbers, current && current.villages, used);
+        values.rank = pickClosestNumber(numbers, current && current.rank, used);
+        values.odTotal = pickClosestNumber(numbers, current && current.od && current.od.total && current.od.total.score, used);
+        values.odOff = pickClosestNumber(numbers, current && current.od && current.od.off && current.od.off.score, used);
+        values.odDef = pickClosestNumber(numbers, current && current.od && current.od.def && current.od.def.score, used);
+        values.odSupport = pickClosestNumber(numbers, current && current.od && current.od.support && current.od.support.score, used);
 
         Object.keys(values).forEach((key) => {
             if (!Number.isFinite(values[key])) delete values[key];
