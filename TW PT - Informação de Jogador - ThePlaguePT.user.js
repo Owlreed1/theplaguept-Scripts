@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.24
+// @version      1.0.25
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -28,7 +28,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.24",
+        version: "1.0.25",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -1220,7 +1220,7 @@
             .sort((a, b) => a.distance - b.distance);
 
         if (!candidates.length) {
-            return { snapshot: null, message: "Sem registo TWStats perto de 24h atras." };
+            return { snapshot: null, message: `TWStats lido (${records.length} linhas), sem registo perto de 24h atras.` };
         }
 
         const record = candidates[0].record;
@@ -1242,7 +1242,7 @@
 
         return {
             snapshot,
-            message: `Base TWStats de ${formatDateTime(new Date(record.ts))}.`,
+            message: `Base TWStats de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`,
         };
     }
 
@@ -1279,9 +1279,34 @@
             });
         });
 
+        if (!records.length) {
+            records.push(...parseTwStatsLooseRecords(doc, current));
+        }
+
         return records
             .filter((record, index, list) => list.findIndex((item) => item.ts === record.ts) === index)
             .sort((a, b) => a.ts - b.ts);
+    }
+
+    function parseTwStatsLooseRecords(doc, current) {
+        const records = [];
+        const nodes = Array.from(doc.querySelectorAll("tr, li, p, div"));
+        nodes.forEach((node) => {
+            const text = cleanText(node.textContent);
+            if (!text || text.length < 12) return;
+
+            const rowDate = parseTwStatsDate(text);
+            if (!rowDate) return;
+
+            const values = inferTwStatsValues([text], current);
+            if (hasTwStatsValue(values)) {
+                records.push({
+                    ts: rowDate,
+                    ...values,
+                });
+            }
+        });
+        return records;
     }
 
     function extractTwStatsValues(headers, texts, current) {
@@ -1304,9 +1329,11 @@
 
     function inferTwStatsValues(texts, current) {
         const numbers = texts
-            .filter((text) => !parseTwStatsDate(text))
-            .map(parseTwStatsNumber)
-            .filter(Number.isFinite);
+            .flatMap((text) => {
+                const values = parseTwStatsNumbers(text);
+                if (parseTwStatsDate(text) && values.length <= 3) return [];
+                return values;
+            });
         const values = {};
         const used = new Set();
 
@@ -1422,7 +1449,20 @@
     }
 
     function parseTwStatsNumber(text) {
+        const numbers = parseTwStatsNumbers(text);
+        return numbers.length ? numbers[0] : null;
+    }
+
+    function parseTwStatsNumbers(text) {
         const raw = cleanText(text);
+        const matches = raw.match(/[+-]?\d[\d.,]*(?:\s*[kKmM])?/g) || [];
+        return matches
+            .map((match) => parseTwStatsNumberToken(match))
+            .filter(Number.isFinite);
+    }
+
+    function parseTwStatsNumberToken(token) {
+        const raw = cleanText(token);
         const multiplier = /\d\s*k\b/i.test(raw) ? 1000 : (/\d\s*m\b/i.test(raw) ? 1000000 : 1);
         let value = raw.replace(/[^\d,.\-+]/g, "");
         if (!/[0-9]/.test(value)) return null;
@@ -1733,6 +1773,7 @@
                     <a href="/game.php?screen=info_player&id=${result.player.id}" target="_blank" rel="noopener">${escapeHTML(result.player.name)}</a>
                     <span>#${result.player.id} - ${escapeHTML(result.period.label)} - Tribo: ${escapeHTML(result.player.tribe && result.player.tribe.tag ? result.player.tribe.tag : "-")}</span>
                 </div>
+                <small class="${APP.id}-sourceBadge">${escapeHTML(baselineStatusLabel(result.precision))}</small>
             </div>
 
             <div class="${APP.id}-grid ${APP.id}-summaryGrid">
@@ -3021,7 +3062,7 @@
                 max-width: calc(100vw - 24px) !important;
                 max-height: calc(100vh - 8px) !important;
                 box-sizing: border-box !important;
-                overflow: visible !important;
+                overflow: hidden !important;
                 z-index: ${APP.zIndex + 2} !important;
             }
 
@@ -3030,14 +3071,32 @@
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
-                overflow: visible !important;
+                height: auto !important;
                 box-sizing: border-box !important;
+            }
+
+            #popup_box_${APP.dialogId} .popup_box_content {
+                max-height: calc(100vh - 44px) !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                padding-bottom: 12px !important;
+            }
+
+            #popup_box_${APP.dialogId} .popup_box_content > div {
+                max-height: none !important;
+                overflow: visible !important;
             }
 
             #popup_box_${APP.dialogId} .${APP.id}-dialog {
                 width: min(1260px, calc(100vw - 58px)) !important;
                 max-width: 100% !important;
                 margin: 0 auto !important;
+            }
+
+            #popup_box_${APP.dialogId} .${APP.id}-shell {
+                max-height: none !important;
+                overflow: visible !important;
+                padding-bottom: 10px !important;
             }
 
             .${APP.id}-dialog {
@@ -3316,6 +3375,19 @@
             .${APP.id}-playerHead span,
             .${APP.id}-playerHead small {
                 color: #6b3a15;
+            }
+
+            .${APP.id}-sourceBadge {
+                flex: 0 0 auto;
+                align-self: flex-start;
+                padding: 3px 7px;
+                border: 1px solid #c89042;
+                border-radius: 2px;
+                background: #fff1bd;
+                color: #7d1713 !important;
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
             }
 
             .${APP.id}-precisionBox {
