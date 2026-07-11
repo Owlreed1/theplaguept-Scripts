@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.19
+// @version      1.0.20
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -24,7 +24,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.19",
+        version: "1.0.20",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -1379,15 +1379,14 @@
                             <th>TIPO</th>
                             <th>PONTOS</th>
                             <th>RANK</th>
-                            <th>1D</th>
                             <th>${escapeHTML(result.period.shortLabel)}</th>
                         </tr>
                     </thead>
                     <tbody>
-                    ${odRow("Total", result.current.od.total, result.diffs.od.total, result.dailyStats.today && result.dailyStats.today.diff.od.total)}
-                    ${odRow("Ofensivo", result.current.od.off, result.diffs.od.off, result.dailyStats.today && result.dailyStats.today.diff.od.off)}
-                    ${odRow("Defensivo", result.current.od.def, result.diffs.od.def, result.dailyStats.today && result.dailyStats.today.diff.od.def)}
-                    ${odRow("Apoio", result.current.od.support, result.diffs.od.support, result.dailyStats.today && result.dailyStats.today.diff.od.support)}
+                    ${odRow("Total", result.current.od.total, result.diffs.od.total)}
+                    ${odRow("Ofensivo", result.current.od.off, result.diffs.od.off)}
+                    ${odRow("Defensivo", result.current.od.def, result.diffs.od.def)}
+                    ${odRow("Apoio", result.current.od.support, result.diffs.od.support)}
                     </tbody>
                 </table>
                 </div>
@@ -1396,7 +1395,6 @@
         state.controls.body.innerHTML = `
             ${panelRow("RESUMO", `Totais do periodo selecionado: ${result.period.label}.`, summaryContent, "summaryRow", true)}
             ${panelRow("1 DIA", "Resultados da classificacao diaria e OD somado no dia.", renderDailyStats(result.dailyStats, result.conquests, result.period.hours === 24 ? result.diffs : null), "dailyRow", false)}
-            ${panelRow("ARQUIVO", "Historico diario guardado para avaliacao do jogador.", renderDailyArchive(result.dailyStats.rows), "archiveRow", false)}
             ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow", false)}
             ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow", false)}
             ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow", false)}
@@ -1451,7 +1449,6 @@
             jogador: "&#9817;",
             resumo: "&#9638;",
             "1 dia": "1D",
-            arquivo: "&#9776;",
             aldeias: "&#8962;",
             mundo: "&#9673;",
             twstats: "TW",
@@ -1989,7 +1986,7 @@
         `;
     }
 
-    function odRow(label, entry, delta, dailyDelta) {
+    function odRow(label, entry, delta) {
         const score = entry ? formatNumber(entry.score) : "N/D";
         const rank = entry && entry.rank ? `#${formatNumber(entry.rank)}` : "-";
         return `
@@ -1997,7 +1994,6 @@
                 <td>${escapeHTML(label)}</td>
                 <td><strong>${escapeHTML(score)}</strong></td>
                 <td>${escapeHTML(rank)}</td>
-                <td><em class="${deltaClass(dailyDelta, false)}">${escapeHTML(formatDelta(dailyDelta))}</em></td>
                 <td><em class="${deltaClass(delta, false)}">${escapeHTML(formatDelta(delta))}</em></td>
             </tr>
         `;
@@ -2856,10 +2852,6 @@
 
             .${APP.id}-dailyRow .${APP.id}-rowLabel {
                 border-left-color: #1f9ac5;
-            }
-
-            .${APP.id}-archiveRow .${APP.id}-rowLabel {
-                border-left-color: #6b7d2d;
             }
 
             .${APP.id}-odSectionRow .${APP.id}-rowLabel {
