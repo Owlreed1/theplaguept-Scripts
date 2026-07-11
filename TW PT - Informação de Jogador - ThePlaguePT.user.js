@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.28
+// @version      1.0.30
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
 // @match        https://pt.twstats.com/*
+// @match        http://pt.twstats.com/*
 // @include      *://*.tribalwars.*/game.php*
 // @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
@@ -39,7 +40,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.28",
+        version: "1.0.30",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -207,8 +208,13 @@
     }
 
     function openPanel() {
+        const dialogApi = gameWindow().Dialog;
+        if (dialogApi && typeof dialogApi.show === "function") {
+            openNativeDialogPanel();
+            return;
+        }
+
         if (state.nativeDialog) {
-            const dialogApi = gameWindow().Dialog;
             if (dialogApi && typeof dialogApi.close === "function") dialogApi.close(APP.dialogId);
             state.nativeDialog = false;
             state.panel = null;
@@ -551,11 +557,15 @@
         const dailyHistory = loadDailySnapshots(player.id);
         const history = mergeBaselineHistory(loadSnapshots(player.id), dailyHistory);
         const externalBaseline = await loadTwStatsBaseline(player.id, current, now, periodHours, force);
+        const twStatsCurrent = externalBaseline && externalBaseline.currentSnapshot
+            ? mergeTwStatsCurrent(current, externalBaseline.currentSnapshot)
+            : null;
+        const displayCurrent = twStatsCurrent || current;
         const localBaseline = chooseBaseline(history, now, periodHours);
         const baseline = externalBaseline && externalBaseline.snapshot ? externalBaseline.snapshot : localBaseline;
-        const diffs = buildDiffs(current, baseline);
+        const diffs = buildDiffs(displayCurrent, baseline);
         const precision = buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests, externalBaseline, localBaseline);
-        const dailyStats = buildDailyStats(dailyHistory, current);
+        const dailyStats = buildDailyStats(dailyHistory, displayCurrent);
         saveSnapshot(current);
         saveDailySnapshot(current);
 
@@ -570,7 +580,7 @@
                 shortLabel: periodShortLabel(periodHours),
             },
             player,
-            current,
+            current: displayCurrent,
             baseline,
             diffs,
             precision,
@@ -1097,7 +1107,10 @@
         if (!info.playerId || !info.world) return;
 
         const records = parseTwStatsHistoryRecords(document.documentElement.outerHTML, null);
-        if (!records.length) return;
+        if (!records.length) {
+            showTwStatsBridgeNotice(0);
+            return;
+        }
 
         await gmSetValue(twStatsBridgeKey(info.world, info.playerId), {
             world: info.world,
@@ -1123,7 +1136,9 @@
         if (document.getElementById(`${APP.id}-twstatsBridge`)) return;
         const notice = document.createElement("div");
         notice.id = `${APP.id}-twstatsBridge`;
-        notice.textContent = `${APP.displayTitle}: ${count} linhas de historico guardadas. Volta ao Tribal Wars e carrega Atualizar.`;
+        notice.textContent = count
+            ? `${APP.displayTitle}: ${count} linhas de historico guardadas. Volta ao Tribal Wars e carrega Atualizar.`
+            : `${APP.displayTitle}: nao encontrei linhas de historico nesta pagina TWStats. Confirma se estas no separador Historico do jogador.`;
         notice.style.cssText = [
             "position:fixed",
             "left:12px",
@@ -1150,7 +1165,7 @@
         }
 
         const links = buildTwStatsLinks(playerId);
-        const storedBaseline = await loadStoredTwStatsBaseline(links.world, playerId, current, now, periodHours);
+        const storedBaseline = force ? null : await loadStoredTwStatsBaseline(links.world, playerId, current, now, periodHours);
         if (storedBaseline && storedBaseline.snapshot) return storedBaseline;
 
         const urls = [
@@ -1172,6 +1187,7 @@
                         source: "twstats",
                         url,
                         snapshot: parsed.snapshot,
+                        currentSnapshot: parsed.currentSnapshot || null,
                         message: parsed.message,
                     };
                 }
@@ -1179,19 +1195,11 @@
             } catch (error) {
                 const message = error && error.message ? error.message : String(error);
                 lastMessage = message || lastMessage;
-                if (/cloudflare|verificacao|bloque/i.test(message)) {
-                    return {
-                        attempted: true,
-                        ok: false,
-                        source: "twstats",
-                        url,
-                        message,
-                    };
-                }
+                if (/cloudflare|verificacao|bloque/i.test(message)) break;
             }
         }
 
-        const openedBaseline = await openTwStatsHistoryAndWait(links, playerId, current, now, periodHours);
+        const openedBaseline = await openTwStatsHistoryAndWait(links, playerId, current, now, periodHours, /cloudflare|verificacao|bloque/i.test(lastMessage));
         if (openedBaseline && openedBaseline.snapshot) return openedBaseline;
 
         return {
@@ -1222,26 +1230,29 @@
             source: "twstats",
             url: payload.href || "",
             snapshot: parsed.snapshot,
+            currentSnapshot: parsed.currentSnapshot || null,
             message: `${parsed.message} Fonte: pagina TWStats aberta no browser.`,
         };
     }
 
-    async function openTwStatsHistoryAndWait(links, playerId, current, now, periodHours) {
+    async function openTwStatsHistoryAndWait(links, playerId, current, now, periodHours, needsUserPage) {
         if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
 
         const key = twStatsBridgeKey(links.world, playerId);
         let tab = null;
         try {
-            setStatus("A abrir historico TWStats para recolher dados...");
-            tab = GM_openInTab(links.historyUrl, { active: false, insert: true, setParent: true });
+            setStatus(needsUserPage ? "TWStats bloqueou o request. Abri o historico para recolher dados..." : "A abrir historico TWStats para recolher dados...");
+            tab = GM_openInTab(links.historyUrl, { active: !!needsUserPage, insert: true, setParent: true });
         } catch (_) {
             return null;
         }
 
-        const payload = await waitForTwStatsBridgeValue(key, 9000);
-        try {
-            if (tab && typeof tab.close === "function") tab.close();
-        } catch (_) {}
+        const payload = await waitForTwStatsBridgeValue(key, needsUserPage ? 30000 : 9000);
+        if (!needsUserPage) {
+            try {
+                if (tab && typeof tab.close === "function") tab.close();
+            } catch (_) {}
+        }
 
         if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
         const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodHours);
@@ -1252,6 +1263,7 @@
             source: "twstats",
             url: payload.href || links.historyUrl,
             snapshot: parsed.snapshot,
+            currentSnapshot: parsed.currentSnapshot || null,
             message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
         };
     }
@@ -1382,6 +1394,15 @@
     }
 
     function chooseTwStatsBaselineFromRecords(records, current, now, periodHours) {
+        const dailyPair = chooseTwStatsDailyPair(records, now, periodHours);
+        if (dailyPair) {
+            return {
+                snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
+                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
+                message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
+            };
+        }
+
         const target = now - periodToMs(periodHours);
         const candidatePool = records
             .filter((record) => record && Number.isFinite(record.ts))
@@ -1418,13 +1439,57 @@
         }
 
         const record = candidates[0].record;
-        const snapshot = {
+        const snapshot = twStatsRecordToSnapshot(record, current);
+
+        return {
+            snapshot,
+            message: sourceMode === "24h"
+                ? `Base TWStats de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`
+                : `Base TWStats mais recente de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`,
+        };
+    }
+
+    function chooseTwStatsDailyPair(records, now, periodHours) {
+        if (periodHours !== 24) return null;
+
+        const ordered = (records || [])
+            .filter((record) => record && Number.isFinite(record.ts))
+            .filter((record) => record.ts <= now + APP.dayMs)
+            .filter((record) => twStatsRecordScore(record) >= 3)
+            .sort((a, b) => a.ts - b.ts);
+        if (ordered.length < 2) return null;
+
+        const latest = ordered[ordered.length - 1];
+        const target = latest.ts - periodToMs(periodHours);
+        const baseline = ordered
+            .slice(0, -1)
+            .map((record) => ({
+                record,
+                distance: Math.abs(record.ts - target),
+            }))
+            .filter((item) => item.distance <= APP.twStatsBaselineToleranceMs)
+            .sort((a, b) => a.distance - b.distance)[0];
+
+        if (!baseline) return null;
+        return {
+            current: latest,
+            baseline: baseline.record,
+        };
+    }
+
+    function twStatsRecordScore(record) {
+        return ["points", "villages", "rank", "odTotal", "odOff", "odDef", "odSupport"]
+            .reduce((count, key) => count + (Number.isFinite(record && record[key]) ? 1 : 0), 0);
+    }
+
+    function twStatsRecordToSnapshot(record, current) {
+        return {
             ts: record.ts,
             playerId: current && current.playerId,
             name: current && current.name,
-            points: record.points,
-            villages: record.villages,
-            rank: record.rank,
+            points: Number.isFinite(record.points) ? record.points : (current && current.points),
+            villages: Number.isFinite(record.villages) ? record.villages : (current && current.villages),
+            rank: Number.isFinite(record.rank) ? record.rank : (current && current.rank),
             od: {
                 total: twStatsOdEntry(record.odTotal),
                 off: twStatsOdEntry(record.odOff),
@@ -1433,12 +1498,22 @@
             },
             source: "twstats",
         };
+    }
 
+    function mergeTwStatsCurrent(current, snapshot) {
+        if (!snapshot) return current;
         return {
-            snapshot,
-            message: sourceMode === "24h"
-                ? `Base TWStats de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`
-                : `Base TWStats mais recente de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`,
+            ...current,
+            points: Number.isFinite(snapshot.points) ? snapshot.points : current.points,
+            villages: Number.isFinite(snapshot.villages) ? snapshot.villages : current.villages,
+            rank: Number.isFinite(snapshot.rank) ? snapshot.rank : current.rank,
+            od: {
+                total: snapshot.od && snapshot.od.total ? snapshot.od.total : current.od.total,
+                off: snapshot.od && snapshot.od.off ? snapshot.od.off : current.od.off,
+                def: snapshot.od && snapshot.od.def ? snapshot.od.def : current.od.def,
+                support: snapshot.od && snapshot.od.support ? snapshot.od.support : current.od.support,
+            },
+            source: "twstats",
         };
     }
 
@@ -1511,7 +1586,7 @@
         if (aligned.length) {
             texts.forEach((text, index) => {
                 const key = twStatsHeaderKey(aligned[index]);
-                const value = parseTwStatsNumber(text);
+                const value = parseTwStatsCellNumber(key, text);
                 if (key && Number.isFinite(value)) values[key] = value;
             });
         }
@@ -1521,6 +1596,15 @@
         }
 
         return values;
+    }
+
+    function parseTwStatsCellNumber(key, text) {
+        const value = parseTwStatsNumber(text);
+        if (Number.isFinite(value)) return value;
+
+        const raw = cleanText(text);
+        if (/^[-=]+$/.test(raw) && /^od/.test(String(key || ""))) return 0;
+        return null;
     }
 
     function inferTwStatsValues(texts, current) {
@@ -1572,13 +1656,14 @@
     function twStatsHeaderKey(header) {
         const text = fold(header);
         if (!text) return "";
+        if (text === "data" || text === "date" || text.includes("jogador") || text.includes("player") || text.includes("tribo") || text.includes("tribe")) return "";
         if (text.includes("pontos") || text === "points" || text.includes("score")) return "points";
         if (text.includes("aldeias") || text.includes("villages") || text === "vills" || text === "vill") return "villages";
         if (text.includes("rank") || text.includes("ranking") || text.includes("classificacao") || text.includes("posicao")) return "rank";
-        if (text === "oda" || text.includes("od ataque") || text.includes("od ofens") || text.includes("ofensivo") || text.includes("offensive") || text.includes("attack")) return "odOff";
-        if (text === "odd" || text.includes("od defesa") || text.includes("od defens") || text.includes("defensivo") || text.includes("defensive")) return "odDef";
+        if (text === "oda" || text.startsWith("oda ") || text.includes("od ataque") || text.includes("od ofens") || text.includes("ofensivo") || text.includes("atacante") || text.includes("attacker") || text.includes("offensive") || text.includes("attack")) return "odOff";
+        if (text === "odd" || text.startsWith("odd ") || text.includes("od defesa") || text.includes("od defens") || text.includes("defensivo") || text.includes("defensor") || text.includes("defender") || text.includes("defensive")) return "odDef";
         if (text === "ods" || text.includes("od apoio") || text.includes("apoio") || text.includes("support")) return "odSupport";
-        if (text === "od" || text.includes("od total") || text.includes("bash") || text.includes("oponentes") || text.includes("derrotados") || text.includes("total od")) return "odTotal";
+        if (text === "od" || text.startsWith("od ") || text.includes("od total") || text.includes("bash") || text.includes("oponentes") || text.includes("derrotados") || text.includes("total od")) return "odTotal";
         return "";
     }
 
@@ -2097,7 +2182,10 @@
             }
             return "sem base TWStats";
         }
-        if (precision.baselineSource === "twstats") return "TWStats";
+        if (precision.baselineSource === "twstats") {
+            if (/diario twstats/i.test(precision.externalMessage || "")) return "TWStats diario";
+            return "TWStats";
+        }
         if (precision.localFallback) return "fallback local";
         return "local";
     }
@@ -3276,20 +3364,39 @@
                 max-height: calc(100vh - 18px);
                 overflow: hidden;
                 margin: 0;
-                padding: 12px;
-                border: 1px solid #3f2b17;
-                border-radius: 5px;
-                background:
-                    linear-gradient(#d8c79c, #9a8760) padding-box,
-                    linear-gradient(135deg, #f8ead0 0%, #6d5a3c 22%, #d6c08d 45%, #493520 72%, #efe0bd 100%) border-box;
+                padding: 18px;
+                border: 2px solid #473019;
+                border-radius: 6px;
+                background: linear-gradient(#d9c99e, #95805b);
                 box-shadow:
-                    0 0 0 2px rgba(52, 36, 20, .75),
-                    0 0 0 4px rgba(219, 204, 164, .9),
-                    inset 0 0 0 1px rgba(255,255,255,.45),
+                    0 0 0 1px #d8c99b,
+                    0 0 0 4px #5c4429,
+                    0 0 0 6px rgba(218, 203, 164, .9),
+                    inset 0 0 0 2px rgba(255,244,207,.8),
+                    inset 0 0 0 5px rgba(92,68,41,.45),
                     0 6px 18px rgba(0,0,0,.55);
                 color: #2f1809;
                 box-sizing: border-box;
                 font: 12px Verdana, Arial, sans-serif;
+            }
+
+            #${APP.id}-panel::before {
+                content: "";
+                position: absolute;
+                inset: 9px;
+                pointer-events: none;
+                border: 1px solid #8d261f;
+                box-shadow: inset 0 0 0 1px #f4e3b6;
+                z-index: 0;
+            }
+
+            #${APP.id}-panel::after {
+                content: "";
+                position: absolute;
+                inset: 4px;
+                pointer-events: none;
+                border: 1px solid rgba(255,244,207,.7);
+                z-index: 0;
             }
 
             #${APP.id}-panel.${APP.id}-hidden {
@@ -3347,6 +3454,7 @@
 
             .${APP.id}-dialog {
                 position: relative;
+                z-index: 1;
                 width: 100%;
                 max-width: 100%;
                 min-width: 0;
@@ -3391,7 +3499,7 @@
                 flex-direction: column;
                 width: 100%;
                 max-width: 100%;
-                max-height: calc(100vh - 60px);
+                max-height: calc(100vh - 76px);
                 min-height: 0;
                 min-width: 0;
                 padding: 0;
