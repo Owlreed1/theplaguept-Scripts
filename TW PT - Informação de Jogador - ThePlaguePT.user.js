@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.22
+// @version      1.0.23
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -28,7 +28,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.22",
+        version: "1.0.23",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -292,7 +292,7 @@
                                 <label>
                                     <span>Comparar</span>
                                     <select disabled>
-                                        <option>Snapshot local do periodo</option>
+                                        <option>Historico TWStats 24h</option>
                                     </select>
                                 </label>
                             </div>
@@ -529,13 +529,11 @@
 
         const dailyHistory = loadDailySnapshots(player.id);
         const history = mergeBaselineHistory(loadSnapshots(player.id), dailyHistory);
-        let baseline = chooseBaseline(history, now, periodHours);
-        const externalBaseline = await loadTwStatsBaseline(player.id, current, now, periodHours, force, !!baseline);
-        if (!baseline && externalBaseline && externalBaseline.snapshot) {
-            baseline = externalBaseline.snapshot;
-        }
+        const externalBaseline = await loadTwStatsBaseline(player.id, current, now, periodHours, force);
+        const localBaseline = chooseBaseline(history, now, periodHours);
+        const baseline = externalBaseline && externalBaseline.snapshot ? externalBaseline.snapshot : localBaseline;
         const diffs = buildDiffs(current, baseline);
-        const precision = buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests, externalBaseline);
+        const precision = buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests, externalBaseline, localBaseline);
         const dailyStats = buildDailyStats(dailyHistory, current);
         saveSnapshot(current);
         saveDailySnapshot(current);
@@ -1051,7 +1049,7 @@
     function buildTwStatsLinks(playerId) {
         const world = twStatsWorldKey();
         const base = `https://pt.twstats.com/${encodeURIComponent(world)}/`;
-        const profileUrl = `${base}index.php?id=${encodeURIComponent(playerId)}&page=player`;
+        const profileUrl = `${base}index.php?page=player&id=${encodeURIComponent(playerId)}`;
         const graphs = [
             ["points", "Pontos"],
             ["villages", "Aldeias"],
@@ -1073,9 +1071,9 @@
         };
     }
 
-    async function loadTwStatsBaseline(playerId, current, now, periodHours, force, hasLocalBaseline) {
-        if (hasLocalBaseline || periodHours !== 24) {
-            return { attempted: false, reason: hasLocalBaseline ? "local" : "period" };
+    async function loadTwStatsBaseline(playerId, current, now, periodHours, force) {
+        if (periodHours !== 24) {
+            return { attempted: false, reason: "period" };
         }
 
         const links = buildTwStatsLinks(playerId);
@@ -1253,9 +1251,9 @@
                 if (!texts.length) return;
 
                 const rowDate = parseTwStatsDate(texts.join(" "));
-                if (headerCells.length || !rowDate) {
+                if (!rowDate) {
                     const possibleHeaders = texts.filter(Boolean);
-                    if (!rowDate && possibleHeaders.some((text) => twStatsHeaderKey(text))) headers = possibleHeaders;
+                    if (possibleHeaders.some((text) => twStatsHeaderKey(text))) headers = possibleHeaders;
                     return;
                 }
 
@@ -1338,10 +1336,10 @@
         if (text.includes("pontos") || text === "points") return "points";
         if (text.includes("aldeias") || text.includes("villages")) return "villages";
         if (text.includes("rank") || text.includes("classificacao") || text.includes("posicao")) return "rank";
-        if (text === "oda" || text.includes("ofensivo") || text.includes("offensive") || text.includes("attack")) return "odOff";
-        if (text === "odd" || text.includes("defensivo") || text.includes("defensive")) return "odDef";
-        if (text.includes("apoio") || text.includes("support")) return "odSupport";
-        if (text === "od" || text.includes("oponentes") || text.includes("derrotados") || text.includes("total od")) return "odTotal";
+        if (text === "oda" || text.includes("od ataque") || text.includes("od ofens") || text.includes("ofensivo") || text.includes("offensive") || text.includes("attack")) return "odOff";
+        if (text === "odd" || text.includes("od defesa") || text.includes("od defens") || text.includes("defensivo") || text.includes("defensive")) return "odDef";
+        if (text === "ods" || text.includes("od apoio") || text.includes("apoio") || text.includes("support")) return "odSupport";
+        if (text === "od" || text.includes("od total") || text.includes("oponentes") || text.includes("derrotados") || text.includes("total od")) return "odTotal";
         return "";
     }
 
@@ -1351,11 +1349,54 @@
         if (match) return buildLocalTime(+match[1], +match[2], +match[3], +match[4] || 0, +match[5] || 0, +match[6] || 0);
 
         match = value.match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-        if (!match) return null;
+        if (match) {
+            let year = +match[3];
+            if (year < 100) year += year < 70 ? 2000 : 1900;
+            return buildLocalTime(year, +match[2], +match[1], +match[4] || 0, +match[5] || 0, +match[6] || 0);
+        }
 
+        const folded = fold(value);
+        match = folded.match(/(\d{1,2})\s+([a-z]+)\s+(\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (match) {
+            const month = twStatsMonthNumber(match[2]);
+            if (!month) return null;
+            let year = +match[3];
+            if (year < 100) year += year < 70 ? 2000 : 1900;
+            return buildLocalTime(year, month, +match[1], +match[4] || 0, +match[5] || 0, +match[6] || 0);
+        }
+
+        match = folded.match(/([a-z]+)\s+(\d{1,2}),?\s+(\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (!match) return null;
+        const month = twStatsMonthNumber(match[1]);
+        if (!month) return null;
         let year = +match[3];
         if (year < 100) year += year < 70 ? 2000 : 1900;
-        return buildLocalTime(year, +match[2], +match[1], +match[4] || 0, +match[5] || 0, +match[6] || 0);
+        return buildLocalTime(year, month, +match[2], +match[4] || 0, +match[5] || 0, +match[6] || 0);
+    }
+
+    function twStatsMonthNumber(monthText) {
+        const key = fold(monthText).slice(0, 3);
+        return {
+            jan: 1,
+            fev: 2,
+            feb: 2,
+            mar: 3,
+            abr: 4,
+            apr: 4,
+            mai: 5,
+            may: 5,
+            jun: 6,
+            jul: 7,
+            ago: 8,
+            aug: 8,
+            set: 9,
+            sep: 9,
+            out: 10,
+            oct: 10,
+            nov: 11,
+            dez: 12,
+            dec: 12,
+        }[key] || null;
     }
 
     function buildLocalTime(year, month, day, hour, minute, second) {
@@ -1431,7 +1472,7 @@
         };
     }
 
-    function buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests, externalBaseline) {
+    function buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests, externalBaseline, localBaseline) {
         const targetAgeMs = periodToMs(periodHours);
         const baselineAgeMs = baseline && Number.isFinite(baseline.ts) ? now - baseline.ts : null;
         const offsetMs = baselineAgeMs === null ? null : baselineAgeMs - targetAgeMs;
@@ -1447,6 +1488,7 @@
             externalOk: !!(externalBaseline && externalBaseline.ok),
             externalMessage: externalBaseline && externalBaseline.message ? externalBaseline.message : "",
             externalUrl: externalBaseline && externalBaseline.url ? externalBaseline.url : "",
+            localFallback: !!(baseline && localBaseline && baseline === localBaseline && externalBaseline && externalBaseline.attempted && !externalBaseline.ok),
             conquestsExact: true,
             conquestsRows: (conquests && conquests.gained ? conquests.gained.length : 0) + (conquests && conquests.lost ? conquests.lost.length : 0),
             todayConquestsExact: true,
@@ -1744,9 +1786,12 @@
         const sourceText = precision.baselineSource === "twstats" ? "historico TWStats" : "snapshot local";
         const baselineText = precision.hasBaseline
             ? `Pontos/rank/OD comparados com ${sourceText} de ${formatDuration(precision.baselineAgeMs)} atras (${formatOffset(precision.baselineOffsetMs)} do alvo).`
-            : "Pontos/rank/OD sem snapshot local nem historico TWStats suficiente para comparar este periodo.";
+            : "Pontos/rank/OD sem historico TWStats suficiente para comparar este periodo.";
         const externalText = precision.externalAttempted && precision.externalMessage
             ? `<span>${escapeHTML(precision.externalMessage)}</span>`
+            : "";
+        const fallbackText = precision.localFallback
+            ? `<span>TWStats indisponivel; foi usado fallback local guardado pelo script.</span>`
             : "";
         return `
             <div class="${APP.id}-precisionBox">
@@ -1754,6 +1799,7 @@
                 <span>Conquistas: exatas por timestamp do /map/conquer.txt completo.</span>
                 <span>${escapeHTML(baselineText)}</span>
                 ${externalText}
+                ${fallbackText}
             </div>
         `;
     }
