@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.30
+// @version      1.0.31
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -40,7 +40,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.30",
+        version: "1.0.31",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -346,7 +346,6 @@
                         <div class="${APP.id}-rowContent">
                             <div class="${APP.id}-actions">
                                 <button type="submit" form="${APP.id}-form">Resumo</button>
-                                <button type="button" data-action="force">Atualizar</button>
                                 <button type="button" data-action="clear">Limpar Cache</button>
                             </div>
                             <div class="${APP.id}-footerLine">
@@ -375,7 +374,6 @@
         state.controls.status = scope.querySelector(`.${APP.id}-status`);
         state.controls.body = scope.querySelector(`.${APP.id}-body`);
         state.controls.submit = scope.querySelector('button[type="submit"]');
-        state.controls.force = scope.querySelector('[data-action="force"]');
         state.controls.clear = scope.querySelector('[data-action="clear"]');
 
         const closeButton = scope.querySelector('[data-action="close"]');
@@ -387,7 +385,6 @@
             runSummary(false);
         });
 
-        if (state.controls.force) state.controls.force.addEventListener("click", () => runSummary(true));
         if (state.controls.clear) state.controls.clear.addEventListener("click", clearCache);
         if (state.controls.periodSelect) state.controls.periodSelect.addEventListener("change", () => {
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
@@ -440,9 +437,17 @@
         setStyleImportant(dialog, "margin", "0 auto");
         setStyleImportant(dialog, "padding", "0");
         setStyleImportant(dialog, "overflow", "visible");
+        if (content) {
+            setStyleImportant(content, "max-height", "calc(100vh - 38px)");
+            setStyleImportant(content, "overflow", "hidden");
+            setStyleImportant(content, "padding-bottom", "0");
+        }
         setStyleImportant(frame, "width", "100%");
-        setStyleImportant(frame, "max-height", "calc(100vh - 42px)");
-        setStyleImportant(frame, "overflow", "hidden");
+        setStyleImportant(frame, "height", "auto");
+        setStyleImportant(frame, "max-height", "calc(100vh - 76px)");
+        setStyleImportant(frame, "overflow-x", "hidden");
+        setStyleImportant(frame, "overflow-y", "auto");
+        setStyleImportant(frame, "padding-bottom", "16px");
     }
 
     function setStyleImportant(node, name, value) {
@@ -1137,7 +1142,7 @@
         const notice = document.createElement("div");
         notice.id = `${APP.id}-twstatsBridge`;
         notice.textContent = count
-            ? `${APP.displayTitle}: ${count} linhas de historico guardadas. Volta ao Tribal Wars e carrega Atualizar.`
+            ? `${APP.displayTitle}: ${count} linhas de historico guardadas. Volta ao Tribal Wars e carrega Resumo.`
             : `${APP.displayTitle}: nao encontrei linhas de historico nesta pagina TWStats. Confirma se estas no separador Historico do jogador.`;
         notice.style.cssText = [
             "position:fixed",
@@ -2712,9 +2717,8 @@
     function setBusy(isBusy) {
         if (!state.controls.submit) return;
         state.controls.submit.disabled = isBusy;
-        state.controls.force.disabled = isBusy;
-        state.controls.clear.disabled = isBusy;
-        state.panel.classList.toggle(`${APP.id}-busy`, isBusy);
+        if (state.controls.clear) state.controls.clear.disabled = isBusy;
+        if (state.panel && state.panel.classList) state.panel.classList.toggle(`${APP.id}-busy`, isBusy);
     }
 
     function setStatus(message) {
@@ -3429,10 +3433,9 @@
             }
 
             #popup_box_${APP.dialogId} .popup_box_content {
-                max-height: calc(100vh - 44px) !important;
-                overflow-x: hidden !important;
-                overflow-y: auto !important;
-                padding-bottom: 12px !important;
+                max-height: calc(100vh - 38px) !important;
+                overflow: hidden !important;
+                padding-bottom: 0 !important;
             }
 
             #popup_box_${APP.dialogId} .popup_box_content > div {
@@ -3447,9 +3450,10 @@
             }
 
             #popup_box_${APP.dialogId} .${APP.id}-shell {
-                max-height: none !important;
-                overflow: visible !important;
-                padding-bottom: 10px !important;
+                max-height: calc(100vh - 76px) !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                padding-bottom: 16px !important;
             }
 
             .${APP.id}-dialog {
@@ -4097,7 +4101,7 @@
 
             .${APP.id}-actions {
                 display: grid;
-                grid-template-columns: repeat(3, minmax(140px, 1fr));
+                grid-template-columns: repeat(2, minmax(140px, 1fr));
                 gap: 10px;
                 margin-bottom: 9px;
             }
