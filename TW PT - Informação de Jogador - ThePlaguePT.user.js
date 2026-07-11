@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.26
+// @version      1.0.27
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -28,7 +28,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.26",
+        version: "1.0.27",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -1087,6 +1087,7 @@
             `${links.profileUrl}&mode=history`,
             links.profileUrl,
         ];
+        let lastMessage = "";
 
         for (const url of urls) {
             try {
@@ -1103,8 +1104,10 @@
                         message: parsed.message,
                     };
                 }
+                lastMessage = parsed.message || lastMessage;
             } catch (error) {
                 const message = error && error.message ? error.message : String(error);
+                lastMessage = message || lastMessage;
                 if (/cloudflare|verificacao|bloque/i.test(message)) {
                     return {
                         attempted: true,
@@ -1122,7 +1125,7 @@
             ok: false,
             source: "twstats",
             url: links.historyUrl,
-            message: "TWStats nao devolveu um registo historico utilizavel perto das ultimas 24h.",
+            message: lastMessage || "TWStats nao devolveu um registo historico utilizavel perto das ultimas 24h.",
         };
     }
 
@@ -1213,13 +1216,24 @@
             }))
             .filter((item) => item.distance <= APP.twStatsBaselineToleranceMs)
             .sort((a, b) => a.distance - b.distance);
-        const candidates = beforeTarget.length ? beforeTarget : candidatePool
+        let sourceMode = "24h";
+        let candidates = beforeTarget.length ? beforeTarget : candidatePool
             .map((record) => ({
                 record,
                 distance: Math.abs(record.ts - target),
             }))
             .filter((item) => item.distance <= APP.twStatsBaselineToleranceMs)
             .sort((a, b) => a.distance - b.distance);
+        if (!candidates.length) {
+            candidates = candidatePool
+                .map((record) => ({
+                    record,
+                    distance: now - record.ts,
+                }))
+                .filter((item) => item.distance > APP.minSnapshotGapMs && item.distance <= 3 * APP.dayMs)
+                .sort((a, b) => a.distance - b.distance);
+            sourceMode = "latest";
+        }
 
         if (!candidates.length) {
             return { snapshot: null, message: `TWStats lido (${records.length} linhas), sem registo perto de 24h atras.` };
@@ -1244,7 +1258,9 @@
 
         return {
             snapshot,
-            message: `Base TWStats de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`,
+            message: sourceMode === "24h"
+                ? `Base TWStats de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`
+                : `Base TWStats mais recente de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`,
         };
     }
 
@@ -1898,6 +1914,8 @@
             if (precision && precision.externalMessage) {
                 const lines = String(precision.externalMessage).match(/TWStats lido \((\d+) linhas\)/i);
                 if (lines) return `TWStats ${lines[1]} linhas`;
+                if (/cloudflare|verificacao/i.test(precision.externalMessage)) return "TWStats bloqueado";
+                if (/tempo esgotado|contactar/i.test(precision.externalMessage)) return "TWStats erro";
             }
             return "sem base TWStats";
         }
@@ -3078,13 +3096,19 @@
                 width: min(1320px, calc(100vw - 24px));
                 max-width: calc(100vw - 24px);
                 max-height: calc(100vh - 18px);
-                overflow: visible;
+                overflow: hidden;
                 margin: 0;
-                padding: 0;
-                border: 0;
-                border-radius: 0;
-                background: transparent;
-                box-shadow: none;
+                padding: 12px;
+                border: 1px solid #3f2b17;
+                border-radius: 5px;
+                background:
+                    linear-gradient(#d8c79c, #9a8760) padding-box,
+                    linear-gradient(135deg, #f8ead0 0%, #6d5a3c 22%, #d6c08d 45%, #493520 72%, #efe0bd 100%) border-box;
+                box-shadow:
+                    0 0 0 2px rgba(52, 36, 20, .75),
+                    0 0 0 4px rgba(219, 204, 164, .9),
+                    inset 0 0 0 1px rgba(255,255,255,.45),
+                    0 6px 18px rgba(0,0,0,.55);
                 color: #2f1809;
                 box-sizing: border-box;
                 font: 12px Verdana, Arial, sans-serif;
@@ -3145,7 +3169,7 @@
 
             .${APP.id}-dialog {
                 position: relative;
-                width: min(1260px, calc(100vw - 72px));
+                width: 100%;
                 max-width: 100%;
                 min-width: 0;
                 margin: 0 auto;
@@ -3189,7 +3213,7 @@
                 flex-direction: column;
                 width: 100%;
                 max-width: 100%;
-                max-height: calc(100vh - 42px);
+                max-height: calc(100vh - 60px);
                 min-height: 0;
                 min-width: 0;
                 padding: 0;
