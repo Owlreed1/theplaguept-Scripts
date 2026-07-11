@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.23
+// @version      1.0.24
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -28,7 +28,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.23",
+        version: "1.0.24",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -39,7 +39,7 @@
         conquerAllCacheMs: 5 * 60 * 1000,
         twStatsCacheMs: 30 * 60 * 1000,
         twStatsTimeoutMs: 12000,
-        twStatsBaselineToleranceMs: 36 * 60 * 60 * 1000,
+        twStatsBaselineToleranceMs: 48 * 60 * 60 * 1000,
         maxDailyConquestRows: 80,
         minSnapshotGapMs: 10 * 60 * 1000,
         snapshotRetentionMs: 10 * 24 * 60 * 60 * 1000,
@@ -90,7 +90,7 @@
             }
         });
 
-        window.TPResumo24hJogador = {
+        gameWindow().TPResumo24hJogador = {
             open: openPanel,
             run: () => runSummary(false),
             version: APP.version,
@@ -185,12 +185,14 @@
             order: 35,
             run: openPanel,
         };
-        window.TWHubQueue = window.TWHubQueue || [];
-        window.TWHubQueue.push(item);
+        const page = gameWindow();
+        page.TWHubQueue = page.TWHubQueue || [];
+        page.TWHubQueue.push(item);
     }
 
     function openPanel() {
-        if (window.Dialog && typeof window.Dialog.show === "function") {
+        const dialogApi = gameWindow().Dialog;
+        if (dialogApi && typeof dialogApi.show === "function") {
             openNativeDialogPanel();
             return;
         }
@@ -217,7 +219,7 @@
             "",
         );
 
-        window.Dialog.show(APP.dialogId, html);
+        gameWindow().Dialog.show(APP.dialogId, html);
         const dialog = document.querySelector(`#popup_box_${APP.dialogId} .${APP.id}-dialog`) ||
             document.querySelector(`.${APP.id}-dialog`);
         if (!dialog) return;
@@ -248,8 +250,9 @@
     }
 
     function closePanel() {
-        if (state.nativeDialog && window.Dialog && typeof window.Dialog.close === "function") {
-            window.Dialog.close(APP.dialogId);
+        const dialogApi = gameWindow().Dialog;
+        if (state.nativeDialog && dialogApi && typeof dialogApi.close === "function") {
+            dialogApi.close(APP.dialogId);
             state.nativeDialog = false;
             state.panel = null;
             state.controls = {};
@@ -469,7 +472,7 @@
             state.lastResult = result;
             state.controls.playerInput.value = result.player.name;
             renderResult(result);
-            setStatus(`Atualizado: ${formatDateTime(new Date(result.generatedAt))}`);
+            setStatus(`Atualizado: ${formatDateTime(new Date(result.generatedAt))} - 24h: ${baselineStatusLabel(result.precision)}`);
         } catch (error) {
             console.error(`[${APP.id}]`, error);
             showNotice(`Erro: ${error.message || error}`, "error");
@@ -1197,9 +1200,18 @@
     function parseTwStatsBaselineFromHtml(html, current, now, periodHours) {
         const records = parseTwStatsHistoryRecords(html, current);
         const target = now - periodToMs(periodHours);
-        const candidates = records
+        const candidatePool = records
             .filter((record) => record && Number.isFinite(record.ts))
-            .filter((record) => record.ts < now - APP.minSnapshotGapMs)
+            .filter((record) => record.ts < now - APP.minSnapshotGapMs);
+        const beforeTarget = candidatePool
+            .filter((record) => record.ts <= target)
+            .map((record) => ({
+                record,
+                distance: target - record.ts,
+            }))
+            .filter((item) => item.distance <= APP.twStatsBaselineToleranceMs)
+            .sort((a, b) => a.distance - b.distance);
+        const candidates = beforeTarget.length ? beforeTarget : candidatePool
             .map((record) => ({
                 record,
                 distance: Math.abs(record.ts - target),
@@ -1301,6 +1313,10 @@
         values.points = pickClosestNumber(numbers, current.points, used);
         values.villages = pickClosestNumber(numbers, current.villages, used);
         values.rank = pickClosestNumber(numbers, current.rank, used);
+        values.odTotal = pickClosestNumber(numbers, current.od && current.od.total && current.od.total.score, used);
+        values.odOff = pickClosestNumber(numbers, current.od && current.od.off && current.od.off.score, used);
+        values.odDef = pickClosestNumber(numbers, current.od && current.od.def && current.od.def.score, used);
+        values.odSupport = pickClosestNumber(numbers, current.od && current.od.support && current.od.support.score, used);
 
         Object.keys(values).forEach((key) => {
             if (!Number.isFinite(values[key])) delete values[key];
@@ -1406,13 +1422,15 @@
     }
 
     function parseTwStatsNumber(text) {
-        let value = cleanText(text).replace(/[^\d,.\-+]/g, "");
+        const raw = cleanText(text);
+        const multiplier = /\d\s*k\b/i.test(raw) ? 1000 : (/\d\s*m\b/i.test(raw) ? 1000000 : 1);
+        let value = raw.replace(/[^\d,.\-+]/g, "");
         if (!/[0-9]/.test(value)) return null;
         value = value
             .replace(/[.,](?=\d{3}(?:\D|$))/g, "")
             .replace(/,/g, ".");
-        const number = Number.parseInt(value, 10);
-        return Number.isFinite(number) ? number : null;
+        const number = multiplier > 1 ? Number.parseFloat(value) * multiplier : Number.parseInt(value, 10);
+        return Number.isFinite(number) ? Math.round(number) : null;
     }
 
     function twStatsWorldKey() {
@@ -1727,7 +1745,6 @@
                 ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def)}
                 ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support)}
             </div>
-            ${renderPrecisionNotice(result.precision)}
         `;
 
         const odContent = `
@@ -1802,6 +1819,13 @@
                 ${fallbackText}
             </div>
         `;
+    }
+
+    function baselineStatusLabel(precision) {
+        if (!precision || !precision.hasBaseline) return "sem base TWStats";
+        if (precision.baselineSource === "twstats") return "TWStats";
+        if (precision.localFallback) return "fallback local";
+        return "local";
     }
 
     function formatOffset(ms) {
@@ -2465,9 +2489,12 @@
         return String(value || "").replace(/\s+/g, " ").trim();
     }
 
+    function gameWindow() {
+        return (typeof unsafeWindow !== "undefined" && unsafeWindow) ? unsafeWindow : window;
+    }
+
     function pageGameData() {
-        if (typeof unsafeWindow !== "undefined" && unsafeWindow.game_data) return unsafeWindow.game_data;
-        return window.game_data || {};
+        return gameWindow().game_data || {};
     }
 
     function startOfDayTs(timestamp) {
@@ -3003,8 +3030,7 @@
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
-                overflow-x: hidden !important;
-                overflow-y: hidden !important;
+                overflow: visible !important;
                 box-sizing: border-box !important;
             }
 
@@ -3068,7 +3094,8 @@
                 border-radius: 4px;
                 background: #f4e4b8;
                 color: #3b2508;
-                overflow: hidden;
+                overflow-x: hidden;
+                overflow-y: auto;
                 box-sizing: border-box;
             }
 
@@ -3255,11 +3282,10 @@
             .${APP.id}-body {
                 display: flex;
                 flex-direction: column;
-                flex: 1 1 auto;
+                flex: 0 0 auto;
                 min-height: 0;
                 min-width: 0;
-                overflow-y: auto;
-                overflow-x: hidden;
+                overflow: visible;
                 padding: 0;
             }
 
