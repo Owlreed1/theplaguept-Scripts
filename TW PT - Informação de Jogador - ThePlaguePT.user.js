@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Informação de Jogador - ThePlaguePT
 // @namespace    theplaguept.tw.resumo24h-jogador
-// @version      1.0.21
+// @version      1.0.22
 // @description  Painel com resumo por periodo de um jogador: pontos, aldeias, conquistas e OD.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -10,7 +10,11 @@
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Informa%C3%A7%C3%A3o%20de%20Jogador%20-%20ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Informa%C3%A7%C3%A3o%20de%20Jogador%20-%20ThePlaguePT.user.js
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @grant        GM.xmlHttpRequest
+// @grant        unsafeWindow
+// @connect      pt.twstats.com
+// @connect      twstats.com
 // @run-at       document-idle
 // @noframes
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -24,7 +28,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.21",
+        version: "1.0.22",
         title: "Informação de Jogador",
         displayTitle: "TW PT - Informação de Jogador - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -33,6 +37,9 @@
         mapCacheMs: 50 * 60 * 1000,
         conquerCacheMs: 90 * 1000,
         conquerAllCacheMs: 5 * 60 * 1000,
+        twStatsCacheMs: 30 * 60 * 1000,
+        twStatsTimeoutMs: 12000,
+        twStatsBaselineToleranceMs: 36 * 60 * 60 * 1000,
         maxDailyConquestRows: 80,
         minSnapshotGapMs: 10 * 60 * 1000,
         snapshotRetentionMs: 10 * 24 * 60 * 60 * 1000,
@@ -522,9 +529,13 @@
 
         const dailyHistory = loadDailySnapshots(player.id);
         const history = mergeBaselineHistory(loadSnapshots(player.id), dailyHistory);
-        const baseline = chooseBaseline(history, now, periodHours);
+        let baseline = chooseBaseline(history, now, periodHours);
+        const externalBaseline = await loadTwStatsBaseline(player.id, current, now, periodHours, force, !!baseline);
+        if (!baseline && externalBaseline && externalBaseline.snapshot) {
+            baseline = externalBaseline.snapshot;
+        }
         const diffs = buildDiffs(current, baseline);
-        const precision = buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests);
+        const precision = buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests, externalBaseline);
         const dailyStats = buildDailyStats(dailyHistory, current);
         saveSnapshot(current);
         saveDailySnapshot(current);
@@ -556,7 +567,7 @@
 
     function selectedPeriodHours() {
         const value = Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10);
-        const allowed = [12, 24, 48, 72, 96, 120, 144];
+        const allowed = [24];
         return allowed.includes(value) ? value : 24;
     }
 
@@ -1062,6 +1073,307 @@
         };
     }
 
+    async function loadTwStatsBaseline(playerId, current, now, periodHours, force, hasLocalBaseline) {
+        if (hasLocalBaseline || periodHours !== 24) {
+            return { attempted: false, reason: hasLocalBaseline ? "local" : "period" };
+        }
+
+        const links = buildTwStatsLinks(playerId);
+        const urls = [
+            links.historyUrl,
+            `${links.profileUrl}&mode=history`,
+            links.profileUrl,
+        ];
+
+        for (const url of urls) {
+            try {
+                setStatus("Sem snapshot local. A tentar historico TWStats...");
+                const html = await fetchTwStatsText(url, force);
+                const parsed = parseTwStatsBaselineFromHtml(html, current, now, periodHours);
+                if (parsed.snapshot) {
+                    return {
+                        attempted: true,
+                        ok: true,
+                        source: "twstats",
+                        url,
+                        snapshot: parsed.snapshot,
+                        message: parsed.message,
+                    };
+                }
+            } catch (error) {
+                const message = error && error.message ? error.message : String(error);
+                if (/cloudflare|verificacao|bloque/i.test(message)) {
+                    return {
+                        attempted: true,
+                        ok: false,
+                        source: "twstats",
+                        url,
+                        message,
+                    };
+                }
+            }
+        }
+
+        return {
+            attempted: true,
+            ok: false,
+            source: "twstats",
+            url: links.historyUrl,
+            message: "TWStats nao devolveu um registo historico utilizavel perto das ultimas 24h.",
+        };
+    }
+
+    async function fetchTwStatsText(url, force) {
+        const now = Date.now();
+        const key = `twstats:${url}`;
+        const cached = state.memoryCache.get(key);
+        if (!force && cached && now - cached.time < APP.twStatsCacheMs) return cached.text;
+
+        const text = await requestExternalText(url, APP.twStatsTimeoutMs);
+        if (isTwStatsChallenge(text)) {
+            throw new Error("TWStats pediu verificacao Cloudflare. Abre o TWStats uma vez no browser e volta a atualizar.");
+        }
+
+        state.memoryCache.set(key, { time: now, text });
+        return text;
+    }
+
+    function requestExternalText(url, timeoutMs) {
+        return new Promise((resolve, reject) => {
+            const done = (text, status) => {
+                if (status && (status < 200 || status >= 300)) {
+                    reject(new Error(`TWStats respondeu ${status}.`));
+                    return;
+                }
+                resolve(String(text || ""));
+            };
+
+            const fail = (error) => reject(new Error(error && error.message ? error.message : "Nao foi possivel contactar o TWStats."));
+
+            if (typeof GM_xmlhttpRequest === "function") {
+                GM_xmlhttpRequest({
+                    method: "GET",
+                    url,
+                    timeout: timeoutMs,
+                    anonymous: false,
+                    headers: { "Accept": "text/html,application/xhtml+xml,*/*" },
+                    onload: (response) => done(response.responseText, response.status),
+                    onerror: fail,
+                    ontimeout: () => reject(new Error("Tempo esgotado ao contactar o TWStats.")),
+                });
+                return;
+            }
+
+            if (typeof GM !== "undefined" && GM && typeof GM.xmlHttpRequest === "function") {
+                GM.xmlHttpRequest({
+                    method: "GET",
+                    url,
+                    timeout: timeoutMs,
+                    anonymous: false,
+                    headers: { "Accept": "text/html,application/xhtml+xml,*/*" },
+                    onload: (response) => done(response.responseText, response.status),
+                    onerror: fail,
+                    ontimeout: () => reject(new Error("Tempo esgotado ao contactar o TWStats.")),
+                });
+                return;
+            }
+
+            fetch(url, {
+                credentials: "include",
+                cache: "no-store",
+                headers: { "Accept": "text/html,application/xhtml+xml,*/*" },
+            })
+                .then((response) => {
+                    if (!response.ok) throw new Error(`TWStats respondeu ${response.status}.`);
+                    return response.text();
+                })
+                .then(resolve)
+                .catch(fail);
+        });
+    }
+
+    function isTwStatsChallenge(text) {
+        return /just a moment|cf_chl|cloudflare|enable javascript and cookies/i.test(String(text || ""));
+    }
+
+    function parseTwStatsBaselineFromHtml(html, current, now, periodHours) {
+        const records = parseTwStatsHistoryRecords(html, current);
+        const target = now - periodToMs(periodHours);
+        const candidates = records
+            .filter((record) => record && Number.isFinite(record.ts))
+            .filter((record) => record.ts < now - APP.minSnapshotGapMs)
+            .map((record) => ({
+                record,
+                distance: Math.abs(record.ts - target),
+            }))
+            .filter((item) => item.distance <= APP.twStatsBaselineToleranceMs)
+            .sort((a, b) => a.distance - b.distance);
+
+        if (!candidates.length) {
+            return { snapshot: null, message: "Sem registo TWStats perto de 24h atras." };
+        }
+
+        const record = candidates[0].record;
+        const snapshot = {
+            ts: record.ts,
+            playerId: current.playerId,
+            name: current.name,
+            points: record.points,
+            villages: record.villages,
+            rank: record.rank,
+            od: {
+                total: twStatsOdEntry(record.odTotal),
+                off: twStatsOdEntry(record.odOff),
+                def: twStatsOdEntry(record.odDef),
+                support: twStatsOdEntry(record.odSupport),
+            },
+            source: "twstats",
+        };
+
+        return {
+            snapshot,
+            message: `Base TWStats de ${formatDateTime(new Date(record.ts))}.`,
+        };
+    }
+
+    function twStatsOdEntry(score) {
+        return Number.isFinite(score) ? { score, rank: null } : null;
+    }
+
+    function parseTwStatsHistoryRecords(html, current) {
+        const records = [];
+        const doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+
+        Array.from(doc.querySelectorAll("table")).forEach((table) => {
+            let headers = [];
+            Array.from(table.querySelectorAll("tr")).forEach((row) => {
+                const headerCells = Array.from(row.querySelectorAll("th"));
+                const cells = Array.from(row.querySelectorAll("th,td"));
+                const texts = cells.map((cell) => cleanText(cell.textContent));
+                if (!texts.length) return;
+
+                const rowDate = parseTwStatsDate(texts.join(" "));
+                if (headerCells.length || !rowDate) {
+                    const possibleHeaders = texts.filter(Boolean);
+                    if (!rowDate && possibleHeaders.some((text) => twStatsHeaderKey(text))) headers = possibleHeaders;
+                    return;
+                }
+
+                const values = extractTwStatsValues(headers, texts, current);
+                if (hasTwStatsValue(values)) {
+                    records.push({
+                        ts: rowDate,
+                        ...values,
+                    });
+                }
+            });
+        });
+
+        return records
+            .filter((record, index, list) => list.findIndex((item) => item.ts === record.ts) === index)
+            .sort((a, b) => a.ts - b.ts);
+    }
+
+    function extractTwStatsValues(headers, texts, current) {
+        const values = {};
+        const aligned = headers && headers.length === texts.length ? headers : [];
+        if (aligned.length) {
+            texts.forEach((text, index) => {
+                const key = twStatsHeaderKey(aligned[index]);
+                const value = parseTwStatsNumber(text);
+                if (key && Number.isFinite(value)) values[key] = value;
+            });
+        }
+
+        if (!hasTwStatsValue(values)) {
+            return inferTwStatsValues(texts, current);
+        }
+
+        return values;
+    }
+
+    function inferTwStatsValues(texts, current) {
+        const numbers = texts
+            .filter((text) => !parseTwStatsDate(text))
+            .map(parseTwStatsNumber)
+            .filter(Number.isFinite);
+        const values = {};
+        const used = new Set();
+
+        values.points = pickClosestNumber(numbers, current.points, used);
+        values.villages = pickClosestNumber(numbers, current.villages, used);
+        values.rank = pickClosestNumber(numbers, current.rank, used);
+
+        Object.keys(values).forEach((key) => {
+            if (!Number.isFinite(values[key])) delete values[key];
+        });
+        return values;
+    }
+
+    function pickClosestNumber(numbers, target, used) {
+        if (!Number.isFinite(target)) return null;
+        let bestIndex = -1;
+        let bestDistance = Infinity;
+        numbers.forEach((value, index) => {
+            if (used.has(index) || !Number.isFinite(value)) return;
+            const distance = Math.abs(value - target);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestIndex = index;
+            }
+        });
+        if (bestIndex < 0) return null;
+        used.add(bestIndex);
+        return numbers[bestIndex];
+    }
+
+    function hasTwStatsValue(values) {
+        return !!values && ["points", "villages", "rank", "odTotal", "odOff", "odDef", "odSupport"]
+            .some((key) => Number.isFinite(values[key]));
+    }
+
+    function twStatsHeaderKey(header) {
+        const text = fold(header);
+        if (!text) return "";
+        if (text.includes("pontos") || text === "points") return "points";
+        if (text.includes("aldeias") || text.includes("villages")) return "villages";
+        if (text.includes("rank") || text.includes("classificacao") || text.includes("posicao")) return "rank";
+        if (text === "oda" || text.includes("ofensivo") || text.includes("offensive") || text.includes("attack")) return "odOff";
+        if (text === "odd" || text.includes("defensivo") || text.includes("defensive")) return "odDef";
+        if (text.includes("apoio") || text.includes("support")) return "odSupport";
+        if (text === "od" || text.includes("oponentes") || text.includes("derrotados") || text.includes("total od")) return "odTotal";
+        return "";
+    }
+
+    function parseTwStatsDate(text) {
+        const value = cleanText(text);
+        let match = value.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[,\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (match) return buildLocalTime(+match[1], +match[2], +match[3], +match[4] || 0, +match[5] || 0, +match[6] || 0);
+
+        match = value.match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (!match) return null;
+
+        let year = +match[3];
+        if (year < 100) year += year < 70 ? 2000 : 1900;
+        return buildLocalTime(year, +match[2], +match[1], +match[4] || 0, +match[5] || 0, +match[6] || 0);
+    }
+
+    function buildLocalTime(year, month, day, hour, minute, second) {
+        const date = new Date(year, month - 1, day, hour, minute, second);
+        const time = date.getTime();
+        return Number.isFinite(time) ? time : null;
+    }
+
+    function parseTwStatsNumber(text) {
+        let value = cleanText(text).replace(/[^\d,.\-+]/g, "");
+        if (!/[0-9]/.test(value)) return null;
+        value = value
+            .replace(/[.,](?=\d{3}(?:\D|$))/g, "")
+            .replace(/,/g, ".");
+        const number = Number.parseInt(value, 10);
+        return Number.isFinite(number) ? number : null;
+    }
+
     function twStatsWorldKey() {
         const hostPart = window.location.hostname.split(".")[0].toLowerCase();
         if (/^[a-z]{2}(?:p|c)?\d+$/i.test(hostPart)) return hostPart;
@@ -1119,17 +1431,22 @@
         };
     }
 
-    function buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests) {
+    function buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests, externalBaseline) {
         const targetAgeMs = periodToMs(periodHours);
         const baselineAgeMs = baseline && Number.isFinite(baseline.ts) ? now - baseline.ts : null;
         const offsetMs = baselineAgeMs === null ? null : baselineAgeMs - targetAgeMs;
         return {
             periodHours,
+            baselineSource: baseline && baseline.source ? baseline.source : (baseline ? "local" : ""),
             baselineTs: baseline && Number.isFinite(baseline.ts) ? baseline.ts : null,
             baselineAgeMs,
             baselineOffsetMs: offsetMs,
             baselineExact: offsetMs !== null && Math.abs(offsetMs) <= APP.minSnapshotGapMs,
             hasBaseline: !!baseline,
+            externalAttempted: !!(externalBaseline && externalBaseline.attempted),
+            externalOk: !!(externalBaseline && externalBaseline.ok),
+            externalMessage: externalBaseline && externalBaseline.message ? externalBaseline.message : "",
+            externalUrl: externalBaseline && externalBaseline.url ? externalBaseline.url : "",
             conquestsExact: true,
             conquestsRows: (conquests && conquests.gained ? conquests.gained.length : 0) + (conquests && conquests.lost ? conquests.lost.length : 0),
             todayConquestsExact: true,
@@ -1424,14 +1741,19 @@
 
     function renderPrecisionNotice(precision) {
         if (!precision) return "";
+        const sourceText = precision.baselineSource === "twstats" ? "historico TWStats" : "snapshot local";
         const baselineText = precision.hasBaseline
-            ? `Pontos/rank/OD comparados com snapshot local de ${formatDuration(precision.baselineAgeMs)} atras (${formatOffset(precision.baselineOffsetMs)} do alvo).`
-            : "Pontos/rank/OD sem snapshot local suficiente para comparar este periodo.";
+            ? `Pontos/rank/OD comparados com ${sourceText} de ${formatDuration(precision.baselineAgeMs)} atras (${formatOffset(precision.baselineOffsetMs)} do alvo).`
+            : "Pontos/rank/OD sem snapshot local nem historico TWStats suficiente para comparar este periodo.";
+        const externalText = precision.externalAttempted && precision.externalMessage
+            ? `<span>${escapeHTML(precision.externalMessage)}</span>`
+            : "";
         return `
             <div class="${APP.id}-precisionBox">
                 <strong>Precisao dos dados</strong>
                 <span>Conquistas: exatas por timestamp do /map/conquer.txt completo.</span>
                 <span>${escapeHTML(baselineText)}</span>
+                ${externalText}
             </div>
         `;
     }
@@ -1982,14 +2304,14 @@
         const params = new URLSearchParams(window.location.search);
         if (params.get("screen") === "info_player" && params.get("id")) return params.get("id");
 
-        const gameData = window.game_data || {};
+        const gameData = pageGameData();
         if (gameData.player && gameData.player.name) return gameData.player.name;
         if (gameData.player && gameData.player.id) return String(gameData.player.id);
         return "";
     }
 
     function worldLabel() {
-        const gameData = window.game_data || {};
+        const gameData = pageGameData();
         const world = String(gameData.world || window.location.hostname.split(".")[0] || "").toUpperCase();
         return `${world} - ${window.location.host}`;
     }
@@ -2098,6 +2420,7 @@
     }
 
     function pageGameData() {
+        if (typeof unsafeWindow !== "undefined" && unsafeWindow.game_data) return unsafeWindow.game_data;
         return window.game_data || {};
     }
 
