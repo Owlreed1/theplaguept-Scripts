@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.10
+// @version      1.3.11
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.10 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.11 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -101,6 +101,7 @@
     const ATTACK_FULL_LIGHT = 2000;
     const ATTACK_HALF_AXE = 2500;
     const ATTACK_HALF_LIGHT = 1000;
+    const TROOP_CELL_MAX_VALUE = 5000000;
     const SETTINGS_KEY = `${STORAGE_PREFIX}_settings`;
 
     const DEFAULT_SETTINGS = {
@@ -2686,6 +2687,41 @@
         return values.length ? Math.max(...values) : 0;
     }
 
+    function parseSafeTroopCellNumber(value) {
+        const raw = String(value || '').replace(/\u00a0/g, ' ').trim();
+
+        if (!raw || raw === '-' || raw === '—' || raw === 'â€”' || raw === 'Ã¢â‚¬â€') {
+            return 0;
+        }
+
+        if (parseCoords(raw)) {
+            return 0;
+        }
+
+        const lines = raw
+            .split(/\r?\n/)
+            .map(cleanText)
+            .filter(Boolean);
+
+        const parseNumber = token => {
+            const compact = String(token || '').replace(/\./g, '');
+
+            if (!compact || compact.length > 8) return 0;
+
+            const number = Number(compact) || 0;
+            return number > TROOP_CELL_MAX_VALUE ? 0 : number;
+        };
+        const numericLines = lines.filter(line => /^\d[\d.]*$/.test(line));
+        const sourceLines = numericLines.length ? numericLines : lines;
+        const values = sourceLines
+            .map(line => line.match(/\d{1,3}(?:\.\d{3})+|\d+/g) || [])
+            .flat()
+            .map(parseNumber)
+            .filter(number => number > 0);
+
+        return values.length ? Math.max(...values) : 0;
+    }
+
     function parseTroopRowTotals(row, columns) {
         const rowTotals = createTroopTotals();
         const directUnitKeys = new Set();
@@ -2694,7 +2730,7 @@
             const unitKey = detectTroopUnitKey(cell);
             if (!unitKey) return;
 
-            const value = parseTroopCellNumber(cell.innerText || cell.textContent || '');
+            const value = parseSafeTroopCellNumber(cell.innerText || cell.textContent || '');
             directUnitKeys.add(unitKey);
 
             if (value > 0) {
@@ -2708,11 +2744,11 @@
             }
 
             const cell = getCellAtColumn(row, column.index);
-            let value = parseTroopCellNumber(cell ? (cell.innerText || cell.textContent || '') : '');
+            let value = parseSafeTroopCellNumber(cell ? (cell.innerText || cell.textContent || '') : '');
 
             if (!value && typeof column.cellIndex === 'number') {
                 const physicalCell = row.children[column.cellIndex];
-                value = parseTroopCellNumber(physicalCell ? (physicalCell.innerText || physicalCell.textContent || '') : '');
+                value = parseSafeTroopCellNumber(physicalCell ? (physicalCell.innerText || physicalCell.textContent || '') : '');
             }
 
             if (value > 0) {
