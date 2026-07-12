@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.9
+// @version      1.3.10
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.9 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.10 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2674,11 +2674,11 @@
             .map(cleanText)
             .filter(Boolean);
 
-        const parseNumber = text => Number(String(text || '').replace(/[.\s]/g, '')) || 0;
-        const numericLines = lines.filter(line => /^\d[\d.\s]*$/.test(line));
+        const parseNumber = text => Number(String(text || '').replace(/\./g, '')) || 0;
+        const numericLines = lines.filter(line => /^\d[\d.]*$/.test(line));
         const sourceLines = numericLines.length ? numericLines : lines;
         const values = sourceLines
-            .map(line => line.match(/\d[\d.\s]*/g) || [])
+            .map(line => line.match(/\d[\d.]*/g) || [])
             .flat()
             .map(parseNumber)
             .filter(number => number > 0);
