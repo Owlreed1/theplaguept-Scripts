@@ -1,8 +1,8 @@
 ﻿// ==UserScript==
 // @name         TW PT - Informação Jogador e Tribo - ThePlaguePT
 // @namespace    theplaguept.tw.info-jogador-tribo
-// @version      1.0.2
-// @description  Painéis com resumo de 24h para jogador e tribo: pontos, aldeias, conquistas, OD e histórico TWStats.
+// @version      1.0.4
+// @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
 // @match        https://pt.twstats.com/*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.2",
+        version: "1.0.4",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -306,7 +306,7 @@
                 <div class="${APP.id}-shell">
                     <header class="${APP.id}-masthead">
                         <h2>${escapeHTML(APP.displayTitle)}</h2>
-                        <p>Resumo das ultimas 24 horas do mundo atual. ${escapeHTML(worldLabel())}</p>
+                        <p>Resumo horario por dia TWStats do mundo atual. ${escapeHTML(worldLabel())}</p>
                     </header>
 
                     <form id="${APP.id}-form" class="${APP.id}-panelRow ${APP.id}-searchRow">
@@ -330,13 +330,19 @@
                                 <label>
                                     <span>Periodo</span>
                                     <select name="period">
-                                        <option value="24" selected>24 horas</option>
+                                        <option value="0" selected>Hoje</option>
+                                        <option value="1">-1 dia</option>
+                                        <option value="2">-2 dias</option>
+                                        <option value="3">-3 dias</option>
+                                        <option value="4">-4 dias</option>
+                                        <option value="5">-5 dias</option>
+                                        <option value="6">-6 dias</option>
                                     </select>
                                 </label>
                                 <label>
                                     <span>Comparar</span>
                                     <select disabled>
-                                        <option>Historico TWStats 24h</option>
+                                        <option>Historico TWStats horario</option>
                                     </select>
                                 </label>
                             </div>
@@ -530,7 +536,7 @@
             state.lastResult = result;
             state.controls.playerInput.value = result.player.name;
             renderResult(result);
-            setStatus(`Atualizado: ${formatDateTime(new Date(result.generatedAt))} - 24h: ${baselineStatusLabel(result.precision)}`);
+            setStatus(`Atualizado: ${formatDateTime(new Date(result.generatedAt))} - ${result.period.shortLabel}: ${baselineStatusLabel(result.precision)}`);
         } catch (error) {
             console.error(`[${APP.id}]`, error);
             showNotice(`Erro: ${error.message || error}`, "error");
@@ -543,9 +549,11 @@
 
     async function buildSummary(query, force) {
         const now = Date.now();
-        const periodHours = selectedPeriodHours();
-        const periodMs = periodToMs(periodHours);
-        const since = Math.floor((now - periodMs) / 1000);
+        const periodInfo = selectedPeriodInfo(now);
+        const periodHours = periodInfo.hours;
+        const periodMs = periodInfo.ms;
+        const since = Math.floor(periodInfo.startMs / 1000);
+        const until = Math.floor(periodInfo.endMs / 1000);
 
         const playersText = await fetchCachedText("players", "/map/player.txt", APP.mapCacheMs, force);
         const players = parsePlayers(playersText);
@@ -567,8 +575,8 @@
         const tribes = parseTribes(tribesText || "");
         player.tribe = tribeInfo(tribes, player.tribeId);
         const villages = parseVillages(villagesText);
-        const conquests = summarizeConquests(conquerAllText, villages, players.byId, player.id, since);
-        const todayConquests = summarizeConquests(conquerAllText, villages, players.byId, player.id, startOfDayTs(Math.floor(now / 1000)));
+        const conquests = summarizeConquests(conquerAllText, villages, players.byId, player.id, since, until);
+        const todayConquests = summarizeConquests(conquerAllText, villages, players.byId, player.id, since, until);
         const allTime = summarizeAllTimeConquests(conquerAllText, villages, players.byId, player.id);
         const villagesSummary = summarizePlayerVillages(villages, player.id);
         const metrics = buildEvaluationMetrics(player, villagesSummary, od, allTime);
@@ -590,15 +598,15 @@
 
         const dailyHistory = loadDailySnapshots(player.id);
         const history = mergeBaselineHistory(loadSnapshots(player.id), dailyHistory);
-        const externalBaseline = await loadTwStatsBaseline(player.id, current, now, periodHours, force);
+        const externalBaseline = await loadTwStatsBaseline(player.id, current, now, periodInfo, force);
         const twStatsCurrent = externalBaseline && externalBaseline.currentSnapshot
             ? mergeTwStatsCurrent(current, externalBaseline.currentSnapshot)
             : null;
         const displayCurrent = twStatsCurrent || current;
-        const localBaseline = chooseBaseline(history, now, periodHours);
+        const localBaseline = chooseBaseline(history, periodInfo.endMs, periodHours);
         const baseline = externalBaseline && externalBaseline.snapshot ? externalBaseline.snapshot : localBaseline;
         const diffs = buildDiffs(displayCurrent, baseline);
-        const precision = buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests, externalBaseline, localBaseline);
+        const precision = buildPrecisionInfo(periodInfo.endMs, periodHours, baseline, conquests, todayConquests, externalBaseline, localBaseline);
         const dailyStats = buildDailyStats(dailyHistory, displayCurrent);
         saveSnapshot(current);
         saveDailySnapshot(current);
@@ -610,8 +618,11 @@
                 hours: periodHours,
                 days: periodHours / 24,
                 ms: periodMs,
-                label: periodLabel(periodHours),
-                shortLabel: periodShortLabel(periodHours),
+                label: periodInfo.label,
+                shortLabel: periodInfo.shortLabel,
+                dayOffset: periodInfo.dayOffset,
+                startMs: periodInfo.startMs,
+                endMs: periodInfo.endMs,
             },
             player,
             current: displayCurrent,
@@ -628,26 +639,38 @@
         };
     }
 
-    function selectedPeriodHours() {
-        const value = Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10);
-        const allowed = [24];
-        return allowed.includes(value) ? value : 24;
+    function selectedPeriodInfo(now) {
+        const dayOffset = clampDayOffset(Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10));
+        const todayStart = startOfLocalDayMs(now);
+        const startMs = todayStart - dayOffset * APP.dayMs;
+        const endMs = dayOffset === 0 ? now : todayStart - (dayOffset - 1) * APP.dayMs;
+        const ms = Math.max(60 * 60 * 1000, endMs - startMs);
+        const hours = Math.max(1, Math.round(ms / (60 * 60 * 1000)));
+        const label = dayOffset === 0 ? "Hoje (00:00-agora)" : `-${dayOffset} dia${dayOffset === 1 ? "" : "s"}`;
+
+        return {
+            dayOffset,
+            startMs,
+            endMs,
+            ms,
+            hours,
+            label,
+            shortLabel: dayOffset === 0 ? "Hoje" : `-${dayOffset}D`,
+        };
+    }
+
+    function clampDayOffset(value) {
+        return Number.isFinite(value) && value >= 0 && value <= 30 ? value : 0;
+    }
+
+    function startOfLocalDayMs(time) {
+        const date = new Date(time);
+        date.setHours(0, 0, 0, 0);
+        return date.getTime();
     }
 
     function periodToMs(hours) {
         return Math.max(1, hours || 24) * 60 * 60 * 1000;
-    }
-
-    function periodLabel(hours) {
-        if (hours < 24) return `${hours} horas`;
-        if (hours === 24) return "24 horas";
-        return `${hours / 24} dias`;
-    }
-
-    function periodShortLabel(hours) {
-        if (hours < 24) return `${hours}H`;
-        if (hours === 24) return "24H";
-        return `${hours / 24}D`;
     }
 
     async function loadOdEntries(playerId, force) {
@@ -884,7 +907,7 @@
         };
     }
 
-    function summarizeConquests(text, villages, playersById, playerId, since) {
+    function summarizeConquests(text, villages, playersById, playerId, since, until) {
         const gained = [];
         const lost = [];
 
@@ -894,6 +917,7 @@
 
             const timestamp = toInt(cols[1]);
             if (timestamp < since) continue;
+            if (Number.isFinite(until) && timestamp >= until) continue;
 
             const villageId = toInt(cols[0]);
             const newOwnerId = toInt(cols[2]);
@@ -1155,6 +1179,13 @@
             world,
             profileUrl,
             historyUrl: `${profileUrl}&mode=history`,
+            hourlyUrl: `${profileUrl}&mode=history&type=hourly`,
+            hourlyUrls: [
+                `${profileUrl}&mode=history&type=hourly`,
+                `${profileUrl}&mode=history&view=hourly`,
+                `${profileUrl}&mode=history&hourly=1`,
+                `${profileUrl}&mode=history`,
+            ],
             graphs,
         };
     }
@@ -1162,6 +1193,14 @@
     async function initTwStatsBridge() {
         const info = currentTwStatsPageInfo();
         if (!info.playerId || !info.world) return;
+
+        const hourlyHref = findTwStatsHourlyHref(document);
+        const hourlyKey = `${APP.id}:twstats-hourly:${info.world}:${info.playerId}`;
+        if (hourlyHref && !/hour|hora/i.test(window.location.href) && !sessionStorage.getItem(hourlyKey)) {
+            sessionStorage.setItem(hourlyKey, "1");
+            window.location.href = hourlyHref;
+            return;
+        }
 
         const records = parseTwStatsHistoryRecords(document.documentElement.outerHTML, null);
         if (!records.length) {
@@ -1178,6 +1217,21 @@
         });
 
         showTwStatsBridgeNotice(records.length);
+    }
+
+    function findTwStatsHourlyHref(doc) {
+        const link = Array.from(doc.querySelectorAll("a[href]")).find((node) => {
+            const text = fold(node.textContent);
+            const href = fold(node.getAttribute("href") || "");
+            return text.includes("hour") || text.includes("hora") || href.includes("hour") || href.includes("hora");
+        });
+        if (!link) return "";
+
+        try {
+            return new URL(link.getAttribute("href"), window.location.href).href;
+        } catch (_) {
+            return "";
+        }
     }
 
     function currentTwStatsPageInfo() {
@@ -1217,27 +1271,28 @@
         return `${APP.id}:twstats-history:${String(world || "").toLowerCase()}:${playerId}`;
     }
 
-    async function loadTwStatsBaseline(playerId, current, now, periodHours, force) {
-        if (periodHours !== 24) {
+    async function loadTwStatsBaseline(playerId, current, now, periodInfo, force) {
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs) || !Number.isFinite(periodInfo.endMs)) {
             return { attempted: false, reason: "period" };
         }
 
         const links = buildTwStatsLinks(playerId);
-        const storedBaseline = force ? null : await loadStoredTwStatsBaseline(links.world, playerId, current, now, periodHours);
+        const storedBaseline = force ? null : await loadStoredTwStatsBaseline(links.world, playerId, current, now, periodInfo);
         if (storedBaseline && storedBaseline.snapshot) return storedBaseline;
 
-        const urls = [
-            links.historyUrl,
+        const urls = Array.from(new Set([
+            ...(links.hourlyUrls || []),
+            links.hourlyUrl,
             `${links.profileUrl}&mode=history`,
             links.profileUrl,
-        ];
+        ].filter(Boolean)));
         let lastMessage = "";
 
         for (const url of urls) {
             try {
-                setStatus("A tentar historico TWStats...");
+                setStatus("A tentar historico horario TWStats...");
                 const html = await fetchTwStatsText(url, force);
-                const parsed = parseTwStatsBaselineFromHtml(html, current, now, periodHours);
+                const parsed = parseTwStatsBaselineFromHtml(html, current, now, periodInfo);
                 if (parsed.snapshot) {
                     return {
                         attempted: true,
@@ -1257,7 +1312,7 @@
             }
         }
 
-        const openedBaseline = await openTwStatsHistoryAndWait(links, playerId, current, now, periodHours);
+        const openedBaseline = await openTwStatsHistoryAndWait(links, playerId, current, now, periodInfo);
         if (openedBaseline && openedBaseline.snapshot) return openedBaseline;
 
         return {
@@ -1265,14 +1320,14 @@
             ok: false,
             source: "twstats",
             url: links.historyUrl,
-            message: lastMessage || "TWStats nao devolveu um registo historico utilizavel perto das ultimas 24h.",
+            message: lastMessage || "TWStats nao devolveu linhas horarias suficientes para o dia escolhido.",
         };
     }
 
-    async function loadStoredTwStatsBaseline(world, playerId, current, now, periodHours) {
+    async function loadStoredTwStatsBaseline(world, playerId, current, now, periodInfo) {
         const payload = await gmGetValue(twStatsBridgeKey(world, playerId), null);
         if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
-        const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodHours);
+        const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
         if (!parsed.snapshot) {
             return {
                 attempted: true,
@@ -1293,7 +1348,7 @@
         };
     }
 
-    async function openTwStatsHistoryAndWait(links, playerId, current, now, periodHours) {
+    async function openTwStatsHistoryAndWait(links, playerId, current, now, periodInfo) {
         if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
 
         const key = twStatsBridgeKey(links.world, playerId);
@@ -1301,8 +1356,8 @@
         let tab = null;
 
         try {
-            setStatus("A abrir historico TWStats em segundo plano...");
-            tab = GM_openInTab(links.historyUrl, { active: false, insert: true, setParent: true });
+            setStatus("A abrir historico horario TWStats em segundo plano...");
+            tab = GM_openInTab(links.hourlyUrl || links.historyUrl, { active: false, insert: true, setParent: true });
         } catch (_) {
             return null;
         }
@@ -1311,14 +1366,14 @@
             const payload = await waitForTwStatsBridgeValue(key, 12000, startAt);
             if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
 
-            const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodHours);
+            const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
             if (!parsed.snapshot) return null;
 
             return {
                 attempted: true,
                 ok: true,
                 source: "twstats",
-                url: payload.href || links.historyUrl,
+                url: payload.href || links.hourlyUrl || links.historyUrl,
                 snapshot: parsed.snapshot,
                 currentSnapshot: parsed.currentSnapshot || null,
                 message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
@@ -1456,65 +1511,63 @@
         return /just a moment|cf_chl|cloudflare|enable javascript and cookies/i.test(String(text || ""));
     }
 
-    function parseTwStatsBaselineFromHtml(html, current, now, periodHours) {
+    function parseTwStatsBaselineFromHtml(html, current, now, periodInfo) {
         const records = parseTwStatsHistoryRecords(html, current);
-        return chooseTwStatsBaselineFromRecords(records, current, now, periodHours);
+        return chooseTwStatsBaselineFromRecords(records, current, now, periodInfo);
     }
 
-    function chooseTwStatsBaselineFromRecords(records, current, now, periodHours) {
-        const dailyPair = chooseTwStatsDailyPair(records, now, periodHours);
-        if (dailyPair) {
+    function chooseTwStatsBaselineFromRecords(records, current, now, periodInfo) {
+        const hourlyPair = chooseTwStatsHourlyPair(records, periodInfo);
+        if (hourlyPair) {
             return {
-                snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
-                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
-                message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
+                snapshot: twStatsRecordToSnapshot(hourlyPair.baseline, current),
+                currentSnapshot: twStatsRecordToSnapshot(hourlyPair.current, current),
+                message: `Horario TWStats: ${formatDateTime(new Date(hourlyPair.baseline.ts))} ate ${formatDateTime(new Date(hourlyPair.current.ts))} (${records.length} linhas lidas).`,
             };
         }
 
-        const target = now - periodToMs(periodHours);
-        const candidatePool = records
+        return { snapshot: null, message: `TWStats lido (${records.length} linhas), sem par horario suficiente para ${periodInfo && periodInfo.label ? periodInfo.label : "o periodo"}.` };
+    }
+
+    function chooseTwStatsHourlyPair(records, periodInfo) {
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs) || !Number.isFinite(periodInfo.endMs)) return null;
+
+        const ordered = (records || [])
             .filter((record) => record && Number.isFinite(record.ts))
-            .filter((record) => record.ts < now - APP.minSnapshotGapMs);
-        const beforeTarget = candidatePool
-            .filter((record) => record.ts <= target)
+            .filter((record) => record.ts <= periodInfo.endMs + 90 * 60 * 1000)
+            .filter((record) => twStatsRecordScore(record) >= 3)
+            .sort((a, b) => a.ts - b.ts);
+        if (ordered.length < 2) return null;
+
+        const startTolerance = 6 * 60 * 60 * 1000;
+        const endTolerance = 6 * 60 * 60 * 1000;
+        const baseline = pickTwStatsRecordNear(ordered, periodInfo.startMs, startTolerance, "start");
+        const current = pickTwStatsRecordNear(ordered, periodInfo.endMs, endTolerance, "end");
+
+        if (!baseline || !current || current.ts <= baseline.ts) return null;
+        return { baseline, current };
+    }
+
+    function pickTwStatsRecordNear(records, target, tolerance, mode) {
+        const preferBefore = mode === "start" || mode === "end";
+        const directional = records
+            .filter((record) => preferBefore ? record.ts <= target : true)
             .map((record) => ({
                 record,
-                distance: target - record.ts,
+                distance: Math.abs(record.ts - target),
+                before: target - record.ts,
             }))
-            .filter((item) => item.distance <= APP.twStatsBaselineToleranceMs)
-            .sort((a, b) => a.distance - b.distance);
-        let sourceMode = "24h";
-        let candidates = beforeTarget.length ? beforeTarget : candidatePool
+            .filter((item) => item.distance <= tolerance)
+            .sort((a, b) => a.distance - b.distance || Math.abs(a.before) - Math.abs(b.before));
+        if (directional.length) return directional[0].record;
+
+        return records
             .map((record) => ({
                 record,
                 distance: Math.abs(record.ts - target),
             }))
-            .filter((item) => item.distance <= APP.twStatsBaselineToleranceMs)
-            .sort((a, b) => a.distance - b.distance);
-        if (!candidates.length) {
-            candidates = candidatePool
-                .map((record) => ({
-                    record,
-                    distance: now - record.ts,
-                }))
-                .filter((item) => item.distance > APP.minSnapshotGapMs && item.distance <= 3 * APP.dayMs)
-                .sort((a, b) => a.distance - b.distance);
-            sourceMode = "latest";
-        }
-
-        if (!candidates.length) {
-            return { snapshot: null, message: `TWStats lido (${records.length} linhas), sem registo perto de 24h atras.` };
-        }
-
-        const record = candidates[0].record;
-        const snapshot = twStatsRecordToSnapshot(record, current);
-
-        return {
-            snapshot,
-            message: sourceMode === "24h"
-                ? `Base TWStats de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`
-                : `Base TWStats mais recente de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`,
-        };
+            .filter((item) => item.distance <= tolerance)
+            .sort((a, b) => a.distance - b.distance)[0]?.record || null;
     }
 
     function chooseTwStatsDailyPair(records, now, periodHours) {
@@ -2256,6 +2309,7 @@
             return "sem base TWStats";
         }
         if (precision.baselineSource === "twstats") {
+            if (/horario twstats/i.test(precision.externalMessage || "")) return "TWStats horario";
             if (/diario twstats/i.test(precision.externalMessage || "")) return "TWStats diario";
             return "TWStats";
         }
@@ -2264,10 +2318,10 @@
     }
 
     function baselineStatusTitle(precision) {
-        if (!precision) return "Sem informacao de origem para as ultimas 24h.";
-        if (precision.baselineSource === "twstats") return precision.externalMessage || "Dados das ultimas 24h calculados pelo historico TWStats.";
+        if (!precision) return "Sem informacao de origem para o periodo selecionado.";
+        if (precision.baselineSource === "twstats") return precision.externalMessage || "Dados do periodo selecionado calculados pelo historico TWStats.";
         if (precision.localFallback) return precision.externalMessage || "TWStats indisponivel; usado fallback local.";
-        return precision.externalMessage || "Sem linha utilizavel do historico TWStats para as ultimas 24h.";
+        return precision.externalMessage || "Sem linha utilizavel do historico TWStats para o periodo selecionado.";
     }
 
     function formatOffset(ms) {
@@ -4275,7 +4329,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.2",
+        version: "1.0.4",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -4535,7 +4589,7 @@
                 <div class="${APP.id}-shell">
                     <header class="${APP.id}-masthead">
                         <h2>${escapeHTML(APP.displayTitle)}</h2>
-                        <p>Resumo das ultimas 24 horas da tribo no mundo atual. ${escapeHTML(worldLabel())}</p>
+                        <p>Resumo horario por dia TWStats da tribo no mundo atual. ${escapeHTML(worldLabel())}</p>
                     </header>
 
                     <form id="${APP.id}-form" class="${APP.id}-panelRow ${APP.id}-searchRow">
@@ -4559,13 +4613,19 @@
                                 <label>
                                     <span>Periodo</span>
                                     <select name="period">
-                                        <option value="24" selected>24 horas</option>
+                                        <option value="0" selected>Hoje</option>
+                                        <option value="1">-1 dia</option>
+                                        <option value="2">-2 dias</option>
+                                        <option value="3">-3 dias</option>
+                                        <option value="4">-4 dias</option>
+                                        <option value="5">-5 dias</option>
+                                        <option value="6">-6 dias</option>
                                     </select>
                                 </label>
                                 <label>
                                     <span>Comparar</span>
                                     <select disabled>
-                                        <option>Historico TWStats 24h</option>
+                                        <option>Historico TWStats horario</option>
                                     </select>
                                 </label>
                             </div>
@@ -4759,7 +4819,7 @@
             state.lastResult = result;
             state.controls.playerInput.value = result.player.tag || result.player.name;
             renderResult(result);
-            setStatus(`Atualizado: ${formatDateTime(new Date(result.generatedAt))} - 24h: ${baselineStatusLabel(result.precision)}`);
+            setStatus(`Atualizado: ${formatDateTime(new Date(result.generatedAt))} - ${result.period.shortLabel}: ${baselineStatusLabel(result.precision)}`);
         } catch (error) {
             console.error(`[${APP.id}]`, error);
             showNotice(`Erro: ${error.message || error}`, "error");
@@ -4772,9 +4832,11 @@
 
     async function buildSummary(query, force) {
         const now = Date.now();
-        const periodHours = selectedPeriodHours();
-        const periodMs = periodToMs(periodHours);
-        const since = Math.floor((now - periodMs) / 1000);
+        const periodInfo = selectedPeriodInfo(now);
+        const periodHours = periodInfo.hours;
+        const periodMs = periodInfo.ms;
+        const since = Math.floor(periodInfo.startMs / 1000);
+        const until = Math.floor(periodInfo.endMs / 1000);
 
         const [playersText, tribesText] = await Promise.all([
             fetchCachedText("players", "/map/player.txt", APP.mapCacheMs, force),
@@ -4799,8 +4861,8 @@
         ]);
 
         const villages = parseVillages(villagesText);
-        const conquests = summarizeTribeConquests(conquerAllText, villages, players.byId, player.id, since);
-        const todayConquests = summarizeTribeConquests(conquerAllText, villages, players.byId, player.id, startOfDayTs(Math.floor(now / 1000)));
+        const conquests = summarizeTribeConquests(conquerAllText, villages, players.byId, player.id, since, until);
+        const todayConquests = summarizeTribeConquests(conquerAllText, villages, players.byId, player.id, since, until);
         const allTime = summarizeTribeAllTimeConquests(conquerAllText, villages, players.byId, player.id);
         const villagesSummary = summarizeTribeVillages(villages, memberSet);
         const metrics = buildEvaluationMetrics(player, villagesSummary, od, allTime);
@@ -4823,15 +4885,15 @@
 
         const dailyHistory = loadDailySnapshots(player.id);
         const history = mergeBaselineHistory(loadSnapshots(player.id), dailyHistory);
-        const externalBaseline = await loadTwStatsBaseline(player.id, current, now, periodHours, force);
+        const externalBaseline = await loadTwStatsBaseline(player.id, current, now, periodInfo, force);
         const twStatsCurrent = externalBaseline && externalBaseline.currentSnapshot
             ? mergeTwStatsCurrent(current, externalBaseline.currentSnapshot)
             : null;
         const displayCurrent = twStatsCurrent || current;
-        const localBaseline = chooseBaseline(history, now, periodHours);
+        const localBaseline = chooseBaseline(history, periodInfo.endMs, periodHours);
         const baseline = externalBaseline && externalBaseline.snapshot ? externalBaseline.snapshot : localBaseline;
         const diffs = buildDiffs(displayCurrent, baseline);
-        const precision = buildPrecisionInfo(now, periodHours, baseline, conquests, todayConquests, externalBaseline, localBaseline);
+        const precision = buildPrecisionInfo(periodInfo.endMs, periodHours, baseline, conquests, todayConquests, externalBaseline, localBaseline);
         const dailyStats = buildDailyStats(dailyHistory, displayCurrent);
         saveSnapshot(current);
         saveDailySnapshot(current);
@@ -4843,8 +4905,11 @@
                 hours: periodHours,
                 days: periodHours / 24,
                 ms: periodMs,
-                label: periodLabel(periodHours),
-                shortLabel: periodShortLabel(periodHours),
+                label: periodInfo.label,
+                shortLabel: periodInfo.shortLabel,
+                dayOffset: periodInfo.dayOffset,
+                startMs: periodInfo.startMs,
+                endMs: periodInfo.endMs,
             },
             player,
             current: displayCurrent,
@@ -4861,26 +4926,38 @@
         };
     }
 
-    function selectedPeriodHours() {
-        const value = Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10);
-        const allowed = [24];
-        return allowed.includes(value) ? value : 24;
+    function selectedPeriodInfo(now) {
+        const dayOffset = clampDayOffset(Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10));
+        const todayStart = startOfLocalDayMs(now);
+        const startMs = todayStart - dayOffset * APP.dayMs;
+        const endMs = dayOffset === 0 ? now : todayStart - (dayOffset - 1) * APP.dayMs;
+        const ms = Math.max(60 * 60 * 1000, endMs - startMs);
+        const hours = Math.max(1, Math.round(ms / (60 * 60 * 1000)));
+        const label = dayOffset === 0 ? "Hoje (00:00-agora)" : `-${dayOffset} dia${dayOffset === 1 ? "" : "s"}`;
+
+        return {
+            dayOffset,
+            startMs,
+            endMs,
+            ms,
+            hours,
+            label,
+            shortLabel: dayOffset === 0 ? "Hoje" : `-${dayOffset}D`,
+        };
+    }
+
+    function clampDayOffset(value) {
+        return Number.isFinite(value) && value >= 0 && value <= 30 ? value : 0;
+    }
+
+    function startOfLocalDayMs(time) {
+        const date = new Date(time);
+        date.setHours(0, 0, 0, 0);
+        return date.getTime();
     }
 
     function periodToMs(hours) {
         return Math.max(1, hours || 24) * 60 * 60 * 1000;
-    }
-
-    function periodLabel(hours) {
-        if (hours < 24) return `${hours} horas`;
-        if (hours === 24) return "24 horas";
-        return `${hours / 24} dias`;
-    }
-
-    function periodShortLabel(hours) {
-        if (hours < 24) return `${hours}H`;
-        if (hours === 24) return "24H";
-        return `${hours / 24}D`;
     }
 
     async function loadOdEntries(memberIds, force) {
@@ -5184,7 +5261,7 @@
         return player ? player.tribeId : 0;
     }
 
-    function summarizeTribeConquests(text, villages, playersById, tribeId, since) {
+    function summarizeTribeConquests(text, villages, playersById, tribeId, since, until) {
         const gained = [];
         const lost = [];
 
@@ -5194,6 +5271,7 @@
 
             const timestamp = toInt(cols[1]);
             if (timestamp < since) continue;
+            if (Number.isFinite(until) && timestamp >= until) continue;
 
             const villageId = toInt(cols[0]);
             const newOwnerId = toInt(cols[2]);
@@ -5229,7 +5307,7 @@
         };
     }
 
-    function summarizeConquests(text, villages, playersById, playerId, since) {
+    function summarizeConquests(text, villages, playersById, playerId, since, until) {
         const gained = [];
         const lost = [];
 
@@ -5239,6 +5317,7 @@
 
             const timestamp = toInt(cols[1]);
             if (timestamp < since) continue;
+            if (Number.isFinite(until) && timestamp >= until) continue;
 
             const villageId = toInt(cols[0]);
             const newOwnerId = toInt(cols[2]);
@@ -5606,6 +5685,13 @@
             world,
             profileUrl,
             historyUrl: `${profileUrl}&mode=history`,
+            hourlyUrl: `${profileUrl}&mode=history&type=hourly`,
+            hourlyUrls: [
+                `${profileUrl}&mode=history&type=hourly`,
+                `${profileUrl}&mode=history&view=hourly`,
+                `${profileUrl}&mode=history&hourly=1`,
+                `${profileUrl}&mode=history`,
+            ],
             graphs,
         };
     }
@@ -5613,6 +5699,14 @@
     async function initTwStatsBridge() {
         const info = currentTwStatsPageInfo();
         if (!info.playerId || !info.world) return;
+
+        const hourlyHref = findTwStatsHourlyHref(document);
+        const hourlyKey = `${APP.id}:twstats-hourly:${info.world}:${info.playerId}`;
+        if (hourlyHref && !/hour|hora/i.test(window.location.href) && !sessionStorage.getItem(hourlyKey)) {
+            sessionStorage.setItem(hourlyKey, "1");
+            window.location.href = hourlyHref;
+            return;
+        }
 
         const records = parseTwStatsHistoryRecords(document.documentElement.outerHTML, null);
         if (!records.length) {
@@ -5629,6 +5723,21 @@
         });
 
         showTwStatsBridgeNotice(records.length);
+    }
+
+    function findTwStatsHourlyHref(doc) {
+        const link = Array.from(doc.querySelectorAll("a[href]")).find((node) => {
+            const text = fold(node.textContent);
+            const href = fold(node.getAttribute("href") || "");
+            return text.includes("hour") || text.includes("hora") || href.includes("hour") || href.includes("hora");
+        });
+        if (!link) return "";
+
+        try {
+            return new URL(link.getAttribute("href"), window.location.href).href;
+        } catch (_) {
+            return "";
+        }
     }
 
     function currentTwStatsPageInfo() {
@@ -5668,27 +5777,28 @@
         return `${APP.id}:twstats-history:${String(world || "").toLowerCase()}:${playerId}`;
     }
 
-    async function loadTwStatsBaseline(playerId, current, now, periodHours, force) {
-        if (periodHours !== 24) {
+    async function loadTwStatsBaseline(playerId, current, now, periodInfo, force) {
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs) || !Number.isFinite(periodInfo.endMs)) {
             return { attempted: false, reason: "period" };
         }
 
         const links = buildTwStatsLinks(playerId);
-        const storedBaseline = force ? null : await loadStoredTwStatsBaseline(links.world, playerId, current, now, periodHours);
+        const storedBaseline = force ? null : await loadStoredTwStatsBaseline(links.world, playerId, current, now, periodInfo);
         if (storedBaseline && storedBaseline.snapshot) return storedBaseline;
 
-        const urls = [
-            links.historyUrl,
+        const urls = Array.from(new Set([
+            ...(links.hourlyUrls || []),
+            links.hourlyUrl,
             `${links.profileUrl}&mode=history`,
             links.profileUrl,
-        ];
+        ].filter(Boolean)));
         let lastMessage = "";
 
         for (const url of urls) {
             try {
-                setStatus("A tentar historico TWStats...");
+                setStatus("A tentar historico horario TWStats...");
                 const html = await fetchTwStatsText(url, force);
-                const parsed = parseTwStatsBaselineFromHtml(html, current, now, periodHours);
+                const parsed = parseTwStatsBaselineFromHtml(html, current, now, periodInfo);
                 if (parsed.snapshot) {
                     return {
                         attempted: true,
@@ -5708,7 +5818,7 @@
             }
         }
 
-        const openedBaseline = await openTwStatsHistoryAndWait(links, playerId, current, now, periodHours);
+        const openedBaseline = await openTwStatsHistoryAndWait(links, playerId, current, now, periodInfo);
         if (openedBaseline && openedBaseline.snapshot) return openedBaseline;
 
         return {
@@ -5716,14 +5826,14 @@
             ok: false,
             source: "twstats",
             url: links.historyUrl,
-            message: lastMessage || "TWStats nao devolveu um registo historico utilizavel perto das ultimas 24h.",
+            message: lastMessage || "TWStats nao devolveu linhas horarias suficientes para o dia escolhido.",
         };
     }
 
-    async function loadStoredTwStatsBaseline(world, playerId, current, now, periodHours) {
+    async function loadStoredTwStatsBaseline(world, playerId, current, now, periodInfo) {
         const payload = await gmGetValue(twStatsBridgeKey(world, playerId), null);
         if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
-        const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodHours);
+        const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
         if (!parsed.snapshot) {
             return {
                 attempted: true,
@@ -5744,7 +5854,7 @@
         };
     }
 
-    async function openTwStatsHistoryAndWait(links, playerId, current, now, periodHours) {
+    async function openTwStatsHistoryAndWait(links, playerId, current, now, periodInfo) {
         if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
 
         const key = twStatsBridgeKey(links.world, playerId);
@@ -5752,8 +5862,8 @@
         let tab = null;
 
         try {
-            setStatus("A abrir historico TWStats em segundo plano...");
-            tab = GM_openInTab(links.historyUrl, { active: false, insert: true, setParent: true });
+            setStatus("A abrir historico horario TWStats em segundo plano...");
+            tab = GM_openInTab(links.hourlyUrl || links.historyUrl, { active: false, insert: true, setParent: true });
         } catch (_) {
             return null;
         }
@@ -5762,14 +5872,14 @@
             const payload = await waitForTwStatsBridgeValue(key, 12000, startAt);
             if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
 
-            const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodHours);
+            const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
             if (!parsed.snapshot) return null;
 
             return {
                 attempted: true,
                 ok: true,
                 source: "twstats",
-                url: payload.href || links.historyUrl,
+                url: payload.href || links.hourlyUrl || links.historyUrl,
                 snapshot: parsed.snapshot,
                 currentSnapshot: parsed.currentSnapshot || null,
                 message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
@@ -5907,65 +6017,63 @@
         return /just a moment|cf_chl|cloudflare|enable javascript and cookies/i.test(String(text || ""));
     }
 
-    function parseTwStatsBaselineFromHtml(html, current, now, periodHours) {
+    function parseTwStatsBaselineFromHtml(html, current, now, periodInfo) {
         const records = parseTwStatsHistoryRecords(html, current);
-        return chooseTwStatsBaselineFromRecords(records, current, now, periodHours);
+        return chooseTwStatsBaselineFromRecords(records, current, now, periodInfo);
     }
 
-    function chooseTwStatsBaselineFromRecords(records, current, now, periodHours) {
-        const dailyPair = chooseTwStatsDailyPair(records, now, periodHours);
-        if (dailyPair) {
+    function chooseTwStatsBaselineFromRecords(records, current, now, periodInfo) {
+        const hourlyPair = chooseTwStatsHourlyPair(records, periodInfo);
+        if (hourlyPair) {
             return {
-                snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
-                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
-                message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
+                snapshot: twStatsRecordToSnapshot(hourlyPair.baseline, current),
+                currentSnapshot: twStatsRecordToSnapshot(hourlyPair.current, current),
+                message: `Horario TWStats: ${formatDateTime(new Date(hourlyPair.baseline.ts))} ate ${formatDateTime(new Date(hourlyPair.current.ts))} (${records.length} linhas lidas).`,
             };
         }
 
-        const target = now - periodToMs(periodHours);
-        const candidatePool = records
+        return { snapshot: null, message: `TWStats lido (${records.length} linhas), sem par horario suficiente para ${periodInfo && periodInfo.label ? periodInfo.label : "o periodo"}.` };
+    }
+
+    function chooseTwStatsHourlyPair(records, periodInfo) {
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs) || !Number.isFinite(periodInfo.endMs)) return null;
+
+        const ordered = (records || [])
             .filter((record) => record && Number.isFinite(record.ts))
-            .filter((record) => record.ts < now - APP.minSnapshotGapMs);
-        const beforeTarget = candidatePool
-            .filter((record) => record.ts <= target)
+            .filter((record) => record.ts <= periodInfo.endMs + 90 * 60 * 1000)
+            .filter((record) => twStatsRecordScore(record) >= 3)
+            .sort((a, b) => a.ts - b.ts);
+        if (ordered.length < 2) return null;
+
+        const startTolerance = 6 * 60 * 60 * 1000;
+        const endTolerance = 6 * 60 * 60 * 1000;
+        const baseline = pickTwStatsRecordNear(ordered, periodInfo.startMs, startTolerance, "start");
+        const current = pickTwStatsRecordNear(ordered, periodInfo.endMs, endTolerance, "end");
+
+        if (!baseline || !current || current.ts <= baseline.ts) return null;
+        return { baseline, current };
+    }
+
+    function pickTwStatsRecordNear(records, target, tolerance, mode) {
+        const preferBefore = mode === "start" || mode === "end";
+        const directional = records
+            .filter((record) => preferBefore ? record.ts <= target : true)
             .map((record) => ({
                 record,
-                distance: target - record.ts,
+                distance: Math.abs(record.ts - target),
+                before: target - record.ts,
             }))
-            .filter((item) => item.distance <= APP.twStatsBaselineToleranceMs)
-            .sort((a, b) => a.distance - b.distance);
-        let sourceMode = "24h";
-        let candidates = beforeTarget.length ? beforeTarget : candidatePool
+            .filter((item) => item.distance <= tolerance)
+            .sort((a, b) => a.distance - b.distance || Math.abs(a.before) - Math.abs(b.before));
+        if (directional.length) return directional[0].record;
+
+        return records
             .map((record) => ({
                 record,
                 distance: Math.abs(record.ts - target),
             }))
-            .filter((item) => item.distance <= APP.twStatsBaselineToleranceMs)
-            .sort((a, b) => a.distance - b.distance);
-        if (!candidates.length) {
-            candidates = candidatePool
-                .map((record) => ({
-                    record,
-                    distance: now - record.ts,
-                }))
-                .filter((item) => item.distance > APP.minSnapshotGapMs && item.distance <= 3 * APP.dayMs)
-                .sort((a, b) => a.distance - b.distance);
-            sourceMode = "latest";
-        }
-
-        if (!candidates.length) {
-            return { snapshot: null, message: `TWStats lido (${records.length} linhas), sem registo perto de 24h atras.` };
-        }
-
-        const record = candidates[0].record;
-        const snapshot = twStatsRecordToSnapshot(record, current);
-
-        return {
-            snapshot,
-            message: sourceMode === "24h"
-                ? `Base TWStats de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`
-                : `Base TWStats mais recente de ${formatDateTime(new Date(record.ts))} (${records.length} linhas lidas).`,
-        };
+            .filter((item) => item.distance <= tolerance)
+            .sort((a, b) => a.distance - b.distance)[0]?.record || null;
     }
 
     function chooseTwStatsDailyPair(records, now, periodHours) {
@@ -6718,6 +6826,7 @@
             return "sem base TWStats";
         }
         if (precision.baselineSource === "twstats") {
+            if (/horario twstats/i.test(precision.externalMessage || "")) return "TWStats horario";
             if (/diario twstats/i.test(precision.externalMessage || "")) return "TWStats diario";
             return "TWStats";
         }
@@ -6726,10 +6835,10 @@
     }
 
     function baselineStatusTitle(precision) {
-        if (!precision) return "Sem informacao de origem para as ultimas 24h.";
-        if (precision.baselineSource === "twstats") return precision.externalMessage || "Dados das ultimas 24h calculados pelo historico TWStats.";
+        if (!precision) return "Sem informacao de origem para o periodo selecionado.";
+        if (precision.baselineSource === "twstats") return precision.externalMessage || "Dados do periodo selecionado calculados pelo historico TWStats.";
         if (precision.localFallback) return precision.externalMessage || "TWStats indisponivel; usado fallback local.";
-        return precision.externalMessage || "Sem linha utilizavel do historico TWStats para as ultimas 24h.";
+        return precision.externalMessage || "Sem linha utilizavel do historico TWStats para o periodo selecionado.";
     }
 
     function formatOffset(ms) {
