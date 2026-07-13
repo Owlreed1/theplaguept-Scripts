@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         TW PT - Informação Jogador e Tribo - ThePlaguePT
 // @namespace    theplaguept.tw.info-jogador-tribo
-// @version      1.0.8
+// @version      1.0.9
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.8",
+        version: "1.0.9",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -1255,6 +1255,7 @@
         const info = currentTwStatsPageInfo();
         if (!info.playerId || !info.world) return;
 
+        const autoBridge = markAutoTwStatsBridge(info);
         const hourlyHref = findTwStatsHourlyHref(document);
         const hourlyKey = `${APP.id}:twstats-hourly:${info.world}:${info.playerId}`;
         if (hourlyHref && !/hour|hora/i.test(window.location.href) && !sessionStorage.getItem(hourlyKey)) {
@@ -1266,6 +1267,7 @@
         const records = parseTwStatsHistoryRecords(document.documentElement.outerHTML, null);
         if (!records.length) {
             showTwStatsBridgeNotice(0);
+            closeAutoTwStatsTab(autoBridge);
             return;
         }
 
@@ -1278,6 +1280,29 @@
         });
 
         showTwStatsBridgeNotice(records.length);
+        closeAutoTwStatsTab(autoBridge);
+    }
+
+    function markAutoTwStatsBridge(info) {
+        const key = `${APP.id}:twstats-auto:${info.world}:${info.playerId}`;
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("tpInfoAuto") === APP.id) {
+            try { sessionStorage.setItem(key, "1"); } catch (_) {}
+            return true;
+        }
+
+        try {
+            return sessionStorage.getItem(key) === "1";
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function closeAutoTwStatsTab(enabled) {
+        if (!enabled) return;
+        window.setTimeout(() => {
+            try { window.close(); } catch (_) {}
+        }, 300);
     }
 
     function findTwStatsHourlyHref(doc) {
@@ -1413,48 +1438,48 @@
         if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
 
         const key = twStatsBridgeKey(links.world, playerId);
-        const urls = Array.from(new Set([
-            ...(links.hourlyUrls || []),
-            links.hourlyUrl,
-            links.historyUrl,
-            links.profileUrl,
-        ].filter(Boolean)));
+        const url = decorateTwStatsAutoUrl(links.historyUrl || links.hourlyUrl || links.profileUrl);
+        const startAt = Date.now();
+        let tab = null;
 
-        for (const url of urls) {
-            const startAt = Date.now();
-            let tab = null;
-
-            try {
-                setStatus("A abrir historico horario TWStats em segundo plano...");
-                tab = GM_openInTab(url, { active: false, insert: true, setParent: true });
-            } catch (_) {
-                continue;
-            }
-
-            try {
-                const payload = await waitForTwStatsBridgeValue(key, APP.twStatsBridgeWaitMs, startAt);
-                if (!payload || !Array.isArray(payload.records) || !payload.records.length) continue;
-
-                const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
-                if (!parsed.snapshot) continue;
-
-                return {
-                    attempted: true,
-                    ok: true,
-                    source: "twstats",
-                    url: payload.href || url,
-                    snapshot: parsed.snapshot,
-                    currentSnapshot: parsed.currentSnapshot || null,
-                    message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
-                };
-            } finally {
-                try {
-                    if (tab && typeof tab.close === "function") tab.close();
-                } catch (_) {}
-            }
+        try {
+            setStatus("A abrir historico horario TWStats em segundo plano...");
+            tab = GM_openInTab(url, { active: false, insert: true, setParent: true });
+        } catch (_) {
+            return null;
         }
 
-        return null;
+        try {
+            const payload = await waitForTwStatsBridgeValue(key, APP.twStatsBridgeWaitMs, startAt);
+            if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
+
+            const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
+            if (!parsed.snapshot) return null;
+
+            return {
+                attempted: true,
+                ok: true,
+                source: "twstats",
+                url: payload.href || url,
+                snapshot: parsed.snapshot,
+                currentSnapshot: parsed.currentSnapshot || null,
+                message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
+            };
+        } finally {
+            try {
+                if (tab && typeof tab.close === "function") tab.close();
+            } catch (_) {}
+        }
+    }
+
+    function decorateTwStatsAutoUrl(url) {
+        try {
+            const parsed = new URL(url, window.location.href);
+            parsed.searchParams.set("tpInfoAuto", APP.id);
+            return parsed.href;
+        } catch (_) {
+            return url;
+        }
     }
 
     function waitForTwStatsBridgeValue(key, timeoutMs, startAt) {
@@ -4401,7 +4426,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.8",
+        version: "1.0.9",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -5833,6 +5858,7 @@
         const info = currentTwStatsPageInfo();
         if (!info.playerId || !info.world) return;
 
+        const autoBridge = markAutoTwStatsBridge(info);
         const hourlyHref = findTwStatsHourlyHref(document);
         const hourlyKey = `${APP.id}:twstats-hourly:${info.world}:${info.playerId}`;
         if (hourlyHref && !/hour|hora/i.test(window.location.href) && !sessionStorage.getItem(hourlyKey)) {
@@ -5844,6 +5870,7 @@
         const records = parseTwStatsHistoryRecords(document.documentElement.outerHTML, null);
         if (!records.length) {
             showTwStatsBridgeNotice(0);
+            closeAutoTwStatsTab(autoBridge);
             return;
         }
 
@@ -5856,6 +5883,29 @@
         });
 
         showTwStatsBridgeNotice(records.length);
+        closeAutoTwStatsTab(autoBridge);
+    }
+
+    function markAutoTwStatsBridge(info) {
+        const key = `${APP.id}:twstats-auto:${info.world}:${info.playerId}`;
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("tpInfoAuto") === APP.id) {
+            try { sessionStorage.setItem(key, "1"); } catch (_) {}
+            return true;
+        }
+
+        try {
+            return sessionStorage.getItem(key) === "1";
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function closeAutoTwStatsTab(enabled) {
+        if (!enabled) return;
+        window.setTimeout(() => {
+            try { window.close(); } catch (_) {}
+        }, 300);
     }
 
     function findTwStatsHourlyHref(doc) {
@@ -5991,48 +6041,48 @@
         if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
 
         const key = twStatsBridgeKey(links.world, playerId);
-        const urls = Array.from(new Set([
-            ...(links.hourlyUrls || []),
-            links.hourlyUrl,
-            links.historyUrl,
-            links.profileUrl,
-        ].filter(Boolean)));
+        const url = decorateTwStatsAutoUrl(links.historyUrl || links.hourlyUrl || links.profileUrl);
+        const startAt = Date.now();
+        let tab = null;
 
-        for (const url of urls) {
-            const startAt = Date.now();
-            let tab = null;
-
-            try {
-                setStatus("A abrir historico horario TWStats em segundo plano...");
-                tab = GM_openInTab(url, { active: false, insert: true, setParent: true });
-            } catch (_) {
-                continue;
-            }
-
-            try {
-                const payload = await waitForTwStatsBridgeValue(key, APP.twStatsBridgeWaitMs, startAt);
-                if (!payload || !Array.isArray(payload.records) || !payload.records.length) continue;
-
-                const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
-                if (!parsed.snapshot) continue;
-
-                return {
-                    attempted: true,
-                    ok: true,
-                    source: "twstats",
-                    url: payload.href || url,
-                    snapshot: parsed.snapshot,
-                    currentSnapshot: parsed.currentSnapshot || null,
-                    message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
-                };
-            } finally {
-                try {
-                    if (tab && typeof tab.close === "function") tab.close();
-                } catch (_) {}
-            }
+        try {
+            setStatus("A abrir historico horario TWStats em segundo plano...");
+            tab = GM_openInTab(url, { active: false, insert: true, setParent: true });
+        } catch (_) {
+            return null;
         }
 
-        return null;
+        try {
+            const payload = await waitForTwStatsBridgeValue(key, APP.twStatsBridgeWaitMs, startAt);
+            if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
+
+            const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
+            if (!parsed.snapshot) return null;
+
+            return {
+                attempted: true,
+                ok: true,
+                source: "twstats",
+                url: payload.href || url,
+                snapshot: parsed.snapshot,
+                currentSnapshot: parsed.currentSnapshot || null,
+                message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
+            };
+        } finally {
+            try {
+                if (tab && typeof tab.close === "function") tab.close();
+            } catch (_) {}
+        }
+    }
+
+    function decorateTwStatsAutoUrl(url) {
+        try {
+            const parsed = new URL(url, window.location.href);
+            parsed.searchParams.set("tpInfoAuto", APP.id);
+            return parsed.href;
+        } catch (_) {
+            return url;
+        }
     }
 
     function waitForTwStatsBridgeValue(key, timeoutMs, startAt) {
