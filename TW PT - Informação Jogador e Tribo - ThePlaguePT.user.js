@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         TW PT - Informação Jogador e Tribo - ThePlaguePT
 // @namespace    theplaguept.tw.info-jogador-tribo
-// @version      1.0.5
+// @version      1.0.7
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.5",
+        version: "1.0.7",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -337,7 +337,12 @@
                                         <option value="4">-4 dias</option>
                                         <option value="5">-5 dias</option>
                                         <option value="6">-6 dias</option>
+                                        <option value="custom">Data manual</option>
                                     </select>
+                                </label>
+                                <label>
+                                    <span>Data</span>
+                                    <input type="date" name="periodDate">
                                 </label>
                                 <label>
                                     <span>Comparar</span>
@@ -394,6 +399,7 @@
 
         state.controls.playerInput = scope.querySelector('input[name="player"]');
         state.controls.periodSelect = scope.querySelector('select[name="period"]');
+        state.controls.periodDateInput = scope.querySelector('input[name="periodDate"]');
         state.controls.status = scope.querySelector(`.${APP.id}-status`);
         state.controls.body = scope.querySelector(`.${APP.id}-body`);
         state.controls.submit = scope.querySelector('button[type="submit"]');
@@ -413,7 +419,13 @@
         if (state.controls.infoTypeSelect) state.controls.infoTypeSelect.addEventListener("change", () => {
             if (state.controls.infoTypeSelect.value === "tribe") switchToTribePanel();
         });
+        syncDateInputFromPeriod();
         if (state.controls.periodSelect) state.controls.periodSelect.addEventListener("change", () => {
+            syncDateInputFromPeriod();
+            if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
+        });
+        if (state.controls.periodDateInput) state.controls.periodDateInput.addEventListener("change", () => {
+            syncPeriodFromDateInput();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
 
@@ -640,14 +652,15 @@
     }
 
     function selectedPeriodInfo(now) {
-        const dayOffset = clampDayOffset(Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10));
         const todayStart = startOfLocalDayMs(now);
+        const selectedDateStart = selectedPeriodStartMs(todayStart);
+        const dayOffset = Math.max(0, Math.round((todayStart - selectedDateStart) / APP.dayMs));
         const startMs = todayStart - dayOffset * APP.dayMs;
-        const elapsedToday = Math.max(0, now - todayStart);
-        const endMs = Math.min(startMs + elapsedToday, startMs + APP.dayMs);
+        const endMs = dayOffset === 0 ? now : startMs + APP.dayMs;
         const ms = Math.max(60 * 1000, endMs - startMs);
         const hours = ms / (60 * 60 * 1000);
-        const label = dayOffset === 0 ? "Hoje (00:00-agora)" : `-${dayOffset} dia${dayOffset === 1 ? "" : "s"}`;
+        const dateText = formatDateOnly(new Date(startMs));
+        const label = dayOffset === 0 ? `Hoje (${dateText}, 00:00-agora)` : `${dateText} (00:00-24:00)`;
 
         return {
             dayOffset,
@@ -656,8 +669,54 @@
             ms,
             hours,
             label,
-            shortLabel: dayOffset === 0 ? "Hoje" : `-${dayOffset}D`,
+            shortLabel: dayOffset === 0 ? "Hoje" : dateText,
         };
+    }
+
+    function selectedPeriodStartMs(todayStart) {
+        const selectValue = String(state.controls.periodSelect && state.controls.periodSelect.value || "0");
+        const manualStart = parsePeriodDateInputMs(todayStart);
+        if (selectValue === "custom" && Number.isFinite(manualStart)) return manualStart;
+
+        const dayOffset = clampDayOffset(Number.parseInt(selectValue, 10));
+        return todayStart - dayOffset * APP.dayMs;
+    }
+
+    function parsePeriodDateInputMs(todayStart) {
+        const value = state.controls.periodDateInput && state.controls.periodDateInput.value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+
+        const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+        const time = buildLocalTime(year, month, day, 0, 0, 0);
+        if (!Number.isFinite(time)) return null;
+        return Math.min(time, todayStart);
+    }
+
+    function syncDateInputFromPeriod() {
+        if (!state.controls.periodDateInput) return;
+        const todayStart = startOfLocalDayMs(Date.now());
+        const dayOffset = clampDayOffset(Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10));
+        state.controls.periodDateInput.value = formatDateInputValue(todayStart - dayOffset * APP.dayMs);
+    }
+
+    function syncPeriodFromDateInput() {
+        if (!state.controls.periodDateInput || !state.controls.periodSelect) return;
+        const todayStart = startOfLocalDayMs(Date.now());
+        const selectedStart = parsePeriodDateInputMs(todayStart);
+        if (!Number.isFinite(selectedStart)) return;
+
+        const dayOffset = Math.max(0, Math.round((todayStart - selectedStart) / APP.dayMs));
+        state.controls.periodSelect.value = dayOffset >= 0 && dayOffset <= 6 ? String(dayOffset) : "custom";
+        state.controls.periodDateInput.value = formatDateInputValue(selectedStart);
+    }
+
+    function formatDateInputValue(time) {
+        const date = new Date(time);
+        return [
+            date.getFullYear(),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            String(date.getDate()).padStart(2, "0"),
+        ].join("-");
     }
 
     function clampDayOffset(value) {
@@ -4330,7 +4389,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.5",
+        version: "1.0.7",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -4621,7 +4680,12 @@
                                         <option value="4">-4 dias</option>
                                         <option value="5">-5 dias</option>
                                         <option value="6">-6 dias</option>
+                                        <option value="custom">Data manual</option>
                                     </select>
+                                </label>
+                                <label>
+                                    <span>Data</span>
+                                    <input type="date" name="periodDate">
                                 </label>
                                 <label>
                                     <span>Comparar</span>
@@ -4678,6 +4742,7 @@
 
         state.controls.playerInput = scope.querySelector('input[name="player"]');
         state.controls.periodSelect = scope.querySelector('select[name="period"]');
+        state.controls.periodDateInput = scope.querySelector('input[name="periodDate"]');
         state.controls.status = scope.querySelector(`.${APP.id}-status`);
         state.controls.body = scope.querySelector(`.${APP.id}-body`);
         state.controls.submit = scope.querySelector('button[type="submit"]');
@@ -4697,7 +4762,13 @@
         if (state.controls.infoTypeSelect) state.controls.infoTypeSelect.addEventListener("change", () => {
             if (state.controls.infoTypeSelect.value === "player") switchToPlayerPanel();
         });
+        syncDateInputFromPeriod();
         if (state.controls.periodSelect) state.controls.periodSelect.addEventListener("change", () => {
+            syncDateInputFromPeriod();
+            if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
+        });
+        if (state.controls.periodDateInput) state.controls.periodDateInput.addEventListener("change", () => {
+            syncPeriodFromDateInput();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
 
@@ -4928,14 +4999,15 @@
     }
 
     function selectedPeriodInfo(now) {
-        const dayOffset = clampDayOffset(Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10));
         const todayStart = startOfLocalDayMs(now);
+        const selectedDateStart = selectedPeriodStartMs(todayStart);
+        const dayOffset = Math.max(0, Math.round((todayStart - selectedDateStart) / APP.dayMs));
         const startMs = todayStart - dayOffset * APP.dayMs;
-        const elapsedToday = Math.max(0, now - todayStart);
-        const endMs = Math.min(startMs + elapsedToday, startMs + APP.dayMs);
+        const endMs = dayOffset === 0 ? now : startMs + APP.dayMs;
         const ms = Math.max(60 * 1000, endMs - startMs);
         const hours = ms / (60 * 60 * 1000);
-        const label = dayOffset === 0 ? "Hoje (00:00-agora)" : `-${dayOffset} dia${dayOffset === 1 ? "" : "s"}`;
+        const dateText = formatDateOnly(new Date(startMs));
+        const label = dayOffset === 0 ? `Hoje (${dateText}, 00:00-agora)` : `${dateText} (00:00-24:00)`;
 
         return {
             dayOffset,
@@ -4944,8 +5016,54 @@
             ms,
             hours,
             label,
-            shortLabel: dayOffset === 0 ? "Hoje" : `-${dayOffset}D`,
+            shortLabel: dayOffset === 0 ? "Hoje" : dateText,
         };
+    }
+
+    function selectedPeriodStartMs(todayStart) {
+        const selectValue = String(state.controls.periodSelect && state.controls.periodSelect.value || "0");
+        const manualStart = parsePeriodDateInputMs(todayStart);
+        if (selectValue === "custom" && Number.isFinite(manualStart)) return manualStart;
+
+        const dayOffset = clampDayOffset(Number.parseInt(selectValue, 10));
+        return todayStart - dayOffset * APP.dayMs;
+    }
+
+    function parsePeriodDateInputMs(todayStart) {
+        const value = state.controls.periodDateInput && state.controls.periodDateInput.value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+
+        const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+        const time = buildLocalTime(year, month, day, 0, 0, 0);
+        if (!Number.isFinite(time)) return null;
+        return Math.min(time, todayStart);
+    }
+
+    function syncDateInputFromPeriod() {
+        if (!state.controls.periodDateInput) return;
+        const todayStart = startOfLocalDayMs(Date.now());
+        const dayOffset = clampDayOffset(Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10));
+        state.controls.periodDateInput.value = formatDateInputValue(todayStart - dayOffset * APP.dayMs);
+    }
+
+    function syncPeriodFromDateInput() {
+        if (!state.controls.periodDateInput || !state.controls.periodSelect) return;
+        const todayStart = startOfLocalDayMs(Date.now());
+        const selectedStart = parsePeriodDateInputMs(todayStart);
+        if (!Number.isFinite(selectedStart)) return;
+
+        const dayOffset = Math.max(0, Math.round((todayStart - selectedStart) / APP.dayMs));
+        state.controls.periodSelect.value = dayOffset >= 0 && dayOffset <= 6 ? String(dayOffset) : "custom";
+        state.controls.periodDateInput.value = formatDateInputValue(selectedStart);
+    }
+
+    function formatDateInputValue(time) {
+        const date = new Date(time);
+        return [
+            date.getFullYear(),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            String(date.getDate()).padStart(2, "0"),
+        ].join("-");
     }
 
     function clampDayOffset(value) {
