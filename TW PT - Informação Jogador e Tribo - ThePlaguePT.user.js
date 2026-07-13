@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         TW PT - Informação Jogador e Tribo - ThePlaguePT
 // @namespace    theplaguept.tw.info-jogador-tribo
-// @version      1.0.1
+// @version      1.0.2
 // @description  Painéis com resumo de 24h para jogador e tribo: pontos, aldeias, conquistas, OD e histórico TWStats.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,12 +41,12 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.33",
-        title: "InformaÃ§Ã£o de Jogador",
-        displayTitle: "TW PT - InformaÃ§Ã£o de Jogador - ThePlaguePT",
+        version: "1.0.2",
+        title: "Informação",
+        displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
-        launcherIcon: "https://dspt.innogamescdn.com/asset/f441272cc5/graphic/welcome/player_points.webp",
+        launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='9' width='2' height='5' fill='%23f6d28b'/%3E%3Crect x='6' y='5' width='2' height='9' fill='%23f6d28b'/%3E%3Crect x='10' y='2' width='2' height='12' fill='%23f6d28b'/%3E%3Cpath d='M1 14.5h14' stroke='%2340140d'/%3E%3C/svg%3E",
         mapCacheMs: 50 * 60 * 1000,
         conquerCacheMs: 90 * 1000,
         conquerAllCacheMs: 5 * 60 * 1000,
@@ -99,6 +99,9 @@
 
         injectStyle();
         createLauncher();
+        removeLegacyLaunchers();
+        window.setTimeout(removeLegacyLaunchers, 250);
+        window.setTimeout(removeLegacyLaunchers, 1000);
         removeOldProfileStatsButtons(null);
         registerHubShortcut();
 
@@ -115,8 +118,14 @@
         };
     }
 
+    function removeLegacyLaunchers() {
+        const tribeLauncher = document.getElementById("tpResumo24hTribo-launcher");
+        if (tribeLauncher) tribeLauncher.remove();
+    }
+
     function createLauncher() {
-        if (document.getElementById(`${APP.id}-launcher`)) return;
+        const existing = document.getElementById(`${APP.id}-launcher`);
+        if (existing) existing.remove();
 
         const button = document.createElement("button");
         button.id = `${APP.id}-launcher`;
@@ -196,10 +205,10 @@
 
     function registerHubShortcut() {
         const item = {
-            id: "resumo-24h-jogador-theplaguept",
-            label: "Info Stats",
+            id: "informacao-jogador-tribo-theplaguept",
+            label: "Informação",
             group: "Paineis",
-            description: "Abre o resumo de pontos, aldeias, conquistas e OD por periodo.",
+            description: "Abre o resumo de pontos, aldeias, conquistas e OD de jogador ou tribo.",
             order: 35,
             run: openPanel,
         };
@@ -308,6 +317,13 @@
                         <div class="${APP.id}-rowContent">
                             <div class="${APP.id}-controlsGrid">
                                 <label>
+                                    <span>Tipo</span>
+                                    <select name="infoType">
+                                        <option value="player" selected>Jogador</option>
+                                        <option value="tribe">Tribo</option>
+                                    </select>
+                                </label>
+                                <label>
                                     <span>Jogador</span>
                                     <input type="text" name="player" autocomplete="off" placeholder="Nome ou ID do jogador">
                                 </label>
@@ -331,7 +347,7 @@
                         <section class="${APP.id}-panelRow ${APP.id}-summaryRow">
                             <aside class="${APP.id}-rowLabel">
                                 <strong>${sectionIcon("RESUMO")}<span>RESUMO</span></strong>
-                                <span>Totais e variaÃ§Ã£o do jogador selecionado.</span>
+                                <span>Totais e variação do jogador selecionado.</span>
                             </aside>
                             <div class="${APP.id}-rowContent">
                                 <div class="${APP.id}-empty">Escreve um jogador para carregar o resumo.</div>
@@ -375,6 +391,7 @@
         state.controls.status = scope.querySelector(`.${APP.id}-status`);
         state.controls.body = scope.querySelector(`.${APP.id}-body`);
         state.controls.submit = scope.querySelector('button[type="submit"]');
+        state.controls.infoTypeSelect = scope.querySelector('select[name="infoType"]');
         state.controls.clear = scope.querySelector('[data-action="clear"]');
 
         const closeButton = scope.querySelector('[data-action="close"]');
@@ -387,6 +404,9 @@
         });
 
         if (state.controls.clear) state.controls.clear.addEventListener("click", clearCache);
+        if (state.controls.infoTypeSelect) state.controls.infoTypeSelect.addEventListener("change", () => {
+            if (state.controls.infoTypeSelect.value === "tribe") switchToTribePanel();
+        });
         if (state.controls.periodSelect) state.controls.periodSelect.addEventListener("change", () => {
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
@@ -401,6 +421,14 @@
             const toggle = event.target.closest(`[data-${APP.id}-toggle]`);
             if (toggle) togglePanelRow(toggle);
         });
+    }
+
+    function switchToTribePanel() {
+        closePanel();
+        window.setTimeout(() => {
+            const api = gameWindow().TPResumo24hTribo;
+            if (api && typeof api.open === "function") api.open();
+        }, 0);
     }
 
     function expandNativeDialog(dialog) {
@@ -3700,7 +3728,7 @@
 
             .${APP.id}-controlsGrid {
                 display: grid;
-                grid-template-columns: 1.35fr 1fr 1fr;
+                grid-template-columns: .75fr 1.4fr 1fr 1fr;
                 gap: 8px;
                 align-items: end;
             }
@@ -4247,9 +4275,9 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.1",
-        title: "InformaÃ§Ã£o de Tribo",
-        displayTitle: "TW PT - InformaÃ§Ã£o de Tribo - ThePlaguePT",
+        version: "1.0.2",
+        title: "Informação",
+        displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
         launcherIcon: "https://dspt.innogamescdn.com/asset/f441272cc5/graphic/welcome/player_points.webp",
@@ -4304,9 +4332,8 @@
         }
 
         injectStyle();
-        createLauncher();
+        removeStandaloneLauncher();
         removeOldProfileStatsButtons(null);
-        registerHubShortcut();
 
         document.addEventListener("keydown", (event) => {
             if (event.key === "Escape" && state.panel && !state.panel.classList.contains(`${APP.id}-hidden`)) {
@@ -4319,6 +4346,11 @@
             run: () => runSummary(false),
             version: APP.version,
         };
+    }
+
+    function removeStandaloneLauncher() {
+        const launcher = document.getElementById(`${APP.id}-launcher`);
+        if (launcher) launcher.remove();
     }
 
     function createLauncher() {
@@ -4514,6 +4546,13 @@
                         <div class="${APP.id}-rowContent">
                             <div class="${APP.id}-controlsGrid">
                                 <label>
+                                    <span>Tipo</span>
+                                    <select name="infoType">
+                                        <option value="player">Jogador</option>
+                                        <option value="tribe" selected>Tribo</option>
+                                    </select>
+                                </label>
+                                <label>
                                     <span>Tribo</span>
                                     <input type="text" name="player" autocomplete="off" placeholder="Tag, nome ou ID da tribo">
                                 </label>
@@ -4537,7 +4576,7 @@
                         <section class="${APP.id}-panelRow ${APP.id}-summaryRow">
                             <aside class="${APP.id}-rowLabel">
                                 <strong>${sectionIcon("RESUMO")}<span>RESUMO</span></strong>
-                                <span>Totais e variaÃ§Ã£o da tribo selecionada.</span>
+                                <span>Totais e variação da tribo selecionada.</span>
                             </aside>
                             <div class="${APP.id}-rowContent">
                                 <div class="${APP.id}-empty">Escreve uma tribo para carregar o resumo.</div>
@@ -4581,6 +4620,7 @@
         state.controls.status = scope.querySelector(`.${APP.id}-status`);
         state.controls.body = scope.querySelector(`.${APP.id}-body`);
         state.controls.submit = scope.querySelector('button[type="submit"]');
+        state.controls.infoTypeSelect = scope.querySelector('select[name="infoType"]');
         state.controls.clear = scope.querySelector('[data-action="clear"]');
 
         const closeButton = scope.querySelector('[data-action="close"]');
@@ -4593,6 +4633,9 @@
         });
 
         if (state.controls.clear) state.controls.clear.addEventListener("click", clearCache);
+        if (state.controls.infoTypeSelect) state.controls.infoTypeSelect.addEventListener("change", () => {
+            if (state.controls.infoTypeSelect.value === "player") switchToPlayerPanel();
+        });
         if (state.controls.periodSelect) state.controls.periodSelect.addEventListener("change", () => {
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
@@ -4607,6 +4650,14 @@
             const toggle = event.target.closest(`[data-${APP.id}-toggle]`);
             if (toggle) togglePanelRow(toggle);
         });
+    }
+
+    function switchToPlayerPanel() {
+        closePanel();
+        window.setTimeout(() => {
+            const api = gameWindow().TPResumo24hJogador;
+            if (api && typeof api.open === "function") api.open();
+        }, 0);
     }
 
     function expandNativeDialog(dialog) {
@@ -8139,7 +8190,7 @@
 
             .${APP.id}-controlsGrid {
                 display: grid;
-                grid-template-columns: 1.35fr 1fr 1fr;
+                grid-template-columns: .75fr 1.4fr 1fr 1fr;
                 gap: 8px;
                 align-items: end;
             }
