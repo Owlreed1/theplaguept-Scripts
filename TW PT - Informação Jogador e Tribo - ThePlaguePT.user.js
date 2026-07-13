@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         TW PT - Informação Jogador e Tribo - ThePlaguePT
 // @namespace    theplaguept.tw.info-jogador-tribo
-// @version      1.0.7
+// @version      1.0.8
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.7",
+        version: "1.0.8",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -52,6 +52,7 @@
         conquerAllCacheMs: 5 * 60 * 1000,
         twStatsCacheMs: 30 * 60 * 1000,
         twStatsTimeoutMs: 12000,
+        twStatsBridgeWaitMs: 30000,
         twStatsBaselineToleranceMs: 48 * 60 * 60 * 1000,
         maxDailyConquestRows: 80,
         minSnapshotGapMs: 10 * 60 * 1000,
@@ -1368,7 +1369,7 @@
             } catch (error) {
                 const message = error && error.message ? error.message : String(error);
                 lastMessage = message || lastMessage;
-                if (/cloudflare|verificacao|bloque/i.test(message)) break;
+                if (/cloudflare|verificacao|bloque/i.test(message)) continue;
             }
         }
 
@@ -1412,37 +1413,48 @@
         if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
 
         const key = twStatsBridgeKey(links.world, playerId);
-        const startAt = Date.now();
-        let tab = null;
+        const urls = Array.from(new Set([
+            ...(links.hourlyUrls || []),
+            links.hourlyUrl,
+            links.historyUrl,
+            links.profileUrl,
+        ].filter(Boolean)));
 
-        try {
-            setStatus("A abrir historico horario TWStats em segundo plano...");
-            tab = GM_openInTab(links.hourlyUrl || links.historyUrl, { active: false, insert: true, setParent: true });
-        } catch (_) {
-            return null;
-        }
+        for (const url of urls) {
+            const startAt = Date.now();
+            let tab = null;
 
-        try {
-            const payload = await waitForTwStatsBridgeValue(key, 12000, startAt);
-            if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
-
-            const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
-            if (!parsed.snapshot) return null;
-
-            return {
-                attempted: true,
-                ok: true,
-                source: "twstats",
-                url: payload.href || links.hourlyUrl || links.historyUrl,
-                snapshot: parsed.snapshot,
-                currentSnapshot: parsed.currentSnapshot || null,
-                message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
-            };
-        } finally {
             try {
-                if (tab && typeof tab.close === "function") tab.close();
-            } catch (_) {}
+                setStatus("A abrir historico horario TWStats em segundo plano...");
+                tab = GM_openInTab(url, { active: false, insert: true, setParent: true });
+            } catch (_) {
+                continue;
+            }
+
+            try {
+                const payload = await waitForTwStatsBridgeValue(key, APP.twStatsBridgeWaitMs, startAt);
+                if (!payload || !Array.isArray(payload.records) || !payload.records.length) continue;
+
+                const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
+                if (!parsed.snapshot) continue;
+
+                return {
+                    attempted: true,
+                    ok: true,
+                    source: "twstats",
+                    url: payload.href || url,
+                    snapshot: parsed.snapshot,
+                    currentSnapshot: parsed.currentSnapshot || null,
+                    message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
+                };
+            } finally {
+                try {
+                    if (tab && typeof tab.close === "function") tab.close();
+                } catch (_) {}
+            }
         }
+
+        return null;
     }
 
     function waitForTwStatsBridgeValue(key, timeoutMs, startAt) {
@@ -4389,7 +4401,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.7",
+        version: "1.0.8",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -4400,6 +4412,7 @@
         conquerAllCacheMs: 5 * 60 * 1000,
         twStatsCacheMs: 30 * 60 * 1000,
         twStatsTimeoutMs: 12000,
+        twStatsBridgeWaitMs: 30000,
         twStatsBaselineToleranceMs: 48 * 60 * 60 * 1000,
         maxDailyConquestRows: 80,
         minSnapshotGapMs: 10 * 60 * 1000,
@@ -5934,7 +5947,7 @@
             } catch (error) {
                 const message = error && error.message ? error.message : String(error);
                 lastMessage = message || lastMessage;
-                if (/cloudflare|verificacao|bloque/i.test(message)) break;
+                if (/cloudflare|verificacao|bloque/i.test(message)) continue;
             }
         }
 
@@ -5978,37 +5991,48 @@
         if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
 
         const key = twStatsBridgeKey(links.world, playerId);
-        const startAt = Date.now();
-        let tab = null;
+        const urls = Array.from(new Set([
+            ...(links.hourlyUrls || []),
+            links.hourlyUrl,
+            links.historyUrl,
+            links.profileUrl,
+        ].filter(Boolean)));
 
-        try {
-            setStatus("A abrir historico horario TWStats em segundo plano...");
-            tab = GM_openInTab(links.hourlyUrl || links.historyUrl, { active: false, insert: true, setParent: true });
-        } catch (_) {
-            return null;
-        }
+        for (const url of urls) {
+            const startAt = Date.now();
+            let tab = null;
 
-        try {
-            const payload = await waitForTwStatsBridgeValue(key, 12000, startAt);
-            if (!payload || !Array.isArray(payload.records) || !payload.records.length) return null;
-
-            const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
-            if (!parsed.snapshot) return null;
-
-            return {
-                attempted: true,
-                ok: true,
-                source: "twstats",
-                url: payload.href || links.hourlyUrl || links.historyUrl,
-                snapshot: parsed.snapshot,
-                currentSnapshot: parsed.currentSnapshot || null,
-                message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
-            };
-        } finally {
             try {
-                if (tab && typeof tab.close === "function") tab.close();
-            } catch (_) {}
+                setStatus("A abrir historico horario TWStats em segundo plano...");
+                tab = GM_openInTab(url, { active: false, insert: true, setParent: true });
+            } catch (_) {
+                continue;
+            }
+
+            try {
+                const payload = await waitForTwStatsBridgeValue(key, APP.twStatsBridgeWaitMs, startAt);
+                if (!payload || !Array.isArray(payload.records) || !payload.records.length) continue;
+
+                const parsed = chooseTwStatsBaselineFromRecords(payload.records, current, now, periodInfo);
+                if (!parsed.snapshot) continue;
+
+                return {
+                    attempted: true,
+                    ok: true,
+                    source: "twstats",
+                    url: payload.href || url,
+                    snapshot: parsed.snapshot,
+                    currentSnapshot: parsed.currentSnapshot || null,
+                    message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
+                };
+            } finally {
+                try {
+                    if (tab && typeof tab.close === "function") tab.close();
+                } catch (_) {}
+            }
         }
+
+        return null;
     }
 
     function waitForTwStatsBridgeValue(key, timeoutMs, startAt) {
