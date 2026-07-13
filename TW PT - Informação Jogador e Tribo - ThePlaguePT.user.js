@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         TW PT - Informação Jogador e Tribo - ThePlaguePT
 // @namespace    theplaguept.tw.info-jogador-tribo
-// @version      1.0.4
+// @version      1.0.5
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.4",
+        version: "1.0.5",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -643,9 +643,10 @@
         const dayOffset = clampDayOffset(Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10));
         const todayStart = startOfLocalDayMs(now);
         const startMs = todayStart - dayOffset * APP.dayMs;
-        const endMs = dayOffset === 0 ? now : todayStart - (dayOffset - 1) * APP.dayMs;
-        const ms = Math.max(60 * 60 * 1000, endMs - startMs);
-        const hours = Math.max(1, Math.round(ms / (60 * 60 * 1000)));
+        const elapsedToday = Math.max(0, now - todayStart);
+        const endMs = Math.min(startMs + elapsedToday, startMs + APP.dayMs);
+        const ms = Math.max(60 * 1000, endMs - startMs);
+        const hours = ms / (60 * 60 * 1000);
         const label = dayOffset === 0 ? "Hoje (00:00-agora)" : `-${dayOffset} dia${dayOffset === 1 ? "" : "s"}`;
 
         return {
@@ -1268,7 +1269,7 @@
     }
 
     function twStatsBridgeKey(world, playerId) {
-        return `${APP.id}:twstats-history:${String(world || "").toLowerCase()}:${playerId}`;
+        return `${APP.id}:twstats-hourly-v2:${String(world || "").toLowerCase()}:${playerId}`;
     }
 
     async function loadTwStatsBaseline(playerId, current, now, periodInfo, force) {
@@ -1900,7 +1901,7 @@
     function parseTwStatsNumberToken(token) {
         const raw = cleanText(token);
         const multiplier = /\d\s*k\b/i.test(raw) ? 1000 : (/\d\s*m\b/i.test(raw) ? 1000000 : 1);
-        let value = raw.replace(/[^\d,.\-+]/g, "");
+        let value = raw.replace(/[^\d,.]/g, "");
         if (!/[0-9]/.test(value)) return null;
         value = value
             .replace(/[.,](?=\d{3}(?:\D|$))/g, "")
@@ -4329,7 +4330,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.4",
+        version: "1.0.5",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -4930,9 +4931,10 @@
         const dayOffset = clampDayOffset(Number.parseInt(state.controls.periodSelect && state.controls.periodSelect.value, 10));
         const todayStart = startOfLocalDayMs(now);
         const startMs = todayStart - dayOffset * APP.dayMs;
-        const endMs = dayOffset === 0 ? now : todayStart - (dayOffset - 1) * APP.dayMs;
-        const ms = Math.max(60 * 60 * 1000, endMs - startMs);
-        const hours = Math.max(1, Math.round(ms / (60 * 60 * 1000)));
+        const elapsedToday = Math.max(0, now - todayStart);
+        const endMs = Math.min(startMs + elapsedToday, startMs + APP.dayMs);
+        const ms = Math.max(60 * 1000, endMs - startMs);
+        const hours = ms / (60 * 60 * 1000);
         const label = dayOffset === 0 ? "Hoje (00:00-agora)" : `-${dayOffset} dia${dayOffset === 1 ? "" : "s"}`;
 
         return {
@@ -5774,7 +5776,7 @@
     }
 
     function twStatsBridgeKey(world, playerId) {
-        return `${APP.id}:twstats-history:${String(world || "").toLowerCase()}:${playerId}`;
+        return `${APP.id}:twstats-hourly-v2:${String(world || "").toLowerCase()}:${playerId}`;
     }
 
     async function loadTwStatsBaseline(playerId, current, now, periodInfo, force) {
@@ -6410,7 +6412,7 @@
     function parseTwStatsNumberToken(token) {
         const raw = cleanText(token);
         const multiplier = /\d\s*k\b/i.test(raw) ? 1000 : (/\d\s*m\b/i.test(raw) ? 1000000 : 1);
-        let value = raw.replace(/[^\d,.\-+]/g, "");
+        let value = raw.replace(/[^\d,.]/g, "");
         if (!/[0-9]/.test(value)) return null;
         value = value
             .replace(/[.,](?=\d{3}(?:\D|$))/g, "")
