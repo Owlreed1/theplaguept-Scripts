@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         TW PT - Informação Jogador e Tribo - ThePlaguePT
 // @namespace    theplaguept.tw.info-jogador-tribo
-// @version      1.0.9
+// @version      1.0.10
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.9",
+        version: "1.0.10",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -1354,7 +1354,7 @@
     }
 
     function twStatsBridgeKey(world, playerId) {
-        return `${APP.id}:twstats-hourly-v2:${String(world || "").toLowerCase()}:${playerId}`;
+        return `${APP.id}:twstats-hourly-v3:${String(world || "").toLowerCase()}:${playerId}`;
     }
 
     async function loadTwStatsBaseline(playerId, current, now, periodInfo, force) {
@@ -1438,7 +1438,7 @@
         if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
 
         const key = twStatsBridgeKey(links.world, playerId);
-        const url = decorateTwStatsAutoUrl(links.historyUrl || links.hourlyUrl || links.profileUrl);
+        const url = decorateTwStatsAutoUrl(links.hourlyUrl || links.historyUrl || links.profileUrl);
         const startAt = Date.now();
         let tab = null;
 
@@ -1614,6 +1614,15 @@
     }
 
     function chooseTwStatsBaselineFromRecords(records, current, now, periodInfo) {
+        const dailyPair = chooseTwStatsDailyDatePair(records, periodInfo);
+        if (dailyPair) {
+            return {
+                snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
+                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
+                message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
+            };
+        }
+
         const hourlyPair = chooseTwStatsHourlyPair(records, periodInfo);
         if (hourlyPair) {
             return {
@@ -1624,6 +1633,53 @@
         }
 
         return { snapshot: null, message: `TWStats lido (${records.length} linhas), sem par horario suficiente para ${periodInfo && periodInfo.label ? periodInfo.label : "o periodo"}.` };
+    }
+
+    function chooseTwStatsDailyDatePair(records, periodInfo) {
+        if (!periodInfo || !periodInfo.dayOffset) return null;
+
+        const ordered = (records || [])
+            .filter((record) => record && Number.isFinite(record.ts))
+            .filter((record) => twStatsRecordScore(record) >= 3)
+            .sort((a, b) => a.ts - b.ts);
+        if (ordered.length < 2 || !recordsLookDaily(ordered)) return null;
+
+        const tolerance = 12 * 60 * 60 * 1000;
+        const current = pickTwStatsRecordClosest(ordered, periodInfo.startMs, tolerance);
+        const baseline = pickTwStatsRecordClosest(ordered, periodInfo.startMs - APP.dayMs, tolerance);
+
+        if (!baseline || !current || current.ts <= baseline.ts) return null;
+        return { baseline, current };
+    }
+
+    function recordsLookDaily(records) {
+        const ordered = (records || []).filter((record) => record && Number.isFinite(record.ts));
+        if (ordered.length < 2) return false;
+
+        const midnightRows = ordered.filter((record) => isLocalDayStart(record.ts)).length;
+        if (midnightRows / ordered.length >= 0.8) return true;
+
+        const gaps = [];
+        for (let index = 1; index < ordered.length; index += 1) {
+            gaps.push(ordered[index].ts - ordered[index - 1].ts);
+        }
+        const dailyGaps = gaps.filter((gap) => gap >= 18 * 60 * 60 * 1000).length;
+        return gaps.length > 0 && dailyGaps / gaps.length >= 0.8;
+    }
+
+    function isLocalDayStart(time) {
+        const date = new Date(time);
+        return date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0;
+    }
+
+    function pickTwStatsRecordClosest(records, target, tolerance) {
+        return (records || [])
+            .map((record) => ({
+                record,
+                distance: Math.abs(record.ts - target),
+            }))
+            .filter((item) => item.distance <= tolerance)
+            .sort((a, b) => a.distance - b.distance)[0]?.record || null;
     }
 
     function chooseTwStatsHourlyPair(records, periodInfo) {
@@ -4426,7 +4482,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.9",
+        version: "1.0.10",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -5957,7 +6013,7 @@
     }
 
     function twStatsBridgeKey(world, playerId) {
-        return `${APP.id}:twstats-hourly-v2:${String(world || "").toLowerCase()}:${playerId}`;
+        return `${APP.id}:twstats-hourly-v3:${String(world || "").toLowerCase()}:${playerId}`;
     }
 
     async function loadTwStatsBaseline(playerId, current, now, periodInfo, force) {
@@ -6041,7 +6097,7 @@
         if (typeof GM_openInTab !== "function" || typeof GM_addValueChangeListener !== "function") return null;
 
         const key = twStatsBridgeKey(links.world, playerId);
-        const url = decorateTwStatsAutoUrl(links.historyUrl || links.hourlyUrl || links.profileUrl);
+        const url = decorateTwStatsAutoUrl(links.hourlyUrl || links.historyUrl || links.profileUrl);
         const startAt = Date.now();
         let tab = null;
 
@@ -6217,6 +6273,15 @@
     }
 
     function chooseTwStatsBaselineFromRecords(records, current, now, periodInfo) {
+        const dailyPair = chooseTwStatsDailyDatePair(records, periodInfo);
+        if (dailyPair) {
+            return {
+                snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
+                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
+                message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
+            };
+        }
+
         const hourlyPair = chooseTwStatsHourlyPair(records, periodInfo);
         if (hourlyPair) {
             return {
@@ -6227,6 +6292,53 @@
         }
 
         return { snapshot: null, message: `TWStats lido (${records.length} linhas), sem par horario suficiente para ${periodInfo && periodInfo.label ? periodInfo.label : "o periodo"}.` };
+    }
+
+    function chooseTwStatsDailyDatePair(records, periodInfo) {
+        if (!periodInfo || !periodInfo.dayOffset) return null;
+
+        const ordered = (records || [])
+            .filter((record) => record && Number.isFinite(record.ts))
+            .filter((record) => twStatsRecordScore(record) >= 3)
+            .sort((a, b) => a.ts - b.ts);
+        if (ordered.length < 2 || !recordsLookDaily(ordered)) return null;
+
+        const tolerance = 12 * 60 * 60 * 1000;
+        const current = pickTwStatsRecordClosest(ordered, periodInfo.startMs, tolerance);
+        const baseline = pickTwStatsRecordClosest(ordered, periodInfo.startMs - APP.dayMs, tolerance);
+
+        if (!baseline || !current || current.ts <= baseline.ts) return null;
+        return { baseline, current };
+    }
+
+    function recordsLookDaily(records) {
+        const ordered = (records || []).filter((record) => record && Number.isFinite(record.ts));
+        if (ordered.length < 2) return false;
+
+        const midnightRows = ordered.filter((record) => isLocalDayStart(record.ts)).length;
+        if (midnightRows / ordered.length >= 0.8) return true;
+
+        const gaps = [];
+        for (let index = 1; index < ordered.length; index += 1) {
+            gaps.push(ordered[index].ts - ordered[index - 1].ts);
+        }
+        const dailyGaps = gaps.filter((gap) => gap >= 18 * 60 * 60 * 1000).length;
+        return gaps.length > 0 && dailyGaps / gaps.length >= 0.8;
+    }
+
+    function isLocalDayStart(time) {
+        const date = new Date(time);
+        return date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0;
+    }
+
+    function pickTwStatsRecordClosest(records, target, tolerance) {
+        return (records || [])
+            .map((record) => ({
+                record,
+                distance: Math.abs(record.ts - target),
+            }))
+            .filter((item) => item.distance <= tolerance)
+            .sort((a, b) => a.distance - b.distance)[0]?.record || null;
     }
 
     function chooseTwStatsHourlyPair(records, periodInfo) {
