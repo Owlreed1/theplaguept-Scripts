@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         TW PT - Informação Jogador e Tribo - ThePlaguePT
 // @namespace    theplaguept.tw.info-jogador-tribo
-// @version      1.0.10
+// @version      1.0.12
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.10",
+        version: "1.0.12",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -1636,7 +1636,7 @@
     }
 
     function chooseTwStatsDailyDatePair(records, periodInfo) {
-        if (!periodInfo || !periodInfo.dayOffset) return null;
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs)) return null;
 
         const ordered = (records || [])
             .filter((record) => record && Number.isFinite(record.ts))
@@ -4482,7 +4482,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.10",
+        version: "1.0.12",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -5881,6 +5881,7 @@
         const world = twStatsWorldKey();
         const base = `https://pt.twstats.com/${encodeURIComponent(world)}/`;
         const profileUrl = `${base}index.php?page=tribe&id=${encodeURIComponent(playerId)}`;
+        const allyProfileUrl = `${base}index.php?page=ally&id=${encodeURIComponent(playerId)}`;
         const graphs = [
             ["points", "Pontos"],
             ["villages", "Aldeias"],
@@ -5905,6 +5906,10 @@
                 `${profileUrl}&mode=history&view=hourly`,
                 `${profileUrl}&mode=history&hourly=1`,
                 `${profileUrl}&mode=history`,
+                `${allyProfileUrl}&mode=history&type=hourly`,
+                `${allyProfileUrl}&mode=history&view=hourly`,
+                `${allyProfileUrl}&mode=history&hourly=1`,
+                `${allyProfileUrl}&mode=history`,
             ],
             graphs,
         };
@@ -5982,7 +5987,7 @@
     function currentTwStatsPageInfo() {
         const params = new URLSearchParams(window.location.search);
         const pathWorld = (window.location.pathname.match(/\/([^/]+)\//) || [])[1] || "";
-        if (params.get("page") !== "tribe") return { world: pathWorld.toLowerCase(), playerId: "" };
+        if (!["tribe", "ally"].includes(params.get("page"))) return { world: pathWorld.toLowerCase(), playerId: "" };
         return {
             world: pathWorld.toLowerCase(),
             playerId: /^\d+$/.test(params.get("id") || "") ? params.get("id") : "",
@@ -6295,7 +6300,7 @@
     }
 
     function chooseTwStatsDailyDatePair(records, periodInfo) {
-        if (!periodInfo || !periodInfo.dayOffset) return null;
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs)) return null;
 
         const ordered = (records || [])
             .filter((record) => record && Number.isFinite(record.ts))
