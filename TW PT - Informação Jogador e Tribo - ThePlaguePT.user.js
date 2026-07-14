@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         TW PT - Informação Jogador e Tribo - ThePlaguePT
 // @namespace    theplaguept.tw.info-jogador-tribo
-// @version      1.0.12
+// @version      1.0.13
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.12",
+        version: "1.0.13",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -1134,6 +1134,7 @@
     function summarizeAllTimeConquests(text, villages, playersById, playerId) {
         const daily = new Map();
         const opponents = new Map();
+        const rows = [];
         let gained = 0;
         let lost = 0;
         let firstTs = 0;
@@ -1159,17 +1160,27 @@
             };
 
             const village = villages.get(villageId) || fallbackVillage(villageId);
+            const baseRow = {
+                villageId,
+                village,
+                timestamp,
+                date: new Date(timestamp * 1000),
+                oldOwner: playerName(playersById, oldOwnerId),
+                newOwner: playerName(playersById, newOwnerId),
+            };
 
             if (newOwnerId === playerId) {
                 gained += 1;
                 day.gained += 1;
                 addOpponent(opponents, oldOwnerId, playersById, "from", village.points);
+                rows.push({ ...baseRow, mode: "gain", opponent: baseRow.oldOwner });
             }
 
             if (oldOwnerId === playerId) {
                 lost += 1;
                 day.lost += 1;
                 addOpponent(opponents, newOwnerId, playersById, "to", village.points);
+                rows.push({ ...baseRow, mode: "loss", opponent: baseRow.newOwner });
             }
 
             daily.set(dayKey, day);
@@ -1200,9 +1211,9 @@
             lastTs,
             days,
             cumulative,
+            rows: rows.sort((a, b) => b.timestamp - a.timestamp),
             opponents: Array.from(opponents.values())
-                .sort((a, b) => (b.from + b.to) - (a.from + a.to))
-                .slice(0, 8),
+                .sort((a, b) => (b.from + b.to) - (a.from + a.to)),
         };
     }
 
@@ -2719,6 +2730,7 @@
                 ${renderLineChart("Saldo acumulado", allTime.cumulative)}
                 ${renderBarChart("Atividade diaria", allTime.days)}
             </div>
+            ${renderAllTimeConquestTable(allTime.rows)}
             ${renderOpponentTable(allTime.opponents)}
         `;
     }
@@ -2848,6 +2860,38 @@
                                 <td>${formatNumber(opponent.from)}</td>
                                 <td>${formatNumber(opponent.to)}</td>
                                 <td>${formatNumber(opponent.points)}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function renderAllTimeConquestTable(rows) {
+        if (!rows || !rows.length) return "";
+        return `
+            <div class="${APP.id}-tableWrap ${APP.id}-allTimeConquestsWrap">
+                <table class="${APP.id}-table ${APP.id}-allTimeConquestsTable">
+                    <thead>
+                        <tr>
+                            <th>DATA</th>
+                            <th>TIPO</th>
+                            <th>ALDEIA</th>
+                            <th>COORD</th>
+                            <th>PTS</th>
+                            <th>ADVERSARIO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((row) => `
+                            <tr class="${APP.id}-${row.mode === "loss" ? "loss" : "gain"}">
+                                <td>${escapeHTML(formatDateTime(row.date))}</td>
+                                <td><strong>${row.mode === "loss" ? "Perdida" : "Ganha"}</strong></td>
+                                <td>${escapeHTML(row.village && row.village.name ? row.village.name : `Aldeia #${row.villageId}`)}</td>
+                                <td>${escapeHTML(row.village && row.village.coords ? row.village.coords : "-")}</td>
+                                <td>${formatNumber(row.village && row.village.points)}</td>
+                                <td>${escapeHTML(row.opponent || "-")}</td>
                             </tr>
                         `).join("")}
                     </tbody>
@@ -4366,6 +4410,12 @@
                 margin-top: 10px;
             }
 
+            .${APP.id}-allTimeConquestsWrap {
+                margin-top: 10px;
+                max-height: 260px;
+                overflow-y: auto;
+            }
+
             .${APP.id}-gain td:nth-child(2) strong {
                 color: #16662a;
             }
@@ -4482,7 +4532,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.12",
+        version: "1.0.13",
         title: "Informação",
         displayTitle: "TW PT - Informação - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -5713,6 +5763,7 @@
     function summarizeAllTimeConquests(text, villages, playersById, playerId) {
         const daily = new Map();
         const opponents = new Map();
+        const rows = [];
         let gained = 0;
         let lost = 0;
         let firstTs = 0;
@@ -5738,17 +5789,27 @@
             };
 
             const village = villages.get(villageId) || fallbackVillage(villageId);
+            const baseRow = {
+                villageId,
+                village,
+                timestamp,
+                date: new Date(timestamp * 1000),
+                oldOwner: playerName(playersById, oldOwnerId),
+                newOwner: playerName(playersById, newOwnerId),
+            };
 
             if (newOwnerId === playerId) {
                 gained += 1;
                 day.gained += 1;
                 addOpponent(opponents, oldOwnerId, playersById, "from", village.points);
+                rows.push({ ...baseRow, mode: "gain", opponent: baseRow.oldOwner });
             }
 
             if (oldOwnerId === playerId) {
                 lost += 1;
                 day.lost += 1;
                 addOpponent(opponents, newOwnerId, playersById, "to", village.points);
+                rows.push({ ...baseRow, mode: "loss", opponent: baseRow.newOwner });
             }
 
             daily.set(dayKey, day);
@@ -5779,15 +5840,16 @@
             lastTs,
             days,
             cumulative,
+            rows: rows.sort((a, b) => b.timestamp - a.timestamp),
             opponents: Array.from(opponents.values())
-                .sort((a, b) => (b.from + b.to) - (a.from + a.to))
-                .slice(0, 8),
+                .sort((a, b) => (b.from + b.to) - (a.from + a.to)),
         };
     }
 
     function summarizeTribeAllTimeConquests(text, villages, playersById, tribeId) {
         const daily = new Map();
         const opponents = new Map();
+        const rows = [];
         let gained = 0;
         let lost = 0;
         let firstTs = 0;
@@ -5817,17 +5879,27 @@
             };
 
             const village = villages.get(villageId) || fallbackVillage(villageId);
+            const baseRow = {
+                villageId,
+                village,
+                timestamp,
+                date: new Date(timestamp * 1000),
+                oldOwner: playerName(playersById, oldOwnerId),
+                newOwner: playerName(playersById, newOwnerId),
+            };
 
             if (newTribeId === tribeId) {
                 gained += 1;
                 day.gained += 1;
                 addOpponent(opponents, oldOwnerId, playersById, "from", village.points);
+                rows.push({ ...baseRow, mode: "gain", opponent: baseRow.oldOwner });
             }
 
             if (oldTribeId === tribeId) {
                 lost += 1;
                 day.lost += 1;
                 addOpponent(opponents, newOwnerId, playersById, "to", village.points);
+                rows.push({ ...baseRow, mode: "loss", opponent: baseRow.newOwner });
             }
 
             daily.set(dayKey, day);
@@ -5858,9 +5930,9 @@
             lastTs,
             days,
             cumulative,
+            rows: rows.sort((a, b) => b.timestamp - a.timestamp),
             opponents: Array.from(opponents.values())
-                .sort((a, b) => (b.from + b.to) - (a.from + a.to))
-                .slice(0, 8),
+                .sort((a, b) => (b.from + b.to) - (a.from + a.to)),
         };
     }
 
@@ -7395,6 +7467,7 @@
                 ${renderLineChart("Saldo acumulado", allTime.cumulative)}
                 ${renderBarChart("Atividade diaria", allTime.days)}
             </div>
+            ${renderAllTimeConquestTable(allTime.rows)}
             ${renderOpponentTable(allTime.opponents)}
         `;
     }
@@ -7524,6 +7597,38 @@
                                 <td>${formatNumber(opponent.from)}</td>
                                 <td>${formatNumber(opponent.to)}</td>
                                 <td>${formatNumber(opponent.points)}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function renderAllTimeConquestTable(rows) {
+        if (!rows || !rows.length) return "";
+        return `
+            <div class="${APP.id}-tableWrap ${APP.id}-allTimeConquestsWrap">
+                <table class="${APP.id}-table ${APP.id}-allTimeConquestsTable">
+                    <thead>
+                        <tr>
+                            <th>DATA</th>
+                            <th>TIPO</th>
+                            <th>ALDEIA</th>
+                            <th>COORD</th>
+                            <th>PTS</th>
+                            <th>ADVERSARIO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map((row) => `
+                            <tr class="${APP.id}-${row.mode === "loss" ? "loss" : "gain"}">
+                                <td>${escapeHTML(formatDateTime(row.date))}</td>
+                                <td><strong>${row.mode === "loss" ? "Perdida" : "Ganha"}</strong></td>
+                                <td>${escapeHTML(row.village && row.village.name ? row.village.name : `Aldeia #${row.villageId}`)}</td>
+                                <td>${escapeHTML(row.village && row.village.coords ? row.village.coords : "-")}</td>
+                                <td>${formatNumber(row.village && row.village.points)}</td>
+                                <td>${escapeHTML(row.opponent || "-")}</td>
                             </tr>
                         `).join("")}
                     </tbody>
@@ -9039,6 +9144,12 @@
 
             .${APP.id}-opponentWrap {
                 margin-top: 10px;
+            }
+
+            .${APP.id}-allTimeConquestsWrap {
+                margin-top: 10px;
+                max-height: 260px;
+                overflow-y: auto;
             }
 
             .${APP.id}-gain td:nth-child(2) strong {
