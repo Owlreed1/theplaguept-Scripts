@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.13
+// @version      1.3.14
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.13 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.14 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2590,7 +2590,7 @@
             archer: ['unit_archer', 'unit-archer', 'unit-item-archer', 'archer.png', 'arqueiro'],
             spy: ['unit_spy', 'unit-spy', 'unit-item-spy', 'spy.png', 'explorador', 'batedor'],
             light: ['unit_light', 'unit-light', 'unit-item-light', 'light.png', 'cavalaria leve'],
-            marcher: ['unit_marcher', 'unit-marcher', 'unit-item-marcher', 'marcher.png', 'arqueiro a cavalo'],
+            marcher: ['unit_marcher', 'unit-marcher', 'unit-item-marcher', 'marcher.png', 'arqueiro a cavalo', 'arqueiros a cavalo', 'mounted archer', 'mounted archers'],
             heavy: ['unit_heavy', 'unit-heavy', 'unit-item-heavy', 'heavy.png', 'cavalaria pesada'],
             ram: ['unit_ram', 'unit-ram', 'unit-item-ram', 'ram.png', 'ariete'],
             catapult: ['unit_catapult', 'unit-catapult', 'unit-item-catapult', 'catapult.png', 'catapulta'],
