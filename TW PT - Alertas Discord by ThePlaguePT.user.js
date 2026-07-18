@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.11
+// @version      1.3.13
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.11 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.13 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2621,8 +2621,9 @@
 
     function getTroopColumns(table) {
         let bestColumns = [];
+        const rows = getDirectTableRows(table);
 
-        Array.from(table.querySelectorAll('tr')).forEach(row => {
+        rows.forEach(row => {
             const columns = [];
             let columnIndex = 0;
 
@@ -2639,6 +2640,11 @@
         });
 
         return bestColumns;
+    }
+
+    function getDirectTableRows(table) {
+        return Array.from(table.querySelectorAll('tr'))
+            .filter(row => row.closest('table') === table);
     }
 
     function parseTroopNumber(value) {
@@ -2704,14 +2710,14 @@
             .filter(Boolean);
 
         const parseNumber = token => {
-            const compact = String(token || '').replace(/\./g, '');
+            const compact = String(token || '').replace(/[.\s]/g, '');
 
             if (!compact || compact.length > 8) return 0;
 
             const number = Number(compact) || 0;
             return number > TROOP_CELL_MAX_VALUE ? 0 : number;
         };
-        const numericLines = lines.filter(line => /^\d[\d.]*$/.test(line));
+        const numericLines = lines.filter(line => /^\d[\d.\s]*$/.test(line));
         const sourceLines = numericLines.length ? numericLines : lines;
         const values = sourceLines
             .map(line => line.match(/\d{1,3}(?:\.\d{3})+|\d+/g) || [])
@@ -2722,34 +2728,40 @@
         return values.length ? Math.max(...values) : 0;
     }
 
+    function getTroopColumnCell(row, column, columns) {
+        const cells = Array.from(row.children);
+        const unitCellIndexes = columns
+            .map(item => typeof item.cellIndex === 'number' ? item.cellIndex : null)
+            .filter(index => index !== null);
+        const unitStartIndex = unitCellIndexes.length ? Math.min(...unitCellIndexes) : 0;
+        const coordCellIndex = cells.findIndex(cell => parseCoords(cell.innerText || cell.textContent || ''));
+        const physicalOffset = coordCellIndex >= 0 && unitStartIndex <= coordCellIndex
+            ? coordCellIndex + 1 - unitStartIndex
+            : 0;
+
+        if (typeof column.cellIndex === 'number') {
+            const physicalCell = cells[column.cellIndex + physicalOffset];
+
+            if (physicalCell && !parseCoords(physicalCell.innerText || physicalCell.textContent || '')) {
+                return physicalCell;
+            }
+        }
+
+        const virtualCell = getCellAtColumn(row, column.index + physicalOffset);
+
+        if (virtualCell && !parseCoords(virtualCell.innerText || virtualCell.textContent || '')) {
+            return virtualCell;
+        }
+
+        return null;
+    }
+
     function parseTroopRowTotals(row, columns) {
         const rowTotals = createTroopTotals();
-        const directUnitKeys = new Set();
-
-        Array.from(row.children).forEach(cell => {
-            const unitKey = detectTroopUnitKey(cell);
-            if (!unitKey) return;
-
-            const value = parseSafeTroopCellNumber(cell.innerText || cell.textContent || '');
-            directUnitKeys.add(unitKey);
-
-            if (value > 0) {
-                rowTotals[unitKey] += value;
-            }
-        });
 
         columns.forEach(column => {
-            if (directUnitKeys.has(column.key) && rowTotals[column.key] > 0) {
-                return;
-            }
-
-            const cell = getCellAtColumn(row, column.index);
-            let value = parseSafeTroopCellNumber(cell ? (cell.innerText || cell.textContent || '') : '');
-
-            if (!value && typeof column.cellIndex === 'number') {
-                const physicalCell = row.children[column.cellIndex];
-                value = parseSafeTroopCellNumber(physicalCell ? (physicalCell.innerText || physicalCell.textContent || '') : '');
-            }
+            const cell = getTroopColumnCell(row, column, columns);
+            const value = parseSafeTroopCellNumber(cell ? (cell.innerText || cell.textContent || '') : '');
 
             if (value > 0) {
                 rowTotals[column.key] += value;
@@ -2828,7 +2840,7 @@
     }
 
     function getRowCoordsKey(row) {
-        const coords = parseCoords(row ? row.innerText : '');
+        const coords = parseCoords(row ? (row.innerText || row.textContent || '') : '');
         return coords ? coords.text : '';
     }
 
@@ -3078,7 +3090,10 @@
     }
 
     function parseTroopsOverview(doc) {
-        const tables = Array.from(doc.querySelectorAll('#units_table, table.vis, table'));
+        const preferredTable = doc.querySelector('#units_table');
+        const tables = preferredTable
+            ? [preferredTable]
+            : Array.from(doc.querySelectorAll('table.vis, table'));
         let bestTable = null;
         let bestColumns = [];
 
@@ -3093,42 +3108,29 @@
         if (!bestTable || !bestColumns.length) return null;
 
         const totals = createTroopTotals();
-
-        const rows = Array.from(bestTable.querySelectorAll('tbody tr, tr'));
+        const rows = getDirectTableRows(bestTable)
+            .filter(row => !row.querySelector('th'));
 
         const villageKeys = new Set();
         const villagesByKey = new Map();
-        let currentVillageKey = '';
 
         rows.forEach(row => {
-            const detectedVillageKey = getRowCoordsKey(row);
+            const villageKey = getRowCoordsKey(row);
             const rowText = normalizeSearchText(row.innerText || '');
 
-            if (detectedVillageKey) {
-                currentVillageKey = detectedVillageKey;
-            }
-
-            if (!detectedVillageKey && /total|selecionar|seleccionar/.test(rowText)) {
-                return;
-            }
-
-            const villageKey = detectedVillageKey || currentVillageKey;
-
             if (!villageKey) return;
+            if (/total|selecionar|seleccionar/.test(rowText)) return;
 
-            if (villageKey) {
-                villageKeys.add(villageKey);
+            villageKeys.add(villageKey);
 
-                if (!villagesByKey.has(villageKey)) {
-                    villagesByKey.set(villageKey, {
-                        key: villageKey,
-                        totals: createTroopTotals()
-                    });
-                }
+            if (!villagesByKey.has(villageKey)) {
+                villagesByKey.set(villageKey, {
+                    key: villageKey,
+                    totals: createTroopTotals()
+                });
             }
 
-            const village = villageKey ? villagesByKey.get(villageKey) : null;
-
+            const village = villagesByKey.get(villageKey);
             const rowTotals = parseTroopRowTotals(row, bestColumns);
 
             Object.keys(rowTotals).forEach(unitKey => {
@@ -3136,10 +3138,7 @@
                 if (!value) return;
 
                 totals[unitKey] += value;
-
-                if (village) {
-                    village.totals[unitKey] += value;
-                }
+                village.totals[unitKey] += value;
             });
         });
 
@@ -3149,7 +3148,7 @@
             totals,
             villages,
             attackFullCounter: calculateAttackFullCounter(villages),
-            villageCount: villageKeys.size || rows.length
+            villageCount: getPlayerVillageCount() || villageKeys.size || rows.length
         };
     }
 
