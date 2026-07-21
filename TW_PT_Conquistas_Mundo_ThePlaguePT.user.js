@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.41
+// @version      1.0.42
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.41",
+        version: "1.0.42",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -1786,6 +1786,7 @@
     function getRowsForSettings(settings) {
         const values = Object.assign(defaultPanelSettings(), settings || {});
         const query = fold(String(values.search || "").trim());
+        const exactTribeTag = exactTribeTagFromQuery(query);
         const side = values.side || "both";
         const continent = normalizeContinent(values.continent || "");
         const hideBarbarians = Boolean(values.hideBarbarians);
@@ -1801,6 +1802,7 @@
             if (hideOwn && isOwnPlayerConquest(row)) return false;
             if (hideSelf && isSelfConquest(row)) return false;
             if (!query) return true;
+            if (exactTribeTag) return rowMatchesExactTribeTag(row, exactTribeTag, side);
             if (side === "gain") return row.searchGain.includes(query);
             if (side === "loss") return row.searchLoss.includes(query);
             return row.search.includes(query);
@@ -1827,6 +1829,23 @@
         });
 
         return rows;
+    }
+
+    function exactTribeTagFromQuery(query) {
+        if (!query || query === "-") return "";
+        for (const tribe of state.maps.tribes.values()) {
+            const tag = fold(tribe.tag || "");
+            if (tag && tag !== "-" && tag === query) return tag;
+        }
+        return "";
+    }
+
+    function rowMatchesExactTribeTag(row, tag, side) {
+        const gainTag = fold(row.newTribe && row.newTribe.tag);
+        const lossTag = fold(row.oldTribe && row.oldTribe.tag);
+        if (side === "gain") return gainTag === tag;
+        if (side === "loss") return lossTag === tag;
+        return gainTag === tag || lossTag === tag;
     }
 
     function isBarbarianConquest(row) {
