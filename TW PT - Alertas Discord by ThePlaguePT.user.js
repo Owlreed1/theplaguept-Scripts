@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.16
+// @version      1.3.17
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.16 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.17 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -4709,11 +4709,6 @@
     grid-row: 2 !important;
 }
 
-.tw-alerts-actions-section #tw-alerts-noble-counter-send {
-    grid-column: 7 !important;
-    grid-row: 2 !important;
-}
-
 .tw-alerts-actions-section #tw-alerts-reset {
     grid-column: 1 !important;
     grid-row: 2 !important;
@@ -4740,7 +4735,6 @@
     .tw-alerts-actions-section #tw-alerts-test-summary,
     .tw-alerts-actions-section #tw-alerts-troops,
     .tw-alerts-actions-section #tw-alerts-attack-fulls-send,
-    .tw-alerts-actions-section #tw-alerts-noble-counter-send,
     .tw-alerts-actions-section #tw-alerts-reset,
     .tw-alerts-actions-section #tw-alerts-status {
         grid-column: 1 !important;
@@ -4953,40 +4947,6 @@
                         </div>
                     </div>
 
-                    <div class="tw-alerts-subblock" style="display:none">
-                        <div class="tw-alerts-subblock-main">
-                            <label class="tw-alerts-check-top">
-                                <input id="tw-alerts-noble-counter" type="checkbox" ${settings.notifyNobleCounter ? 'checked' : ''}>
-                                <span>Contador de nobres</span>
-                            </label>
-                            <div class="tw-alerts-mini-desc">Envia nobres existentes e o valor indicado na Academia.</div>
-                        </div>
-                        <div class="tw-alerts-subblock-fields schedule-fields">
-                            <div class="tw-alerts-field tw-alerts-webhook-field">
-                                <label>Webhook</label>
-                                <input id="tw-alerts-noble-counter-webhook" type="text" value="${escapeHtml(settings.nobleCounterWebhook || '')}">
-                            </div>
-                            <div class="tw-alerts-field">
-                                <label>Modo</label>
-                                <select id="tw-alerts-noble-counter-schedule-mode">
-                                    <option value="interval" ${settings.nobleCounterScheduleMode !== 'daily' ? 'selected' : ''}>Intervalo</option>
-                                    <option value="daily" ${settings.nobleCounterScheduleMode === 'daily' ? 'selected' : ''}>Hora fixa</option>
-                                </select>
-                            </div>
-                            <div class="tw-alerts-field">
-                                <label>Intervalo</label>
-                                <select id="tw-alerts-noble-counter-interval">
-                                    <option value="8" ${Number(settings.nobleCounterIntervalHours) === 8 ? 'selected' : ''}>De 8 em 8 horas</option>
-                                    <option value="16" ${Number(settings.nobleCounterIntervalHours) === 16 ? 'selected' : ''}>De 16 em 16 horas</option>
-                                    <option value="24" ${Number(settings.nobleCounterIntervalHours) === 24 ? 'selected' : ''}>De 24 em 24 horas</option>
-                                </select>
-                            </div>
-                            <div class="tw-alerts-field">
-                                <label>Hora</label>
-                                <input id="tw-alerts-noble-counter-daily-time" type="time" value="${escapeHtml(settings.nobleCounterDailyTime || DEFAULT_NOBLE_COUNTER_DAILY_TIME)}">
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -5236,7 +5196,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 noblesWebhook: container.querySelector('#tw-alerts-nobles-webhook').value.trim(),
                 troopsWebhook: container.querySelector('#tw-alerts-troops-webhook').value.trim(),
                 attackFullsWebhook: container.querySelector('#tw-alerts-attack-fulls-webhook').value.trim(),
-                nobleCounterWebhook: container.querySelector('#tw-alerts-noble-counter-webhook').value.trim(),
+                nobleCounterWebhook: getSettings().nobleCounterWebhook || DEFAULT_NOBLE_COUNTER_WEBHOOK,
                 verificationWebhook: container.querySelector('#tw-alerts-verification-webhook').value.trim(),
                 verificationMention: getSlotText(verificationUserSlots),
                 verificationMentionEnabled: hasEnabledSlot(verificationUserSlots),
@@ -5255,7 +5215,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 summaryIntervalHours: Number(container.querySelector('#tw-alerts-summary-interval').value || 8),
                 troopsIntervalHours: Number(container.querySelector('#tw-alerts-troops-interval').value || 8),
                 attackFullsIntervalHours: Number(container.querySelector('#tw-alerts-attack-fulls-interval').value || 8),
-                nobleCounterIntervalHours: Number(container.querySelector('#tw-alerts-noble-counter-interval').value || 8),
+                nobleCounterIntervalHours: DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS,
                 checkInterval: container.querySelector('#tw-alerts-interval').value || CHECK_INTERVAL,
                 troopsSummaryMode: container.querySelector('#tw-alerts-troops-mode').value || TROOPS_SUMMARY_MODE_COMPLETE,
                 summaryScheduleMode: container.querySelector('#tw-alerts-summary-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
@@ -5264,8 +5224,8 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 troopsDailyTime: container.querySelector('#tw-alerts-troops-daily-time').value || DEFAULT_TROOPS_DAILY_TIME,
                 attackFullsScheduleMode: container.querySelector('#tw-alerts-attack-fulls-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
                 attackFullsDailyTime: container.querySelector('#tw-alerts-attack-fulls-daily-time').value || DEFAULT_ATTACK_FULLS_DAILY_TIME,
-                nobleCounterScheduleMode: container.querySelector('#tw-alerts-noble-counter-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
-                nobleCounterDailyTime: container.querySelector('#tw-alerts-noble-counter-daily-time').value || DEFAULT_NOBLE_COUNTER_DAILY_TIME,
+                nobleCounterScheduleMode: SCHEDULE_MODE_INTERVAL,
+                nobleCounterDailyTime: DEFAULT_NOBLE_COUNTER_DAILY_TIME,
                 nobleTrainDelay: NOBLE_TRAIN_DELAY
             };
         }
@@ -5276,7 +5236,6 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-summary-webhook').value = nextSettings.summaryWebhook || '';
             container.querySelector('#tw-alerts-troops-webhook').value = nextSettings.troopsWebhook || '';
             container.querySelector('#tw-alerts-attack-fulls-webhook').value = nextSettings.attackFullsWebhook || '';
-            container.querySelector('#tw-alerts-noble-counter-webhook').value = nextSettings.nobleCounterWebhook || '';
             container.querySelector('#tw-alerts-verification-webhook').value = nextSettings.verificationWebhook || '';
             applyVerificationSlots(
                 container,
@@ -5293,14 +5252,12 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-summary').checked = Boolean(nextSettings.notifyAttackSummary);
             container.querySelector('#tw-alerts-defense-troops').checked = Boolean(nextSettings.notifyDefenseTroops);
             container.querySelector('#tw-alerts-attack-fulls').checked = Boolean(nextSettings.notifyAttackFulls);
-            container.querySelector('#tw-alerts-noble-counter').checked = Boolean(nextSettings.notifyNobleCounter);
             container.querySelector('#tw-alerts-combine-counters').value = '1';
             container.querySelector('#tw-alerts-verification').checked = Boolean(nextSettings.notifyVerificationAlerts);
             container.querySelector('#tw-alerts-interval').value = nextSettings.checkInterval || CHECK_INTERVAL;
             container.querySelector('#tw-alerts-summary-interval').value = String(normalizeIntervalHours(nextSettings.summaryIntervalHours, DEFAULT_SUMMARY_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-troops-interval').value = String(normalizeIntervalHours(nextSettings.troopsIntervalHours, DEFAULT_TROOPS_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-attack-fulls-interval').value = String(normalizeIntervalHours(nextSettings.attackFullsIntervalHours, DEFAULT_ATTACK_FULLS_INTERVAL_HOURS));
-            container.querySelector('#tw-alerts-noble-counter-interval').value = String(normalizeIntervalHours(nextSettings.nobleCounterIntervalHours, DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-troops-mode').value = normalizeTroopsSummaryMode(nextSettings.troopsSummaryMode);
             container.querySelector('#tw-alerts-summary-schedule-mode').value = normalizeScheduleMode(nextSettings.summaryScheduleMode);
             container.querySelector('#tw-alerts-summary-daily-time').value = normalizeDailyTime(nextSettings.summaryDailyTime, DEFAULT_SUMMARY_DAILY_TIME);
@@ -5308,8 +5265,6 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-troops-daily-time').value = normalizeDailyTime(nextSettings.troopsDailyTime, DEFAULT_TROOPS_DAILY_TIME);
             container.querySelector('#tw-alerts-attack-fulls-schedule-mode').value = normalizeScheduleMode(nextSettings.attackFullsScheduleMode);
             container.querySelector('#tw-alerts-attack-fulls-daily-time').value = normalizeDailyTime(nextSettings.attackFullsDailyTime, DEFAULT_ATTACK_FULLS_DAILY_TIME);
-            container.querySelector('#tw-alerts-noble-counter-schedule-mode').value = normalizeScheduleMode(nextSettings.nobleCounterScheduleMode);
-            container.querySelector('#tw-alerts-noble-counter-daily-time').value = normalizeDailyTime(nextSettings.nobleCounterDailyTime, DEFAULT_NOBLE_COUNTER_DAILY_TIME);
         }
 
         function bindSettingsForm(container) {
@@ -5386,23 +5341,6 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                     status.textContent = 'Erro ao enviar fulls de ataque e nobres.';
                 }
             });
-
-            const nobleCounterButton = container.querySelector('#tw-alerts-noble-counter-send');
-
-            if (nobleCounterButton) {
-                nobleCounterButton.addEventListener('click', async () => {
-                    saveSettings(readFormSettings(container));
-                    status.textContent = 'A enviar contador de nobres...';
-
-                    try {
-                        const sent = await sendNobleCounterSummary();
-                        status.textContent = sent ? 'Contador de nobres enviado.' : 'Sem dados de nobres para enviar.';
-                    } catch (error) {
-                        console.warn('[TW] Erro ao enviar contador de nobres:', error);
-                        status.textContent = 'Erro ao enviar contador de nobres.';
-                    }
-                });
-            }
 
             container.querySelector('#tw-alerts-test-summary').addEventListener('click', async () => {
                 saveSettings(readFormSettings(container));
