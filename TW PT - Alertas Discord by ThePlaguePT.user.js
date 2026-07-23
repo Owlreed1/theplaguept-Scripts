@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.14
+// @version      1.3.15
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.14 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.15 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2387,9 +2387,9 @@
                 if (getSettings().notifyDefenseTroops && shouldSendTroopSummary()) {
                     try {
                         await sendTroopSummary();
-                        console.log('[TW] Resumo automatico de tropas enviado.');
+                        console.log('[TW] Defesa disponivel automatica enviada.');
                     } catch (error) {
-                        console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
+                        console.warn('[TW] Erro ao enviar defesa disponivel automatica:', error);
                     }
                 }
 
@@ -2466,9 +2466,9 @@
             if (getSettings().notifyDefenseTroops && shouldSendTroopSummary()) {
                 try {
                     await sendTroopSummary();
-                    console.log('[TW] Resumo automatico de tropas enviado.');
+                    console.log('[TW] Defesa disponivel automatica enviada.');
                 } catch (error) {
-                    console.warn('[TW] Erro ao enviar resumo automatico de tropas:', error);
+                    console.warn('[TW] Erro ao enviar defesa disponivel automatica:', error);
                 }
             }
 
@@ -3213,7 +3213,6 @@
 
     function buildSimpleDefenseTroopSummaryEmbed(summary) {
         const totals = summary.totals || {};
-        const defenseTotal = sumTroopUnits(summary.totals, TROOP_DEFENSE_UNITS);
         const lines = [
             `🔱 Lanceiros: **${formatTroopNumber(totals.spear)}**`,
             `🗡️ Espadachins: **${formatTroopNumber(totals.sword)}**`
@@ -3227,7 +3226,7 @@
         if (Number(totals.spy || 0) > 0) lines.push(`${TROOP_UNIT_LABELS.spy}: **${formatTroopNumber(totals.spy)}**`);
 
         return {
-            title: '📦 ━━ TROPAS MÓVEIS ━━ 📦',
+            title: '🛡️ ━━ DEFESA DISPONÍVEL ━━ 🛡️',
             color: 5763719,
             description: [
                 '━━━━━━━━━━━━━━━━━━━━',
@@ -3236,8 +3235,6 @@
                 `Tribo: ${formatTribe(summary.defenderTribe)}`,
                 '',
                 '🛡️ **Defesa**',
-                `Total: **${formatTroopNumber(defenseTotal)}**`,
-                '',
                 lines.join('\n')
             ].join('\n'),
             footer: { text: 'Tribal Wars PT' },
@@ -3246,12 +3243,8 @@
     }
 
     function buildTroopSummaryEmbed(summary) {
-        const defenseTotal = sumTroopUnits(summary.totals, TROOP_DEFENSE_UNITS);
-        const attackTotal = sumTroopUnits(summary.totals, TROOP_ATTACK_UNITS);
-        const totalTroops = defenseTotal + attackTotal;
-
         return {
-            title: '📦 ━━ TROPAS MÓVEIS ━━ 📦',
+            title: '🛡️ ━━ DEFESA DISPONÍVEL ━━ 🛡️',
             color: 5763719,
             fields: [
                 {
@@ -3265,8 +3258,6 @@
                 {
                     name: '🛡️ Defesa',
                     value: [
-                        `Total: **${formatTroopNumber(defenseTotal)}**`,
-                        '',
                         formatTroopLines(summary.totals, TROOP_DEFENSE_UNITS),
                         '',
                         '━━━━━━━━━━━━━━━━━━━━'
@@ -3276,8 +3267,6 @@
                 {
                     name: '⚔️ Ataque',
                     value: [
-                        `Total: **${formatTroopNumber(attackTotal)}**`,
-                        '',
                         formatTroopLines(summary.totals, TROOP_ATTACK_UNITS),
                         '',
                         '━━━━━━━━━━━━━━━━━━━━'
@@ -3287,8 +3276,7 @@
                 {
                     name: '🏘️ Geral',
                     value: [
-                        `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`,
-                        `Tropas totais: **${formatTroopNumber(totalTroops)}**`
+                        `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`
                     ].join('\n'),
                     inline: false
                 }
@@ -3548,7 +3536,7 @@
         const summary = parseTroopsOverview(doc);
 
         if (!summary || !summary.villageCount) {
-            console.log('[TW] Sem tropas para enviar.');
+            console.log('[TW] Sem defesa disponivel para enviar.');
             return false;
         }
 
@@ -3565,7 +3553,7 @@
             getTroopsWebhook()
         );
 
-        console.log('[TW] Resumo total de tropas enviado.');
+        console.log('[TW] Defesa disponivel enviada.');
         return true;
     }
 
@@ -4868,7 +4856,7 @@
             <div class="tw-alerts-section tw-alerts-summary">
                 <div class="tw-alerts-section-copy">
                     <div class="tw-alerts-section-title">📊 Resumos Automáticos</div>
-                    <div class="tw-alerts-section-desc">Relatórios periódicos de ataques a chegar e tropas móveis.</div>
+                            <div class="tw-alerts-section-desc">Relatórios periódicos de ataques a chegar e defesa disponível.</div>
                 </div>
 
                 <div class="tw-alerts-section-options">
@@ -4911,9 +4899,9 @@
                         <div class="tw-alerts-subblock-main">
                             <label class="tw-alerts-check-top">
                                 <input id="tw-alerts-defense-troops" type="checkbox" ${settings.notifyDefenseTroops ? 'checked' : ''}>
-                                <span>Resumo de tropas móveis</span>
+                                <span>Defesa disponível</span>
                             </label>
-                            <div class="tw-alerts-mini-desc">Envia totais de tropas móveis por categoria.</div>
+                            <div class="tw-alerts-mini-desc">Envia as tropas defensivas disponíveis por categoria.</div>
                         </div>
                         <div class="tw-alerts-subblock-fields schedule-fields troops-schedule-fields">
                             <div class="tw-alerts-field tw-alerts-webhook-field">
@@ -5104,7 +5092,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                         <button id="tw-alerts-test" class="tw-alerts-button" type="button">Teste Simples</button>
                     </div>
                     <button id="tw-alerts-test-summary" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Ataques a Chegar</button>
-                    <button id="tw-alerts-troops" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Tropas Móveis</button>
+                    <button id="tw-alerts-troops" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Defesa Disponível</button>
                     <button id="tw-alerts-attack-fulls-send" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Fulls Ataque</button>
                     <button id="tw-alerts-noble-counter-send" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Nobres</button>
                     <button id="tw-alerts-test-verification" class="tw-alerts-button tw-alerts-button-wide" type="button">Teste Captcha</button>
@@ -5396,14 +5384,14 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
 
             container.querySelector('#tw-alerts-troops').addEventListener('click', async () => {
                 saveSettings(readFormSettings(container));
-                status.textContent = 'A enviar tropas...';
+                status.textContent = 'A enviar defesa disponivel...';
 
                 try {
                     const sent = await sendTroopSummary();
-                    status.textContent = sent ? 'Tropas enviadas.' : 'Sem tropas para enviar.';
+                    status.textContent = sent ? 'Defesa disponivel enviada.' : 'Sem defesa disponivel para enviar.';
                 } catch (error) {
-                    console.warn('[TW] Erro ao enviar tropas:', error);
-                    status.textContent = 'Erro ao enviar tropas.';
+                    console.warn('[TW] Erro ao enviar defesa disponivel:', error);
+                    status.textContent = 'Erro ao enviar defesa disponivel.';
                 }
             });
 
