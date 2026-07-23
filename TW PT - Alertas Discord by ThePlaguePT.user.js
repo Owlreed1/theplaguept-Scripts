@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.17
+// @version      1.3.18
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.17 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.18 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -69,7 +69,6 @@
     const DEFAULT_TROOPS_INTERVAL_HOURS = 8;
     const DEFAULT_ATTACK_FULLS_INTERVAL_HOURS = 8;
     const DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS = 8;
-    const TROOPS_SUMMARY_MODE_COMPLETE = 'complete';
     const TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE = 'simple_defense';
     const SCHEDULE_MODE_INTERVAL = 'interval';
     const SCHEDULE_MODE_DAILY = 'daily';
@@ -132,7 +131,7 @@
         troopsScheduleMode: SCHEDULE_MODE_INTERVAL,
         troopsDailyTime: DEFAULT_TROOPS_DAILY_TIME,
         troopsIntervalHours: DEFAULT_TROOPS_INTERVAL_HOURS,
-        troopsSummaryMode: TROOPS_SUMMARY_MODE_COMPLETE,
+        troopsSummaryMode: TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE,
         attackFullsScheduleMode: SCHEDULE_MODE_INTERVAL,
         attackFullsDailyTime: DEFAULT_ATTACK_FULLS_DAILY_TIME,
         attackFullsIntervalHours: DEFAULT_ATTACK_FULLS_INTERVAL_HOURS,
@@ -258,12 +257,6 @@
         }
 
         return text;
-    }
-
-    function normalizeTroopsSummaryMode(value) {
-        return value === TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE
-            ? TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE
-            : TROOPS_SUMMARY_MODE_COMPLETE;
     }
 
     function getSummaryIntervalMs() {
@@ -3187,10 +3180,6 @@
         return lines.length ? lines.join('\n') : 'Sem tropas detectadas.';
     }
 
-    function getTroopsSummaryMode() {
-        return normalizeTroopsSummaryMode(getSettings().troopsSummaryMode);
-    }
-
     function buildSimpleDefenseTroopSummaryEmbed(summary) {
         const totals = summary.totals || {};
         const lines = [
@@ -3217,102 +3206,6 @@
                 '🛡️ **Defesa**',
                 lines.join('\n')
             ].join('\n'),
-            footer: { text: 'Tribal Wars PT' },
-            timestamp: new Date().toISOString()
-        };
-    }
-
-    function buildTroopSummaryEmbed(summary) {
-        return {
-            title: '🛡️ ━━ DEFESA DISPONÍVEL ━━ 🛡️',
-            color: 5763719,
-            fields: [
-                {
-                    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Jogador',
-                    value: [
-                        `**${getDefenderValue()}**`,
-                        `Tribo: ${formatTribe(summary.defenderTribe)}`
-                    ].join('\n'),
-                    inline: false
-                },
-                {
-                    name: '🛡️ Defesa',
-                    value: [
-                        formatTroopLines(summary.totals, TROOP_DEFENSE_UNITS),
-                        '',
-                        '━━━━━━━━━━━━━━━━━━━━'
-                    ].join('\n'),
-                    inline: false
-                },
-                {
-                    name: '⚔️ Ataque',
-                    value: [
-                        formatTroopLines(summary.totals, TROOP_ATTACK_UNITS),
-                        '',
-                        '━━━━━━━━━━━━━━━━━━━━'
-                    ].join('\n'),
-                    inline: false
-                },
-                {
-                    name: '🏘️ Geral',
-                    value: [
-                        `Aldeias analisadas: **${formatTroopNumber(summary.villageCount)}**`
-                    ].join('\n'),
-                    inline: false
-                }
-            ],
-            footer: { text: 'Tribal Wars PT' },
-            timestamp: new Date().toISOString()
-        };
-    }
-
-    async function buildAttackFullsSummary() {
-        const troopsDoc = await fetchTroopsOverviewDocument();
-        const troopsSummary = parseTroopsOverview(troopsDoc);
-
-        if (!troopsSummary || !troopsSummary.villageCount) {
-            return null;
-        }
-
-        troopsSummary.defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
-
-        return troopsSummary;
-    }
-
-    function buildAttackFullsEmbed(summary) {
-        const counter = summary.attackFullCounter || calculateAttackFullCounter(summary.villages);
-
-        return {
-            title: '⚔️ ━━ CONTADOR DE FULLS DE ATAQUE ━━ ⚔️',
-            color: 15158332,
-            fields: [
-                {
-                    name: '━━━━━━━━━━━━━━━━━━━━\n🛡️ Jogador',
-                    value: [
-                        `**${getDefenderValue()}**`,
-                        `Tribo: ${formatTribe(summary.defenderTribe)}`
-                    ].join('\n'),
-                    inline: false
-                },
-                {
-                    name: '\u200B',
-                    value: [
-                        `🏆 **FULLS:** **${formatTroopNumber(counter.completeFulls)}**`,
-                        `⚔️ **MEIOS FULLS:** **${formatTroopNumber(counter.halfFulls)}**`,
-                        `🔸 **PEQUENOS FULLS:** **${formatTroopNumber(counter.smallFulls)}**`
-                    ].join('\n'),
-                    inline: false
-                },
-                {
-                    name: '📏 Patamares dos Fulls',
-                    value: [
-                        `Full: **${formatTroopNumber(ATTACK_FULL_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_FULL_LIGHT)}+ Cavalaria Leve**`,
-                        `Meio Full: **${formatTroopNumber(ATTACK_HALF_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)}+ Cavalaria Leve**`,
-                        `Pequeno Full: abaixo de **${formatTroopNumber(ATTACK_HALF_AXE)} Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)} Cavalaria Leve**`
-                    ].join('\n'),
-                    inline: false
-                }
-            ],
             footer: { text: 'Tribal Wars PT' },
             timestamp: new Date().toISOString()
         };
@@ -3520,16 +3413,13 @@
             return false;
         }
 
-        const simpleMode = getTroopsSummaryMode() === TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE;
         summary.defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
 
-        const embed = simpleMode
-            ? buildSimpleDefenseTroopSummaryEmbed(summary)
-            : buildTroopSummaryEmbed(summary);
+        const embed = buildSimpleDefenseTroopSummaryEmbed(summary);
 
         queueDiscordEmbed(
             embed,
-            simpleMode ? 'Tribos Defesa Bot' : 'TW Troop Summary',
+            'Tribos Defesa Bot',
             getTroopsWebhook()
         );
 
@@ -4877,17 +4767,10 @@
                             </label>
                             <div class="tw-alerts-mini-desc">Envia as tropas defensivas disponíveis por categoria.</div>
                         </div>
-                        <div class="tw-alerts-subblock-fields schedule-fields troops-schedule-fields">
+                        <div class="tw-alerts-subblock-fields schedule-fields">
                             <div class="tw-alerts-field tw-alerts-webhook-field">
                                 <label>Webhook</label>
                                 <input id="tw-alerts-troops-webhook" type="text" value="${escapeHtml(settings.troopsWebhook || '')}">
-                            </div>
-                            <div class="tw-alerts-field">
-                                <label>Tipo</label>
-                                <select id="tw-alerts-troops-mode">
-                                    <option value="complete" ${settings.troopsSummaryMode !== 'simple_defense' ? 'selected' : ''}>Completo</option>
-                                    <option value="simple_defense" ${settings.troopsSummaryMode === 'simple_defense' ? 'selected' : ''}>Simples - Defesa</option>
-                                </select>
                             </div>
                             <div class="tw-alerts-field">
                                 <label>Modo</label>
@@ -5217,7 +5100,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 attackFullsIntervalHours: Number(container.querySelector('#tw-alerts-attack-fulls-interval').value || 8),
                 nobleCounterIntervalHours: DEFAULT_NOBLE_COUNTER_INTERVAL_HOURS,
                 checkInterval: container.querySelector('#tw-alerts-interval').value || CHECK_INTERVAL,
-                troopsSummaryMode: container.querySelector('#tw-alerts-troops-mode').value || TROOPS_SUMMARY_MODE_COMPLETE,
+                troopsSummaryMode: TROOPS_SUMMARY_MODE_SIMPLE_DEFENSE,
                 summaryScheduleMode: container.querySelector('#tw-alerts-summary-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
                 summaryDailyTime: container.querySelector('#tw-alerts-summary-daily-time').value || DEFAULT_SUMMARY_DAILY_TIME,
                 troopsScheduleMode: container.querySelector('#tw-alerts-troops-schedule-mode').value || SCHEDULE_MODE_INTERVAL,
@@ -5258,7 +5141,6 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-summary-interval').value = String(normalizeIntervalHours(nextSettings.summaryIntervalHours, DEFAULT_SUMMARY_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-troops-interval').value = String(normalizeIntervalHours(nextSettings.troopsIntervalHours, DEFAULT_TROOPS_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-attack-fulls-interval').value = String(normalizeIntervalHours(nextSettings.attackFullsIntervalHours, DEFAULT_ATTACK_FULLS_INTERVAL_HOURS));
-            container.querySelector('#tw-alerts-troops-mode').value = normalizeTroopsSummaryMode(nextSettings.troopsSummaryMode);
             container.querySelector('#tw-alerts-summary-schedule-mode').value = normalizeScheduleMode(nextSettings.summaryScheduleMode);
             container.querySelector('#tw-alerts-summary-daily-time').value = normalizeDailyTime(nextSettings.summaryDailyTime, DEFAULT_SUMMARY_DAILY_TIME);
             container.querySelector('#tw-alerts-troops-schedule-mode').value = normalizeScheduleMode(nextSettings.troopsScheduleMode);
