@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.15
+// @version      1.3.16
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.15 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.16 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -124,7 +124,7 @@
         notifyDefenseTroops: false,
         notifyAttackFulls: false,
         notifyNobleCounter: false,
-        combineAttackFullsAndNobles: false,
+        combineAttackFullsAndNobles: true,
         notifyVerificationAlerts: false,
         summaryIntervalHours: DEFAULT_SUMMARY_INTERVAL_HOURS,
         summaryScheduleMode: SCHEDULE_MODE_INTERVAL,
@@ -2285,11 +2285,7 @@
     }
 
     function shouldUseCombinedCounters(settings = getSettings()) {
-        return Boolean(
-            settings.combineAttackFullsAndNobles &&
-            settings.notifyAttackFulls &&
-            settings.notifyNobleCounter
-        );
+        return Boolean(settings.notifyAttackFulls);
     }
 
     function markNobleCounterScheduleSynced() {
@@ -2314,39 +2310,23 @@
     async function sendAutomaticCounterSummaries() {
         const settings = getSettings();
 
-        if (shouldUseCombinedCounters(settings)) {
-            if (shouldSendAttackFullsSummary()) {
-                try {
-                    const sent = await sendCombinedCountersSummary();
+        if (settings.notifyAttackFulls && shouldSendAttackFullsSummary()) {
+            try {
+                const sent = await sendAttackFullsSummary();
 
-                    if (sent) {
-                        markNobleCounterScheduleSynced();
-                        console.log('[TW] Contador automatico combinado de fulls e nobres enviado.');
-                    }
-                } catch (error) {
-                    console.warn('[TW] Erro ao enviar contador automatico combinado de fulls e nobres:', error);
+                if (sent) {
+                    markNobleCounterScheduleSynced();
+                    console.log('[TW] Contador automatico de fulls de ataque e nobres enviado.');
                 }
+            } catch (error) {
+                console.warn('[TW] Erro ao enviar contador automatico de fulls de ataque e nobres:', error);
             }
 
             return;
         }
 
-        if (settings.notifyAttackFulls && shouldSendAttackFullsSummary()) {
-            try {
-                await sendAttackFullsSummary();
-                console.log('[TW] Contador automatico de fulls de ataque enviado.');
-            } catch (error) {
-                console.warn('[TW] Erro ao enviar contador automatico de fulls de ataque:', error);
-            }
-        }
-
-        if (settings.notifyNobleCounter && shouldSendNobleCounterSummary()) {
-            try {
-                await sendNobleCounterSummary();
-                console.log('[TW] Contador automatico de nobres enviado.');
-            } catch (error) {
-                console.warn('[TW] Erro ao enviar contador automatico de nobres:', error);
-            }
+        if (settings.notifyNobleCounter) {
+            console.log('[TW] Contador de nobres separado ignorado; agora segue dentro dos fulls de ataque.');
         }
     }
 
@@ -3433,7 +3413,7 @@
             : formatTroopNumber(nobleCounter.canMake);
 
         return {
-            title: '📊 ━━ CONTADOR DE FULLS E NOBRES ━━ 📊',
+            title: '⚔️ ━━ FULLS DE ATAQUE E NOBRES ━━ 👑',
             color: 16753920,
             fields: [
                 {
@@ -3514,20 +3494,20 @@
     }
 
     async function sendAttackFullsSummary() {
-        const summary = await buildAttackFullsSummary();
+        const summary = await buildCombinedCountersSummary();
 
         if (!summary) {
-            console.log('[TW] Sem dados para contador de fulls de ataque.');
+            console.log('[TW] Sem dados para contador de fulls de ataque e nobres.');
             return false;
         }
 
         queueDiscordEmbed(
-            buildAttackFullsEmbed(summary),
+            buildCombinedCountersEmbed(summary),
             'TW Attack Fulls',
-            getAttackFullsWebhook()
+            getCombinedCountersWebhook()
         );
 
-        console.log('[TW] Contador de fulls de ataque enviado.');
+        console.log('[TW] Contador de fulls de ataque e nobres enviado.');
         return true;
     }
 
@@ -4941,9 +4921,9 @@
                         <div class="tw-alerts-subblock-main">
                             <label class="tw-alerts-check-top">
                                 <input id="tw-alerts-attack-fulls" type="checkbox" ${settings.notifyAttackFulls ? 'checked' : ''}>
-                                <span>Contador de fulls de ataque</span>
+                                <span>Fulls de ataque + nobres</span>
                             </label>
-                            <div class="tw-alerts-mini-desc">Envia Fulls, Meios Fulls e Pequenos Fulls por patamar.</div>
+                            <div class="tw-alerts-mini-desc">Envia Fulls, Meios Fulls, Pequenos Fulls e Nobres no mesmo embed.</div>
                         </div>
                         <div class="tw-alerts-subblock-fields schedule-fields">
                             <div class="tw-alerts-field tw-alerts-webhook-field">
@@ -4969,14 +4949,11 @@
                                 <label>Hora</label>
                                 <input id="tw-alerts-attack-fulls-daily-time" type="time" value="${escapeHtml(settings.attackFullsDailyTime || DEFAULT_ATTACK_FULLS_DAILY_TIME)}">
                             </div>
-                            <label class="tw-alerts-check tw-alerts-combine-counters-field">
-                                <input id="tw-alerts-combine-counters" type="checkbox" ${settings.combineAttackFullsAndNobles ? 'checked' : ''}>
-                                <span>Juntar Fulls + Nobres</span>
-                            </label>
+                            <input id="tw-alerts-combine-counters" type="hidden" value="1">
                         </div>
                     </div>
 
-                    <div class="tw-alerts-subblock">
+                    <div class="tw-alerts-subblock" style="display:none">
                         <div class="tw-alerts-subblock-main">
                             <label class="tw-alerts-check-top">
                                 <input id="tw-alerts-noble-counter" type="checkbox" ${settings.notifyNobleCounter ? 'checked' : ''}>
@@ -5093,8 +5070,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                     </div>
                     <button id="tw-alerts-test-summary" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Ataques a Chegar</button>
                     <button id="tw-alerts-troops" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Defesa Disponível</button>
-                    <button id="tw-alerts-attack-fulls-send" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Fulls Ataque</button>
-                    <button id="tw-alerts-noble-counter-send" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Nobres</button>
+                    <button id="tw-alerts-attack-fulls-send" class="tw-alerts-button tw-alerts-button-wide" type="button">Enviar Fulls + Nobres</button>
                     <button id="tw-alerts-test-verification" class="tw-alerts-button tw-alerts-button-wide" type="button">Teste Captcha</button>
                     <button id="tw-alerts-reset" class="tw-alerts-button tw-alerts-button-wide tw-alerts-button-secondary" type="button">Reset Configurações</button>
                     <div id="tw-alerts-status"></div>
@@ -5273,8 +5249,8 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 notifyAttackSummary: container.querySelector('#tw-alerts-summary').checked,
                 notifyDefenseTroops: container.querySelector('#tw-alerts-defense-troops').checked,
                 notifyAttackFulls: container.querySelector('#tw-alerts-attack-fulls').checked,
-                notifyNobleCounter: container.querySelector('#tw-alerts-noble-counter').checked,
-                combineAttackFullsAndNobles: container.querySelector('#tw-alerts-combine-counters').checked,
+                notifyNobleCounter: false,
+                combineAttackFullsAndNobles: true,
                 notifyVerificationAlerts: container.querySelector('#tw-alerts-verification').checked,
                 summaryIntervalHours: Number(container.querySelector('#tw-alerts-summary-interval').value || 8),
                 troopsIntervalHours: Number(container.querySelector('#tw-alerts-troops-interval').value || 8),
@@ -5318,7 +5294,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-defense-troops').checked = Boolean(nextSettings.notifyDefenseTroops);
             container.querySelector('#tw-alerts-attack-fulls').checked = Boolean(nextSettings.notifyAttackFulls);
             container.querySelector('#tw-alerts-noble-counter').checked = Boolean(nextSettings.notifyNobleCounter);
-            container.querySelector('#tw-alerts-combine-counters').checked = Boolean(nextSettings.combineAttackFullsAndNobles);
+            container.querySelector('#tw-alerts-combine-counters').value = '1';
             container.querySelector('#tw-alerts-verification').checked = Boolean(nextSettings.notifyVerificationAlerts);
             container.querySelector('#tw-alerts-interval').value = nextSettings.checkInterval || CHECK_INTERVAL;
             container.querySelector('#tw-alerts-summary-interval').value = String(normalizeIntervalHours(nextSettings.summaryIntervalHours, DEFAULT_SUMMARY_INTERVAL_HOURS));
@@ -5397,39 +5373,36 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
 
             container.querySelector('#tw-alerts-attack-fulls-send').addEventListener('click', async () => {
                 saveSettings(readFormSettings(container));
-                const combinedCounters = shouldUseCombinedCounters(getSettings());
-                status.textContent = combinedCounters
-                    ? 'A enviar fulls e nobres...'
-                    : 'A enviar fulls de ataque...';
+                status.textContent = 'A enviar fulls de ataque e nobres...';
 
                 try {
-                    const sent = combinedCounters
-                        ? await sendCombinedCountersSummary()
-                        : await sendAttackFullsSummary();
+                    const sent = await sendAttackFullsSummary();
 
                     status.textContent = sent
-                        ? (combinedCounters ? 'Fulls e nobres enviados.' : 'Fulls de ataque enviados.')
-                        : (combinedCounters ? 'Sem dados para enviar.' : 'Sem dados de fulls para enviar.');
+                        ? 'Fulls de ataque e nobres enviados.'
+                        : 'Sem dados de fulls e nobres para enviar.';
                 } catch (error) {
-                    console.warn('[TW] Erro ao enviar fulls de ataque:', error);
-                    status.textContent = combinedCounters
-                        ? 'Erro ao enviar fulls e nobres.'
-                        : 'Erro ao enviar fulls de ataque.';
+                    console.warn('[TW] Erro ao enviar fulls de ataque e nobres:', error);
+                    status.textContent = 'Erro ao enviar fulls de ataque e nobres.';
                 }
             });
 
-            container.querySelector('#tw-alerts-noble-counter-send').addEventListener('click', async () => {
-                saveSettings(readFormSettings(container));
-                status.textContent = 'A enviar contador de nobres...';
+            const nobleCounterButton = container.querySelector('#tw-alerts-noble-counter-send');
 
-                try {
-                    const sent = await sendNobleCounterSummary();
-                    status.textContent = sent ? 'Contador de nobres enviado.' : 'Sem dados de nobres para enviar.';
-                } catch (error) {
-                    console.warn('[TW] Erro ao enviar contador de nobres:', error);
-                    status.textContent = 'Erro ao enviar contador de nobres.';
-                }
-            });
+            if (nobleCounterButton) {
+                nobleCounterButton.addEventListener('click', async () => {
+                    saveSettings(readFormSettings(container));
+                    status.textContent = 'A enviar contador de nobres...';
+
+                    try {
+                        const sent = await sendNobleCounterSummary();
+                        status.textContent = sent ? 'Contador de nobres enviado.' : 'Sem dados de nobres para enviar.';
+                    } catch (error) {
+                        console.warn('[TW] Erro ao enviar contador de nobres:', error);
+                        status.textContent = 'Erro ao enviar contador de nobres.';
+                    }
+                });
+            }
 
             container.querySelector('#tw-alerts-test-summary').addEventListener('click', async () => {
                 saveSettings(readFormSettings(container));
