@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.18
+// @version      1.3.19
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.18 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.19 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -94,7 +94,7 @@
         militia: '🏘️ Milicia'
     };
 
-    const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'spy', 'heavy', 'knight', 'militia'];
+    const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'spy', 'heavy', 'militia'];
     const TROOP_ATTACK_UNITS = ['axe', 'light', 'marcher', 'ram', 'catapult', 'snob'];
     const ATTACK_FULL_AXE = 5000;
     const ATTACK_FULL_LIGHT = 2000;
@@ -2817,6 +2817,26 @@
         return coords ? coords.text : '';
     }
 
+    function getTroopOverviewRowText(row) {
+        return normalizeSearchText(row ? (row.innerText || row.textContent || '') : '');
+    }
+
+    function isIgnoredTroopOverviewRow(rowText) {
+        return !rowText || /total|selecionar|seleccionar/.test(rowText);
+    }
+
+    function isSupportTroopOverviewRow(rowText) {
+        return /\b(apoio|apoios|apoiar|apoiando|suporte|support|supports|supporting|reforco|reforcos|reinforcement|reinforcements)\b/.test(rowText);
+    }
+
+    function isMovementTroopOverviewRow(rowText) {
+        return /\b(ataque|atacar|regresso|retorno|return|comando|comandos|farm|saque|pilhagem|recolha|recolher|coleta|coletar|colecta|colectar|recursos|scavenge|scavenging|fora|caminho|chegada|transporte|transportar|mercador|mercadores|apoio|apoios|support|reforco|reforcos)\b/.test(rowText);
+    }
+
+    function hasTroopValues(rowTotals) {
+        return Object.keys(rowTotals || {}).some(unitKey => Number(rowTotals[unitKey] || 0) > 0);
+    }
+
     function parseBuildingLevel(value) {
         const text = cleanText(value);
         if (!text || text === '-' || text === '0') return 0;
@@ -3086,15 +3106,31 @@
 
         const villageKeys = new Set();
         const villagesByKey = new Map();
+        let currentVillageKey = '';
 
         rows.forEach(row => {
-            const villageKey = getRowCoordsKey(row);
-            const rowText = normalizeSearchText(row.innerText || '');
+            const detectedVillageKey = getRowCoordsKey(row);
+            const rowText = getTroopOverviewRowText(row);
+
+            if (isIgnoredTroopOverviewRow(rowText)) return;
+            if (isSupportTroopOverviewRow(rowText)) return;
+
+            const movementRow = isMovementTroopOverviewRow(rowText);
+
+            if (detectedVillageKey && !movementRow) {
+                currentVillageKey = detectedVillageKey;
+                villageKeys.add(detectedVillageKey);
+            }
+
+            const villageKey = detectedVillageKey && !movementRow
+                ? detectedVillageKey
+                : currentVillageKey;
 
             if (!villageKey) return;
-            if (/total|selecionar|seleccionar/.test(rowText)) return;
 
-            villageKeys.add(villageKey);
+            const rowTotals = parseTroopRowTotals(row, bestColumns);
+
+            if (!hasTroopValues(rowTotals)) return;
 
             if (!villagesByKey.has(villageKey)) {
                 villagesByKey.set(villageKey, {
@@ -3104,7 +3140,6 @@
             }
 
             const village = villagesByKey.get(villageKey);
-            const rowTotals = parseTroopRowTotals(row, bestColumns);
 
             Object.keys(rowTotals).forEach(unitKey => {
                 const value = Number(rowTotals[unitKey] || 0);
@@ -3189,7 +3224,6 @@
 
         if (Number(totals.archer || 0) > 0) lines.push(`🏹 Arqueiros: **${formatTroopNumber(totals.archer)}**`);
         if (Number(totals.heavy || 0) > 0) lines.push(`🐴 Cavalaria Pesada: **${formatTroopNumber(totals.heavy)}**`);
-        if (Number(totals.knight || 0) > 0) lines.push(`⚜️ Paladino: **${formatTroopNumber(totals.knight)}**`);
         if (Number(totals.militia || 0) > 0) lines.push(`🏘️ Milicia: **${formatTroopNumber(totals.militia)}**`);
 
         if (Number(totals.spy || 0) > 0) lines.push(`${TROOP_UNIT_LABELS.spy}: **${formatTroopNumber(totals.spy)}**`);
