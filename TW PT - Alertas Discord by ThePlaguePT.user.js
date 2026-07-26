@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.21
+// @version      1.3.22
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.21 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.22 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2489,6 +2489,34 @@
         return new DOMParser().parseFromString(html, 'text/html');
     }
 
+    function getPlaceUnitsUrl(villageId) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('screen', 'place');
+        url.searchParams.set('mode', 'units');
+
+        if (villageId) {
+            url.searchParams.set('village', String(villageId));
+        }
+
+        url.searchParams.delete('action');
+        url.searchParams.delete('ajax');
+        url.searchParams.delete('h');
+
+        return url.toString();
+    }
+
+    async function fetchPlaceUnitsDocument(villageId) {
+        const response = await fetch(getPlaceUnitsUrl(villageId), {
+            credentials: 'include',
+            cache: 'no-store'
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const html = await response.text();
+        return new DOMParser().parseFromString(html, 'text/html');
+    }
+
     function getVillagesOverviewUrl(mode) {
         const url = new URL(window.location.href);
         url.searchParams.set('screen', 'overview_villages');
@@ -2749,6 +2777,90 @@
 
         Object.keys(TROOP_UNIT_LABELS).forEach(key => {
             totals[key] = 0;
+        });
+
+        return totals;
+    }
+
+    function addTroopTotals(target, source) {
+        Object.keys(source || {}).forEach(unitKey => {
+            const value = Number(source[unitKey] || 0);
+            if (!value) return;
+
+            target[unitKey] = Number(target[unitKey] || 0) + value;
+        });
+    }
+
+    function getNextTableAfter(element) {
+        let current = element;
+
+        for (let i = 0; i < 8 && current; i++) {
+            current = current.nextElementSibling;
+
+            if (!current) break;
+            if (current.matches && current.matches('table')) return current;
+
+            const nestedTable = current.querySelector ? current.querySelector('table') : null;
+            if (nestedTable) return nestedTable;
+        }
+
+        return null;
+    }
+
+    function findScavengingTroopTable(doc) {
+        if (!doc || !doc.body) return null;
+
+        const headings = Array.from(doc.querySelectorAll('h2, h3, h4'));
+
+        for (const heading of headings) {
+            const headingText = normalizeSearchText(heading.innerText || heading.textContent || '');
+
+            if (!headingText.includes('tropas em busca')) continue;
+
+            const table = getNextTableAfter(heading);
+
+            if (table && getTroopColumns(table).length) {
+                return table;
+            }
+        }
+
+        return Array.from(doc.querySelectorAll('table.vis, table')).find(table => {
+            const tableText = normalizeSearchText(table.innerText || table.textContent || '');
+
+            return /busca\s+(fraca|humilde|inteligente|extrema)/.test(tableText) &&
+                getTroopColumns(table).length;
+        }) || null;
+    }
+
+    function parseScavengingTroopTotals(doc) {
+        const totals = createTroopTotals();
+        const table = findScavengingTroopTable(doc);
+
+        if (!table) return totals;
+
+        const columns = getTroopColumns(table);
+        if (!columns.length) return totals;
+
+        const rows = getDirectTableRows(table)
+            .filter(row => !row.querySelector('th'));
+
+        const totalRow = rows.find(row => {
+            const firstCell = row.children[0];
+            const firstText = normalizeSearchText(firstCell ? (firstCell.innerText || firstCell.textContent || '') : '');
+
+            return /^total\b/.test(firstText);
+        });
+
+        if (totalRow) {
+            return parseTroopRowTotals(totalRow, columns);
+        }
+
+        rows.forEach(row => {
+            const rowText = normalizeSearchText(row.innerText || row.textContent || '');
+
+            if (!/busca\s+(fraca|humilde|inteligente|extrema)/.test(rowText)) return;
+
+            addTroopTotals(totals, parseTroopRowTotals(row, columns));
         });
 
         return totals;
@@ -3106,6 +3218,7 @@
 
         rows.forEach(row => {
             const detectedVillageKey = getRowCoordsKey(row);
+            const detectedVillageId = detectedVillageKey ? getRowVillageId(row) : '';
             const rowText = getTroopOverviewRowText(row);
 
             if (isIgnoredTroopOverviewRow(rowText)) return;
@@ -3114,6 +3227,16 @@
             if (detectedVillageKey) {
                 currentVillageKey = detectedVillageKey;
                 villageKeys.add(detectedVillageKey);
+
+                if (!villagesByKey.has(detectedVillageKey)) {
+                    villagesByKey.set(detectedVillageKey, {
+                        key: detectedVillageKey,
+                        id: detectedVillageId,
+                        totals: createTroopTotals()
+                    });
+                } else if (detectedVillageId && !villagesByKey.get(detectedVillageKey).id) {
+                    villagesByKey.get(detectedVillageKey).id = detectedVillageId;
+                }
             }
 
             const villageKey = detectedVillageKey || currentVillageKey;
@@ -3127,19 +3250,15 @@
             if (!villagesByKey.has(villageKey)) {
                 villagesByKey.set(villageKey, {
                     key: villageKey,
+                    id: detectedVillageId,
                     totals: createTroopTotals()
                 });
             }
 
             const village = villagesByKey.get(villageKey);
 
-            Object.keys(rowTotals).forEach(unitKey => {
-                const value = Number(rowTotals[unitKey] || 0);
-                if (!value) return;
-
-                totals[unitKey] += value;
-                village.totals[unitKey] += value;
-            });
+            addTroopTotals(totals, rowTotals);
+            addTroopTotals(village.totals, rowTotals);
         });
 
         const villages = Array.from(villagesByKey.values());
@@ -3150,6 +3269,61 @@
             attackFullCounter: calculateAttackFullCounter(villages),
             villageCount: getPlayerVillageCount() || villageKeys.size || rows.length
         };
+    }
+
+    async function enrichTroopsSummaryWithScavenging(summary) {
+        if (!summary || !Array.isArray(summary.villages)) return summary;
+
+        const seenVillageIds = new Set();
+        const villages = summary.villages.filter(village => {
+            const id = String(village && village.id || '');
+
+            if (!id || seenVillageIds.has(id)) return false;
+
+            seenVillageIds.add(id);
+            return true;
+        });
+
+        let scavengingVillageCount = 0;
+
+        for (const village of villages) {
+            try {
+                const doc = await fetchPlaceUnitsDocument(village.id);
+
+                if (isTwVerificationPage(doc)) {
+                    pauseForVerification('Praca de Reunioes');
+                    break;
+                }
+
+                const scavengingTotals = parseScavengingTroopTotals(doc);
+
+                if (!hasTroopValues(scavengingTotals)) continue;
+
+                addTroopTotals(summary.totals, scavengingTotals);
+                addTroopTotals(village.totals, scavengingTotals);
+                scavengingVillageCount += 1;
+            } catch (error) {
+                console.warn('[TW] Erro ao carregar tropas em busca da aldeia:', village.id, error);
+            }
+
+            if (villages.length > 1) {
+                await delay(150);
+            }
+        }
+
+        summary.scavengingVillageCount = scavengingVillageCount;
+        summary.attackFullCounter = calculateAttackFullCounter(summary.villages);
+
+        return summary;
+    }
+
+    async function buildTroopsOverviewSummary() {
+        const doc = await fetchTroopsOverviewDocument();
+        const summary = parseTroopsOverview(doc);
+
+        if (!summary) return null;
+
+        return enrichTroopsSummaryWithScavenging(summary);
     }
 
     function formatTroopNumber(value) {
@@ -3238,8 +3412,7 @@
     }
 
     async function buildNobleCounterSummary() {
-        const troopsDoc = await fetchTroopsOverviewDocument();
-        const troopsSummary = parseTroopsOverview(troopsDoc);
+        const troopsSummary = await buildTroopsOverviewSummary();
 
         if (!troopsSummary || !troopsSummary.villageCount) {
             return null;
@@ -3293,8 +3466,7 @@
     }
 
     async function buildCombinedCountersSummary() {
-        const troopsDoc = await fetchTroopsOverviewDocument();
-        const troopsSummary = parseTroopsOverview(troopsDoc);
+        const troopsSummary = await buildTroopsOverviewSummary();
 
         if (!troopsSummary || !troopsSummary.villageCount) {
             return null;
@@ -3431,8 +3603,7 @@
     }
 
     async function sendTroopSummary() {
-        const doc = await fetchTroopsOverviewDocument();
-        const summary = parseTroopsOverview(doc);
+        const summary = await buildTroopsOverviewSummary();
 
         if (!summary || !summary.villageCount) {
             console.log('[TW] Sem defesa disponivel para enviar.');
