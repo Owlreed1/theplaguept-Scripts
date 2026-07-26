@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.19
+// @version      1.3.20
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.19 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.20 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2830,7 +2830,7 @@
     }
 
     function isMovementTroopOverviewRow(rowText) {
-        return /\b(ataque|atacar|regresso|retorno|return|comando|comandos|farm|saque|pilhagem|recolha|recolher|coleta|coletar|colecta|colectar|recursos|scavenge|scavenging|fora|caminho|chegada|transporte|transportar|mercador|mercadores|apoio|apoios|support|reforco|reforcos)\b/.test(rowText);
+        return /\b(ataque|atacar|regresso|retorno|return|comando|comandos|farm|saque|pilhagem|recolha|recolher|coleta|coletar|colecta|colectar|scavenge|scavenging|fora|caminho|chegada|transporte|transportar|mercador|mercadores)\b/.test(rowText);
     }
 
     function hasTroopValues(rowTotals) {
@@ -3115,16 +3115,16 @@
             if (isIgnoredTroopOverviewRow(rowText)) return;
             if (isSupportTroopOverviewRow(rowText)) return;
 
-            const movementRow = isMovementTroopOverviewRow(rowText);
-
-            if (detectedVillageKey && !movementRow) {
+            if (detectedVillageKey) {
                 currentVillageKey = detectedVillageKey;
                 villageKeys.add(detectedVillageKey);
             }
 
-            const villageKey = detectedVillageKey && !movementRow
+            const movementRow = !detectedVillageKey && isMovementTroopOverviewRow(rowText);
+
+            const villageKey = detectedVillageKey
                 ? detectedVillageKey
-                : currentVillageKey;
+                : (movementRow ? currentVillageKey : '');
 
             if (!villageKey) return;
 
