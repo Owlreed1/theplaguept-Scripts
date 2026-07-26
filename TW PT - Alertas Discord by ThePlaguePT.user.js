@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.22
+// @version      1.3.23
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.22 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.23 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -3214,8 +3214,6 @@
 
         const villageKeys = new Set();
         const villagesByKey = new Map();
-        let currentVillageKey = '';
-
         rows.forEach(row => {
             const detectedVillageKey = getRowCoordsKey(row);
             const detectedVillageId = detectedVillageKey ? getRowVillageId(row) : '';
@@ -3225,7 +3223,6 @@
             if (isSupportTroopOverviewRow(rowText)) return;
 
             if (detectedVillageKey) {
-                currentVillageKey = detectedVillageKey;
                 villageKeys.add(detectedVillageKey);
 
                 if (!villagesByKey.has(detectedVillageKey)) {
@@ -3239,7 +3236,7 @@
                 }
             }
 
-            const villageKey = detectedVillageKey || currentVillageKey;
+            const villageKey = detectedVillageKey;
 
             if (!villageKey) return;
 
