@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.20
+// @version      1.3.21
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.20 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.21 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2829,10 +2829,6 @@
         return /\b(apoio|apoios|apoiar|apoiando|suporte|support|supports|supporting|reforco|reforcos|reinforcement|reinforcements)\b/.test(rowText);
     }
 
-    function isMovementTroopOverviewRow(rowText) {
-        return /\b(ataque|atacar|regresso|retorno|return|comando|comandos|farm|saque|pilhagem|recolha|recolher|coleta|coletar|colecta|colectar|scavenge|scavenging|fora|caminho|chegada|transporte|transportar|mercador|mercadores)\b/.test(rowText);
-    }
-
     function hasTroopValues(rowTotals) {
         return Object.keys(rowTotals || {}).some(unitKey => Number(rowTotals[unitKey] || 0) > 0);
     }
@@ -3120,11 +3116,7 @@
                 villageKeys.add(detectedVillageKey);
             }
 
-            const movementRow = !detectedVillageKey && isMovementTroopOverviewRow(rowText);
-
-            const villageKey = detectedVillageKey
-                ? detectedVillageKey
-                : (movementRow ? currentVillageKey : '');
+            const villageKey = detectedVillageKey || currentVillageKey;
 
             if (!villageKey) return;
 
