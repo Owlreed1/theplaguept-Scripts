@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.23
+// @version      1.3.24
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.23 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.24 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2828,8 +2828,28 @@
             const tableText = normalizeSearchText(table.innerText || table.textContent || '');
 
             return /busca\s+(fraca|humilde|inteligente|extrema)/.test(tableText) &&
-                getTroopColumns(table).length;
+            getTroopColumns(table).length;
         }) || null;
+    }
+
+    function findTransitTroopTable(doc) {
+        if (!doc || !doc.body) return null;
+
+        const headings = Array.from(doc.querySelectorAll('h2, h3, h4'));
+
+        for (const heading of headings) {
+            const headingText = normalizeSearchText(heading.innerText || heading.textContent || '');
+
+            if (!headingText.includes('tropas em transito')) continue;
+
+            const table = getNextTableAfter(heading);
+
+            if (table && getTroopColumns(table).length) {
+                return table;
+            }
+        }
+
+        return null;
     }
 
     function parseScavengingTroopTotals(doc) {
@@ -2861,6 +2881,34 @@
             if (!/busca\s+(fraca|humilde|inteligente|extrema)/.test(rowText)) return;
 
             addTroopTotals(totals, parseTroopRowTotals(row, columns));
+        });
+
+        return totals;
+    }
+
+    function parseTransitTroopTotals(doc) {
+        const totals = createTroopTotals();
+        const table = findTransitTroopTable(doc);
+
+        if (!table) return totals;
+
+        const columns = getTroopColumns(table);
+        if (!columns.length) return totals;
+
+        const rows = getDirectTableRows(table)
+            .filter(row => !row.querySelector('th'));
+
+        rows.forEach(row => {
+            const rowText = getTroopOverviewRowText(row);
+
+            if (isIgnoredTroopOverviewRow(rowText)) return;
+            if (isSupportTroopOverviewRow(rowText)) return;
+
+            const rowTotals = parseTroopRowTotals(row, columns);
+
+            if (!hasTroopValues(rowTotals)) return;
+
+            addTroopTotals(totals, rowTotals);
         });
 
         return totals;
@@ -3293,11 +3341,16 @@
                 }
 
                 const scavengingTotals = parseScavengingTroopTotals(doc);
+                const transitTotals = parseTransitTroopTotals(doc);
+                const placeMovementTotals = createTroopTotals();
 
-                if (!hasTroopValues(scavengingTotals)) continue;
+                addTroopTotals(placeMovementTotals, scavengingTotals);
+                addTroopTotals(placeMovementTotals, transitTotals);
 
-                addTroopTotals(summary.totals, scavengingTotals);
-                addTroopTotals(village.totals, scavengingTotals);
+                if (!hasTroopValues(placeMovementTotals)) continue;
+
+                addTroopTotals(summary.totals, placeMovementTotals);
+                addTroopTotals(village.totals, placeMovementTotals);
                 scavengingVillageCount += 1;
             } catch (error) {
                 console.warn('[TW] Erro ao carregar tropas em busca da aldeia:', village.id, error);
