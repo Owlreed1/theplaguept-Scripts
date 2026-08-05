@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.6.0
+// @version      1.7.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.6.0",
+        version: "1.7.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -103,7 +103,7 @@
         state.coords = parseCoordinates(value);
     }
 
-    function buildZones(coordinates, maximum) {
+    function buildZones(coordinates, maximum, ownVillages) {
         const zones = [];
         const split = (items, groupCount = Math.ceil(items.length / maximum)) => {
             if (groupCount <= 1 || items.length <= maximum) {
@@ -120,7 +120,20 @@
             split(sorted.slice(middle), groupCount - leftGroups);
         };
         split(coordinates);
-        return zones.sort((a, b) => zoneCenter(a).y - zoneCenter(b).y || zoneCenter(a).x - zoneCenter(b).x);
+        return zones.sort((a, b) =>
+            distanceToOwn(a, ownVillages) - distanceToOwn(b, ownVillages) ||
+            zoneCenter(a).y - zoneCenter(b).y || zoneCenter(a).x - zoneCenter(b).x
+        );
+    }
+
+    function distanceToOwn(zone, ownVillages) {
+        let minimum = Infinity;
+        for (const target of zone) {
+            for (const own of ownVillages || []) {
+                minimum = Math.min(minimum, Math.hypot(target.x - own.x, target.y - own.y));
+            }
+        }
+        return minimum;
     }
 
     function zoneCenter(zone) {
@@ -136,11 +149,19 @@
         ).join("\n\n");
     }
 
+    function zonesCardsHtml(zones) {
+        return zones.map((zone, index) => `
+            <section class="${APP.id}-zoneCard" style="--tp-zone-color:${zoneColor(index)}">
+                <div class="${APP.id}-zoneHead"><strong>Zona ${index + 1}</strong><span>${zone.length} aldeia(s)</span></div>
+                <textarea readonly spellcheck="false">${escapeHtml(zone.map(({ x, y }) => `${x}|${y}`).join(" "))}</textarea>
+            </section>`).join("");
+    }
+
     function updateZonesOutput(panel) {
         const output = panel.querySelector(`.${APP.id}-zonesOutput`);
         if (!output) return;
-        output.value = formatZones(state.zones);
-        output.classList.toggle("tp-visible", Boolean(state.zones.length));
+        output.innerHTML = zonesCardsHtml(state.zones);
+        panel.querySelector(`.${APP.id}-zonesSection`)?.classList.toggle("tp-visible", Boolean(state.zones.length));
     }
 
     async function loadOwnVillages() {
@@ -173,7 +194,7 @@
     }
 
     function zoneColor(index) {
-        const colors = ["#b8322a", "#2767a8", "#b06b18", "#6d4398", "#267a55", "#9a356d", "#557b20", "#3e7180", "#8a512b", "#4b55a5", "#8a7521", "#7d3d3d"];
+        const colors = ["#e31b23", "#1261d8", "#f08a00", "#7b2fc6", "#009b4d", "#e00087", "#009fbd", "#c9a900", "#4b45d6", "#ed4b16", "#00a878", "#a914d4"];
         return index >= 0 ? colors[index % colors.length] : state.color;
     }
 
@@ -197,7 +218,19 @@
             #${APP.id}-panel button.tp-action{border:1px solid #653417;border-radius:3px;padding:6px 12px;background:#815026;color:#fff;font-weight:bold;cursor:pointer}
             #${APP.id}-panel button.tp-secondary{background:#eee0bd;color:#43230f}
             #${APP.id}-panel .tp-help{color:#67472f;font-size:11px;line-height:1.5}
-            .${APP.id}-native{box-sizing:border-box;width:590px;max-width:calc(100vw - 70px);padding:6px 8px 10px;color:#32190d;font:13px Verdana,Arial,sans-serif}
+            #popup_box_${APP.id}Dialog{width:min(1320px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important}
+            #popup_box_${APP.id}Dialog .popup_box_content{padding:8px!important;background:#d9c99e!important}
+            .${APP.id}-native{box-sizing:border-box;width:100%;max-width:100%;padding:0;color:#3b2508;font:12px Arial,Verdana,sans-serif}
+            .${APP.id}-frame{display:flex;flex-direction:column;max-height:calc(100vh - 62px);overflow:hidden;border:2px solid #7e211c;border-radius:4px;background:#f4e4b8}
+            .${APP.id}-head{padding:9px 14px 8px;border-bottom:1px solid #c98c48;background:linear-gradient(#f7e8c1,#edd49a)}
+            .${APP.id}-head strong{display:block;color:#8f2b25;font-size:16px;line-height:20px}
+            .${APP.id}-head span{color:#5b350f;font-size:11px}
+            .${APP.id}-content{overflow:auto;padding:6px 12px}
+            .${APP.id}-section{display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);gap:8px 18px;padding:8px 0 9px 12px;border-top:1px solid #d5b579;border-left:4px solid #9b6a2f}
+            .${APP.id}-section:first-child{border-top:0}.${APP.id}-section>div{min-width:0}
+            .${APP.id}-section h3{margin:0 0 3px;color:#8f2b25;font-size:13px;line-height:16px;text-transform:uppercase}
+            .${APP.id}-section p{margin:2px 0;color:#5e3b16;font-size:11px;line-height:14px}
+            .${APP.id}-coordsSection{border-left-color:#c72d2d}.${APP.id}-toolsSection{border-left-color:#8b48c8}.${APP.id}-zonesSection{border-left-color:#1f9ac5}.${APP.id}-settingsSection{border-left-color:#e0a51d}.${APP.id}-actionsSection{border-left-color:#8a6424}
             .${APP.id}-native textarea{width:100%;height:210px;resize:vertical;box-sizing:border-box;padding:8px;border:1px solid #804000;background:#fffdf6;font:13px Consolas,monospace}
             .${APP.id}-native .tp-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0}
             .${APP.id}-native .tp-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
@@ -211,8 +244,12 @@
             .${APP.id}-tool input[type="number"],.${APP.id}-tool select{height:25px;border:1px solid #80522d;background:#fffaf0}
             .${APP.id}-tool input[type="number"]{width:58px}
             .${APP.id}-tool button{height:26px;border:1px solid #603419;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer}
-            .${APP.id}-zonesOutput{display:none;width:100%;height:115px!important;margin-top:7px;background:#fffaf0!important}
-            .${APP.id}-zonesOutput.tp-visible{display:block}
+            .${APP.id}-zonesSection{display:none}.${APP.id}-zonesSection.tp-visible{display:grid}
+            .${APP.id}-zonesOutput{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;max-height:270px;overflow:auto}
+            .${APP.id}-zoneCard{min-width:0;border:2px solid var(--tp-zone-color);background:#f8eac4}
+            .${APP.id}-zoneHead{display:flex;justify-content:space-between;padding:4px 7px;background:var(--tp-zone-color);color:#fff;text-shadow:1px 1px #000}
+            .${APP.id}-zoneCard textarea{display:block;width:100%;height:68px!important;margin:0;border:0!important;background:#fff8e7!important;font:12px Consolas,monospace!important}
+            @media(max-width:850px){.${APP.id}-section{grid-template-columns:1fr}.${APP.id}-zonesOutput{grid-template-columns:1fr}}
             .${APP.id}-marked{overflow:visible!important;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 4px var(--tp-marker-color))!important;outline:3px solid var(--tp-marker-color)!important;outline-offset:1px!important;border-radius:50%!important;z-index:20!important}
             .${APP.id}-badge{position:absolute;z-index:1000;pointer-events:none;transform:translate(-50%,-115%);padding:1px 3px;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:0 1px #000;font:bold 9px Arial;white-space:nowrap;box-shadow:0 1px 2px #0008}
             .${APP.id}-minimapOverlay{position:absolute;inset:0;z-index:50;pointer-events:none;overflow:hidden}
@@ -266,27 +303,33 @@
         if (state.panel) closePanel();
         const coordinates = [...state.coords.values()].map(({ x, y }) => `${x}|${y}`).join("\n");
         const body = `
-            <div class="tp-body">
-                    <div class="tp-help">Cola coordenadas em qualquer texto. São aceites, por exemplo, <b>500|500</b>, <b>500 500</b> e <b>500,500</b>. Repetidas são removidas automaticamente.</div>
-                    <textarea spellcheck="false" placeholder="500|500\n501|502\n498|507">${escapeHtml(coordinates)}</textarea>
-                    <div class="${APP.id}-tools">
-                        <div class="${APP.id}-tool">
-                            <span class="${APP.id}-toolTitle">Distância às minhas aldeias</span>
-                            <div class="${APP.id}-toolLine"><span>Máximo</span><input class="tp-distance" type="number" min="1" max="200" step="1" value="${state.distance}"><span>campos</span><button class="tp-filter" type="button">Filtrar lista</button></div>
+            <div class="${APP.id}-frame">
+                <header class="${APP.id}-head"><strong>TW PT - Marcador de Aldeias ThePlaguePT</strong><span>Marca, filtra e organiza coordenadas do mundo ${escapeHtml(world)} por proximidade e zonas.</span></header>
+                <div class="${APP.id}-content">
+                    <section class="${APP.id}-section ${APP.id}-coordsSection">
+                        <div><h3>Coordenadas</h3><p>Cola coordenadas em qualquer texto. Repetidas são removidas automaticamente.</p></div>
+                        <div><textarea class="${APP.id}-coordsInput" spellcheck="false" placeholder="500|500\n501|502\n498|507">${escapeHtml(coordinates)}</textarea></div>
+                    </section>
+                    <section class="${APP.id}-section ${APP.id}-toolsSection">
+                        <div><h3>Filtros e zonas</h3><p>Reduz a lista por distância e cria grupos geográficos limitados.</p></div>
+                        <div class="${APP.id}-tools">
+                            <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Distância às minhas aldeias</span><div class="${APP.id}-toolLine"><span>Máximo</span><input class="tp-distance" type="number" min="1" max="200" step="1" value="${state.distance}"><span>campos</span><button class="tp-filter" type="button">Filtrar lista</button></div></div>
+                            <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Zonas geográficas</span><div class="${APP.id}-toolLine"><span>Máximo</span><select class="tp-zone-size"><option value="25" ${state.zoneSize === 25 ? "selected" : ""}>25 aldeias</option><option value="50" ${state.zoneSize === 50 ? "selected" : ""}>50 aldeias</option></select><button class="tp-zones" type="button">Criar zonas</button></div></div>
                         </div>
-                        <div class="${APP.id}-tool">
-                            <span class="${APP.id}-toolTitle">Zonas geográficas</span>
-                            <div class="${APP.id}-toolLine"><span>Máximo</span><select class="tp-zone-size"><option value="25" ${state.zoneSize === 25 ? "selected" : ""}>25 aldeias</option><option value="50" ${state.zoneSize === 50 ? "selected" : ""}>50 aldeias</option></select><button class="tp-zones" type="button">Criar zonas</button></div>
-                        </div>
-                    </div>
-                    <textarea class="${APP.id}-zonesOutput ${state.zones.length ? "tp-visible" : ""}" readonly spellcheck="false" placeholder="As zonas separadas aparecem aqui.">${escapeHtml(formatZones(state.zones))}</textarea>
-                    <div class="tp-row">
-                        <label>Cor <input class="tp-color" type="color" value="${state.color}"></label>
-                        <label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label>
-                        <label><input class="tp-enabled" type="checkbox" ${state.enabled ? "checked" : ""}> Marcações ativas</label>
-                        <strong class="tp-count">${state.coords.size} aldeia(s)</strong>
-                    </div>
-                    <div class="tp-actions"><button class="tp-action tp-secondary tp-clear">Limpar</button><button class="tp-action tp-save">Guardar e marcar</button></div>
+                    </section>
+                    <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
+                        <div><h3>Zonas</h3><p>Uma caixa independente por zona, ordenada da mais próxima para a mais distante.</p></div>
+                        <div class="${APP.id}-zonesOutput">${zonesCardsHtml(state.zones)}</div>
+                    </section>
+                    <section class="${APP.id}-section ${APP.id}-settingsSection">
+                        <div><h3>Configurações</h3><p>Define a apresentação das marcações no mapa.</p></div>
+                        <div class="tp-row"><label>Cor base <input class="tp-color" type="color" value="${state.color}"></label><label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label><label><input class="tp-enabled" type="checkbox" ${state.enabled ? "checked" : ""}> Marcações ativas</label><strong class="tp-count">${state.coords.size} aldeia(s)</strong></div>
+                    </section>
+                    <section class="${APP.id}-section ${APP.id}-actionsSection">
+                        <div><h3>Ações</h3><p>Guarda as opções e atualiza as marcações.</p></div>
+                        <div class="tp-actions"><button class="tp-action tp-secondary tp-clear">Limpar</button><button class="tp-action tp-save">Guardar e marcar</button></div>
+                    </section>
+                </div>
             </div>`;
         const dialog = window.Dialog;
         let panel;
@@ -339,13 +382,24 @@
                 button.textContent = "Filtrar lista";
             }
         });
-        panel.querySelector(".tp-zones").addEventListener("click", () => {
+        panel.querySelector(".tp-zones").addEventListener("click", async (event) => {
             const coordinatesToGroup = [...parseCoordinates(textarea.value).values()];
             if (!coordinatesToGroup.length) return notify("Não existem coordenadas para agrupar.");
+            const button = event.currentTarget;
+            button.disabled = true;
+            button.textContent = "A ordenar…";
             state.zoneSize = Number(panel.querySelector(".tp-zone-size").value) === 50 ? 50 : 25;
-            state.zones = buildZones(coordinatesToGroup, state.zoneSize);
-            updateZonesOutput(panel);
-            notify(`${state.zones.length} zona(s) criada(s).`);
+            try {
+                const own = await loadOwnVillages();
+                state.zones = buildZones(coordinatesToGroup, state.zoneSize, own);
+                updateZonesOutput(panel);
+                notify(`${state.zones.length} zona(s) criada(s), da mais próxima para a mais distante.`);
+            } catch (error) {
+                notify(`Não foi possível ordenar as zonas: ${error.message}`);
+            } finally {
+                button.disabled = false;
+                button.textContent = "Criar zonas";
+            }
         });
         panel.querySelector(".tp-save").addEventListener("click", () => {
             setCoordinates(textarea.value);
