@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.118
+// @version      0.1.120
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.118',
+        version: '0.1.120',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -3151,6 +3151,8 @@
         if (!target.length) return;
 
         const troops = forecast.troops || {};
+        if (!hasTroops(troops) && parseAmount(forecast.count) <= 0) return;
+
         const units = (game_data.units && game_data.units.length
             ? game_data.units
             : Object.keys(APP.troopPop)
@@ -3245,10 +3247,14 @@
         const arieteCount = countArieteNamedRows(rows);
 
         if (rows.length) {
+            const groupedInfo = getIncomingFullCountWithNobleTrains(rows, arieteCount > 0);
+
             return {
-                count: arieteCount || rows.length,
+                count: groupedInfo.count,
                 total: rows.length,
                 ariete: arieteCount,
+                nobleTrainGroups: groupedInfo.nobleTrainGroups,
+                nobleTrainAttacks: groupedInfo.nobleTrainAttacks,
                 source: arieteCount ? 'commands_ariete' : 'commands_incomings'
             };
         }
@@ -3258,11 +3264,13 @@
                 count: fromGameData,
                 total: fromGameData,
                 ariete: 0,
+                nobleTrainGroups: 0,
+                nobleTrainAttacks: 0,
                 source: 'game_data'
             };
         }
 
-        return {count: 0, total: 0, ariete: 0, source: 'unknown'};
+        return {count: 0, total: 0, ariete: 0, nobleTrainGroups: 0, nobleTrainAttacks: 0, source: 'unknown'};
     }
 
     function getIncomingAttackRows() {
@@ -3289,6 +3297,109 @@
 
     function isArieteNamedCommand(row) {
         return /\barietes?\b/.test(clean(row.text()));
+    }
+
+    function getIncomingFullCountWithNobleTrains(rows, onlyNamedRams) {
+        const attacks = [];
+
+        rows.each(function (index) {
+            const row = $(this);
+            if (onlyNamedRams && !isArieteNamedCommand(row)) return;
+
+            attacks.push({
+                index,
+                row,
+                origin: getIncomingAttackOriginKey(row),
+                arrival: getIncomingAttackArrivalTime(row)
+            });
+        });
+
+        if (!attacks.length) return {count: 0, nobleTrainGroups: 0, nobleTrainAttacks: 0};
+
+        const groups = groupIncomingAttacksByTrain(attacks);
+        let count = 0;
+        let nobleTrainGroups = 0;
+        let nobleTrainAttacks = 0;
+
+        groups.forEach(function (group) {
+            if (group.length >= 4 && isLikelyNobleTrainGroup(group)) {
+                const trainCount = Math.ceil(group.length / 4);
+
+                count += trainCount;
+                nobleTrainGroups += trainCount;
+                nobleTrainAttacks += group.length;
+            } else {
+                count += group.length;
+            }
+        });
+
+        return {count, nobleTrainGroups, nobleTrainAttacks};
+    }
+
+    function groupIncomingAttacksByTrain(attacks) {
+        const sorted = attacks.slice().sort(function (a, b) {
+            if (a.origin !== b.origin) return a.origin < b.origin ? -1 : 1;
+            return a.arrival - b.arrival;
+        });
+        const groups = [];
+
+        sorted.forEach(function (attack) {
+            const previousGroup = groups[groups.length - 1];
+            const previousAttack = previousGroup && previousGroup[previousGroup.length - 1];
+            const sameOrigin = previousAttack && previousAttack.origin === attack.origin;
+            const closeArrival = previousAttack && Math.abs(attack.arrival - previousAttack.arrival) <= 2500;
+
+            if (sameOrigin && closeArrival) {
+                previousGroup.push(attack);
+            } else {
+                groups.push([attack]);
+            }
+        });
+
+        return groups;
+    }
+
+    function isLikelyNobleTrainGroup(group) {
+        if (!group || group.length < 4) return false;
+
+        const arrivals = group.map(function (attack) {
+            return attack.arrival;
+        }).sort(function (a, b) {
+            return a - b;
+        });
+
+        return arrivals[arrivals.length - 1] - arrivals[0] <= 2500;
+    }
+
+    function getIncomingAttackOriginKey(row) {
+        const commandCell = getCommandNameCell(row);
+        const text = commandCell.length ? commandCell.text() : row.text();
+        const coords = String(text || '').match(/\b\d{1,3}\|\d{1,3}\b/g);
+
+        if (coords && coords.length) return coords[coords.length - 1];
+
+        return 'unknown_origin';
+    }
+
+    function getIncomingAttackArrivalTime(row) {
+        const endtime = row.find('[data-endtime]').first().attr('data-endtime');
+        const endtimeValue = parseFloat(String(endtime || '').replace(',', '.'));
+        if (Number.isFinite(endtimeValue) && endtimeValue > 0) {
+            return endtimeValue * 1000;
+        }
+
+        const text = row.text();
+        const preciseMatch = text.match(/\b(\d{1,2}):(\d{2}):(\d{2})(?:[.:](\d{1,3}))?\b/);
+        if (preciseMatch) {
+            return (
+                parseAmount(preciseMatch[1]) * 3600000 +
+                parseAmount(preciseMatch[2]) * 60000 +
+                parseAmount(preciseMatch[3]) * 1000 +
+                parseAmount(preciseMatch[4] || 0)
+            );
+        }
+
+        return Number.MAX_SAFE_INTEGER - parseAmount(row.index());
     }
 
     function refreshCurrentVillageDefenseWidget() {
@@ -3424,15 +3535,90 @@
     function getIncomingSupportRows() {
         return $('#commands_incomings tr, #commands_incomings .command-row')
             .filter(function () {
-                const row = $(this);
-                const text = clean(row.text());
-                const hasSupportIcon = row.find('img[src*="support"]').length > 0;
-                const looksLikeCommand = row.find(
-                    '.quickedit, .timer, span[data-endtime], a[href*="info_command"]'
-                ).length > 0;
-
-                return looksLikeCommand && (hasSupportIcon || text.includes('apoio') || text.includes('suporte'));
+                return isIncomingSupportCommandRow($(this)) && supportRowTargetsCurrentVillage($(this));
             });
+    }
+
+    function getCommandNameCell(row) {
+        const infoLinkCell = row.find('a[href*="info_command"][href*="id="]').first().closest('td,th');
+        if (infoLinkCell.length) return infoLinkCell;
+
+        return row.children('td,th').first();
+    }
+
+    function isCommandLikeRow(row) {
+        const cells = row.children('td,th');
+        if (cells.length < 2) return false;
+
+        return row.find(
+            '.quickedit, .timer, span[data-endtime], a[href*="info_command"][href*="id="], input[type="checkbox"]'
+        ).length > 0;
+    }
+
+    function hasSupportCommandIcon(row) {
+        const scope = getCommandNameCell(row);
+
+        return (scope.length ? scope : row).find('img').filter(function () {
+            const image = $(this);
+            const value = [
+                image.attr('src'),
+                image.attr('title'),
+                image.attr('alt'),
+                image.attr('class')
+            ].filter(Boolean).join(' ').toLowerCase();
+
+            return /(?:command\/support|support\.png|\bsupport\b|\bapoio\b|\bsuporte\b)/i.test(value);
+        }).length > 0;
+    }
+
+    function hasAttackCommandIcon(row) {
+        const scope = getCommandNameCell(row);
+
+        return (scope.length ? scope : row).find('img').filter(function () {
+            const image = $(this);
+            const value = [
+                image.attr('src'),
+                image.attr('title'),
+                image.attr('alt'),
+                image.attr('class')
+            ].filter(Boolean).join(' ').toLowerCase();
+
+            return /(?:command\/attack|attack\.png|attack_small|attack_medium|attack_large|\battack\b|\bataque\b)/i.test(value);
+        }).length > 0;
+    }
+
+    function supportRowTargetsCurrentVillage(row) {
+        const currentCoords = getCurrentVillageCoords();
+        const commandCell = getCommandNameCell(row);
+        const commandText = commandCell.text();
+        const coords = String(commandText || '').match(/\b\d{1,3}\|\d{1,3}\b/g) || [];
+
+        if (currentCoords && coords.length) {
+            return coords.indexOf(currentCoords) >= 0;
+        }
+
+        const currentName = clean(game_data.village && game_data.village.name);
+        if (currentName && clean(commandText).includes(currentName)) return true;
+
+        const currentId = String(game_data.village && game_data.village.id || '');
+        if (currentId && commandCell.find(`a[href*="id=${currentId}"], a[href*="village=${currentId}"]`).length) {
+            return true;
+        }
+
+        return !coords.length;
+    }
+
+    function getCurrentVillageCoords() {
+        const village = game_data.village || {};
+
+        if (village.x !== undefined && village.y !== undefined) {
+            const x = parseAmount(village.x);
+            const y = parseAmount(village.y);
+            if (x > 0 && y > 0) return `${x}|${y}`;
+        }
+
+        const match = $('#menu_row2, #content_value, body').first().text().match(/\b\d{1,3}\|\d{1,3}\b/);
+        return match ? match[0] : '';
     }
 
     function installSupportPopupCapture() {
@@ -3688,7 +3874,10 @@
 
             if (!url && !hasTroops(troops)) return;
 
-            const key = id || url || `support_${index}_${getTroopsSignature(troops)}`;
+            const arrival = clean(row.children('td,th').eq(2).text());
+            const key = hasTroops(troops)
+                ? `row_${index}_${arrival}_${getTroopsSignature(troops)}`
+                : id || url || `support_${index}`;
 
             commands.set(key, {
                 id: id || `support_${index}`,
@@ -3754,7 +3943,7 @@
             '#commands_incomings tr, #commands_incomings .command-row, ' +
             '[id*="commands_incoming"] tr, [class*="commands_incoming"] tr'
         ).filter(function () {
-            return isIncomingSupportCommandRow($(this));
+            return isIncomingSupportCommandRow($(this)) && supportRowTargetsCurrentVillage($(this));
         });
 
         if (preferred.length) return preferred;
@@ -3766,6 +3955,7 @@
             const isReceivingSection = /\b(a receber|a chegar|receber|incoming|aldeia de origem|origem|source)\b/.test(headingText);
 
             return isIncomingSupportCommandRow(row) &&
+                supportRowTargetsCurrentVillage(row) &&
                 isReceivingSection &&
                 (
                     row.find('a[href*="info_command"][href*="id="]').length > 0 ||
@@ -3775,19 +3965,20 @@
     }
 
     function isIncomingSupportCommandRow(row) {
-        const text = clean(row.text());
-        const images = row.find('img');
-        const hasSupportIcon = images.filter(function () {
-            const image = $(this);
-            const value = [
-                image.attr('src'),
-                image.attr('title'),
-                image.attr('alt')
-            ].filter(Boolean).join(' ');
-            return /\b(support|apoio|suporte)\b/i.test(value);
-        }).length > 0;
+        if (!isCommandLikeRow(row)) return false;
 
-        return hasSupportIcon || /\b(apoio|suporte|support)\b/.test(text);
+        const commandText = clean(getCommandNameCell(row).text());
+        const supportName = /(^|\s)(apoio|suporte|support)\s+(para|a|de|to|for)\b/.test(commandText);
+        const supportIcon = hasSupportCommandIcon(row);
+        const attackName = /(^|\s)(ataque|attack)\s+(a|para|to)\b/.test(commandText) ||
+            /\b(arietes?|snipar|desviar)\b/.test(commandText);
+        const attackIcon = hasAttackCommandIcon(row);
+
+        if (!supportIcon && !supportName) return false;
+        if (attackName && !supportName) return false;
+        if (attackIcon && !supportIcon && !supportName) return false;
+
+        return true;
     }
 
     function fetchIncomingSupportCommandTroops(commandUrl) {
@@ -4883,11 +5074,16 @@
         const supportFullsText = supportFullEndurance
             ? formatFullCapacity(supportFullEndurance, fullTarget)
             : '';
-        const incomingDetail = incoming.ariete > 0
-            ? `Arietes nomeados: ${incoming.ariete}/${incoming.total}.`
-            : incoming.total > 0
-                ? `Ataques a chegar: ${incoming.total}; nenhum com "ariete" no nome.`
-                : '';
+        const incomingDetailParts = [];
+        if (incoming.ariete > 0) {
+            incomingDetailParts.push(`Arietes nomeados: ${incoming.ariete}/${incoming.total}.`);
+        } else if (incoming.total > 0) {
+            incomingDetailParts.push(`Ataques a chegar: ${incoming.total}; nenhum com "ariete" no nome.`);
+        }
+        if (incoming.nobleTrainGroups > 0) {
+            incomingDetailParts.push(`NT detectado: ${incoming.nobleTrainAttacks} ataques contam como ${incoming.nobleTrainGroups} full${incoming.nobleTrainGroups === 1 ? '' : 's'}.`);
+        }
+        const incomingDetail = incomingDetailParts.join(' ');
         const subnote = '';
         const projectedTroops = supportFullEndurance ? mergeTroops(troops, supportTroops) : troops;
         const shortage = getDefenseRequirementSuggestion(projectedTroops, wall, model, incoming);
@@ -4982,7 +5178,7 @@
 
     function normalizeIncomingInfo(value) {
         if (typeof value === 'number') {
-            return {count: value, total: value, ariete: 0, source: 'legacy'};
+            return {count: value, total: value, ariete: 0, nobleTrainGroups: 0, nobleTrainAttacks: 0, source: 'legacy'};
         }
 
         const totalRaw = parseAmount(value && value.total);
@@ -4994,6 +5190,8 @@
             count,
             total,
             ariete,
+            nobleTrainGroups: parseAmount(value && value.nobleTrainGroups),
+            nobleTrainAttacks: parseAmount(value && value.nobleTrainAttacks),
             source: value && value.source || 'unknown'
         };
     }
