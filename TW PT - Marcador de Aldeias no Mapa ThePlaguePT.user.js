@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.4.0
+// @version      1.5.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.4.0",
+        version: "1.5.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -38,6 +38,7 @@
         enabled: true,
         observer: null,
         refreshTimer: 0,
+        pendingMiniRefresh: false,
         panel: null,
         launcher: null,
         launcherPositionFrame: 0,
@@ -93,7 +94,7 @@
     function injectStyles() {
         const style = document.createElement("style");
         style.textContent = `
-            #${APP.id}-launcher{position:fixed!important;top:431px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
+            #${APP.id}-launcher{position:fixed!important;top:430px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
             #${APP.id}-launcher:hover,#${APP.id}-launcher:focus-visible{width:390px!important;min-width:390px!important;gap:8px!important;padding:0 9px!important;background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
             .${APP.id}-launcherIcon{width:16px!important;height:16px!important;flex:0 0 16px!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
             .${APP.id}-launcherLabel{display:inline-block!important;max-width:0!important;opacity:0!important;overflow:hidden!important;transform:translateX(-4px)!important;white-space:nowrap!important;transition:max-width .18s ease,opacity .14s ease,transform .18s ease!important}
@@ -126,7 +127,7 @@
             .${APP.id}-mapPin{position:absolute;width:0;height:0;z-index:40;pointer-events:none;color:var(--tp-marker-color)}
             .${APP.id}-pinIcon{position:absolute;left:0;bottom:0;width:15px;height:15px;box-sizing:border-box;transform:translateX(-50%) rotate(-45deg);transform-origin:50% 50%;border:1px solid #5f1713;border-radius:50% 50% 50% 0;background:currentColor;box-shadow:0 1px 2px #0009}
             .${APP.id}-pinIcon::after{content:"";position:absolute;left:4px;top:4px;width:5px;height:5px;border-radius:50%;background:#f4dfb5;box-shadow:inset 0 0 0 1px #6a2b20}
-            .${APP.id}-pinLabel{position:absolute;left:0;bottom:20px;transform:translateX(-50%);padding:2px 5px 3px;border:2px solid var(--tp-marker-color);border-radius:3px;background:#f7e9c7;color:#35180d;text-shadow:0 1px #fff;font:bold 10px Consolas,"Courier New",monospace;line-height:11px;letter-spacing:.2px;white-space:nowrap;box-shadow:0 1px 3px #0009}
+            .${APP.id}-pinLabel{position:absolute;left:0;bottom:20px;transform:translateX(-50%);padding:1px 5px 2px;border:2px solid var(--tp-marker-color);border-radius:3px;background:#f7e9c7;color:#35180d;text-shadow:0 1px #fff;font:bold 12px Consolas,"Courier New",monospace;line-height:13px;letter-spacing:.1px;white-space:nowrap;box-shadow:0 1px 3px #0009}
             .${APP.id}-pinLabel::after{content:"";position:absolute;left:50%;bottom:-5px;width:6px;height:6px;transform:translateX(-50%) rotate(45deg);border-right:2px solid var(--tp-marker-color);border-bottom:2px solid var(--tp-marker-color);background:#f7e9c7}
         `;
         document.head.appendChild(style);
@@ -233,6 +234,7 @@
     function observeMap() {
         state.observer?.disconnect();
         state.observer = new MutationObserver((mutations) => {
+            const minimap = findPoliticalMap();
             const hasGameChange = mutations.some((mutation) => {
                 if (mutation.type === "attributes") {
                     return !mutation.target.classList?.contains(`${APP.id}-marked`) &&
@@ -241,16 +243,28 @@
                 const changed = [...mutation.addedNodes, ...mutation.removedNodes];
                 return changed.some((node) => node.nodeType !== 1 || !isOwnMarker(node));
             });
-            if (hasGameChange) scheduleRefresh();
+            const minimapChanged = minimap && mutations.some((mutation) =>
+                minimap.contains(mutation.target) &&
+                !mutation.target.classList?.contains(`${APP.id}-minimapOverlay`)
+            );
+            if (hasGameChange) scheduleRefresh(Boolean(minimapChanged));
         });
         state.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "style"] });
-        window.addEventListener("resize", scheduleRefresh, { passive: true });
-        document.addEventListener("mouseup", scheduleRefresh, { passive: true });
+        window.addEventListener("resize", () => scheduleRefresh(true), { passive: true });
+        document.addEventListener("mouseup", () => scheduleRefresh(true), { passive: true });
+        document.addEventListener("keyup", (event) => {
+            if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) scheduleRefresh(true);
+        });
     }
 
-    function scheduleRefresh() {
+    function scheduleRefresh(refreshMiniMap = false) {
+        state.pendingMiniRefresh ||= refreshMiniMap;
         clearTimeout(state.refreshTimer);
-        state.refreshTimer = setTimeout(() => refreshMarkers(false), 16);
+        state.refreshTimer = setTimeout(() => {
+            const includeMiniMap = state.pendingMiniRefresh;
+            state.pendingMiniRefresh = false;
+            refreshMarkers(includeMiniMap);
+        }, state.pendingMiniRefresh ? 70 : 16);
     }
 
     function isOwnMarker(node) {
