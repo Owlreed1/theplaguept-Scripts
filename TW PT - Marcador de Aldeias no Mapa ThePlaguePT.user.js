@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.0.0
+// @version      1.1.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -22,8 +22,11 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        version: "1.0.0",
+        displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
+        version: "1.1.0",
         defaultColor: "#ff2d2d",
+        zIndex: 60030,
+        launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
     };
     const gd = window.game_data || {};
     const world = gd.world || location.hostname.split(".")[0] || "world";
@@ -36,6 +39,8 @@
         observer: null,
         refreshTimer: 0,
         panel: null,
+        launcher: null,
+        launcherPositionFrame: 0,
     };
 
     load();
@@ -88,12 +93,15 @@
     function injectStyles() {
         const style = document.createElement("style");
         style.textContent = `
-            #${APP.id}-launcher{position:fixed;right:12px;top:154px;z-index:60020;border:1px solid #5d2f16;border-radius:4px;padding:6px 9px;background:linear-gradient(#f5e4bd,#d9b778);color:#3b1d0d;font:bold 12px Verdana;cursor:pointer;box-shadow:0 2px 6px #0005}
-            #${APP.id}-launcher:hover{filter:brightness(1.08)}
+            #${APP.id}-launcher{position:fixed!important;top:476px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
+            #${APP.id}-launcher:hover,#${APP.id}-launcher:focus-visible{width:390px!important;min-width:390px!important;gap:8px!important;padding:0 9px!important;background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
+            .${APP.id}-launcherIcon{width:16px!important;height:16px!important;flex:0 0 16px!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
+            .${APP.id}-launcherLabel{display:inline-block!important;max-width:0!important;opacity:0!important;overflow:hidden!important;transform:translateX(-4px)!important;white-space:nowrap!important;transition:max-width .18s ease,opacity .14s ease,transform .18s ease!important}
+            #${APP.id}-launcher:hover .${APP.id}-launcherLabel,#${APP.id}-launcher:focus-visible .${APP.id}-launcherLabel{max-width:345px!important;opacity:1!important;transform:translateX(0)!important}
             #${APP.id}-panel{position:fixed;inset:0;z-index:60040;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
             #${APP.id}-panel.tp-hidden{display:none}
-            #${APP.id}-panel .tp-card{width:min(580px,96vw);max-height:92vh;overflow:auto;border:2px solid #6c3b1e;border-radius:7px;background:#f4e4bc;color:#32190d;box-shadow:0 8px 32px #000a;font:13px Verdana}
-            #${APP.id}-panel .tp-head{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:linear-gradient(#a16b3d,#75401f);color:#fff;font-weight:bold}
+            #${APP.id}-panel .tp-card{width:min(620px,96vw);max-height:92vh;overflow:auto;padding:8px;border:2px solid #473019;border-radius:6px;background:linear-gradient(#d9c99e,#95805b);color:#32190d;box-shadow:0 0 0 1px #d8c99b,0 0 0 4px #5c4429,0 0 0 6px #dacba4e6,inset 0 0 0 2px #fff4cfcf,0 6px 18px #0000008c;font:13px Verdana}
+            #${APP.id}-panel .tp-head{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid #56351c;background:linear-gradient(#8d633d,#5e381e);color:#fff;font-weight:bold;text-shadow:1px 1px #000}
             #${APP.id}-panel .tp-close{border:0;background:transparent;color:#fff;font:bold 20px Arial;cursor:pointer}
             #${APP.id}-panel .tp-body{padding:12px}
             #${APP.id}-panel textarea{width:100%;height:210px;resize:vertical;box-sizing:border-box;padding:8px;border:1px solid #9b7652;background:#fffdf6;font:13px Consolas,monospace}
@@ -106,6 +114,11 @@
             .${APP.id}-badge{position:absolute;z-index:1000;pointer-events:none;transform:translate(-50%,-115%);padding:1px 3px;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:0 1px #000;font:bold 9px Arial;white-space:nowrap;box-shadow:0 1px 2px #0008}
             .${APP.id}-minimapOverlay{position:absolute;inset:0;z-index:50;pointer-events:none;overflow:hidden}
             .${APP.id}-miniDot{position:absolute;width:8px;height:8px;transform:translate(-50%,-50%);box-sizing:border-box;border:2px solid #fff;border-radius:50%;background:var(--tp-marker-color);box-shadow:0 0 0 2px var(--tp-marker-color),0 0 5px #000}
+            .${APP.id}-mainOverlay{z-index:100!important}
+            .${APP.id}-mapPin{position:absolute;width:28px;height:28px;transform:translate(-50%,-50%);box-sizing:border-box;border:4px solid var(--tp-marker-color);border-radius:50%;background:#ffffff1f;box-shadow:0 0 0 2px #fff,0 0 9px 4px var(--tp-marker-color);animation:${APP.id}-pulse 1.35s ease-in-out infinite}
+            .${APP.id}-mapPin::after{content:attr(data-label);position:absolute;left:50%;bottom:30px;transform:translateX(-50%);padding:2px 4px;border:1px solid #fff;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:1px 1px #000;font:bold 10px Verdana;white-space:nowrap}
+            .${APP.id}-mapPin:not([data-label])::after{display:none}
+            @keyframes ${APP.id}-pulse{0%,100%{filter:brightness(1);transform:translate(-50%,-50%) scale(.9)}50%{filter:brightness(1.35);transform:translate(-50%,-50%) scale(1.12)}}
         `;
         document.head.appendChild(style);
     }
@@ -115,10 +128,32 @@
         const button = document.createElement("button");
         button.id = `${APP.id}-launcher`;
         button.type = "button";
-        button.textContent = "📍 Aldeias";
-        button.title = `${APP.title} v${APP.version}`;
+        button.title = APP.displayTitle;
+        button.setAttribute("aria-label", APP.displayTitle);
+        button.innerHTML = `<span class="${APP.id}-launcherIcon" aria-hidden="true"></span><span class="${APP.id}-launcherLabel">${escapeHtml(APP.displayTitle)}</span>`;
         button.addEventListener("click", openPanel);
         document.body.appendChild(button);
+        state.launcher = button;
+        setupLauncherPosition();
+    }
+
+    function setupLauncherPosition() {
+        const schedule = () => {
+            cancelAnimationFrame(state.launcherPositionFrame);
+            state.launcherPositionFrame = requestAnimationFrame(positionLauncher);
+        };
+        schedule();
+        addEventListener("resize", schedule, { passive: true });
+        setTimeout(positionLauncher, 250);
+        setTimeout(positionLauncher, 1000);
+    }
+
+    function positionLauncher() {
+        if (!state.launcher) return;
+        const layout = document.querySelector("#main_layout td.maincell,td.maincell,#contentContainer,#content_value");
+        if (!layout) return;
+        const rect = layout.getBoundingClientRect();
+        if (rect.width > 0) state.launcher.style.setProperty("left", `${Math.max(4, Math.round(rect.left - 55))}px`, "important");
     }
 
     function openPanel() {
@@ -208,8 +243,40 @@
     function refreshMarkers() {
         removeMarkers();
         if (!state.enabled || !state.coords.size) return;
+        markMainMapByGrid();
         markVillageElements();
         markPoliticalMap();
+    }
+
+    function markMainMapByGrid() {
+        const twMap = window.TWMap;
+        const map = twMap?.map;
+        const container = document.querySelector("#map");
+        if (!map || !container || !Array.isArray(map.pos) || typeof map.coordByPixel !== "function") return;
+        const tileX = Number(twMap.tileSize?.[0]) || 53;
+        const tileY = Number(twMap.tileSize?.[1]) || 38;
+        const columns = Number(twMap.size?.[0]) || Math.ceil(container.clientWidth / tileX) + 2;
+        const rows = Number(twMap.size?.[1]) || Math.ceil(container.clientHeight / tileY) + 2;
+        if (getComputedStyle(container).position === "static") container.style.position = "relative";
+        const overlay = document.createElement("div");
+        overlay.className = `${APP.id}-minimapOverlay ${APP.id}-mainOverlay`;
+        overlay.style.setProperty("--tp-marker-color", state.color);
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < columns; col++) {
+                const coord = map.coordByPixel(map.pos[0] + tileX * col, map.pos[1] + tileY * row);
+                if (!coord || !state.coords.has(`${coord[0]}|${coord[1]}`)) continue;
+                const village = twMap.villages?.[`${coord[0]}${coord[1]}`];
+                if (!village) continue;
+                const marker = document.createElement("span");
+                marker.className = `${APP.id}-mapPin`;
+                marker.style.left = `${col * tileX + tileX / 2}px`;
+                marker.style.top = `${row * tileY + tileY / 2}px`;
+                marker.title = `${coord[0]}|${coord[1]}`;
+                if (state.showLabels) marker.dataset.label = `${coord[0]}|${coord[1]}`;
+                overlay.appendChild(marker);
+            }
+        }
+        if (overlay.childElementCount) container.appendChild(overlay);
     }
 
     function removeMarkers() {
@@ -249,6 +316,7 @@
     function markPoliticalMap() {
         const container = findPoliticalMap();
         if (!container) return;
+        if (markPoliticalMapByGrid(container)) return;
         const bounds = politicalMapBounds(container);
         if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) return;
         if (getComputedStyle(container).position === "static") container.style.position = "relative";
@@ -265,6 +333,41 @@
             overlay.appendChild(dot);
         }
         if (overlay.childElementCount) container.appendChild(overlay);
+    }
+
+    function markPoliticalMapByGrid(container) {
+        const twMap = window.TWMap || {};
+        const candidates = [twMap.minimap, twMap.pmap, twMap.politicalMap, twMap.pmapHandler?.map].filter(Boolean);
+        for (const map of candidates) {
+            if (!Array.isArray(map.pos) || typeof map.coordByPixel !== "function") continue;
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            const found = new Map();
+            // Amostragem de 2 px: os campos do minimapa têm normalmente 4–6 px.
+            for (let py = 0; py <= height && found.size < state.coords.size; py += 2) {
+                for (let px = 0; px <= width && found.size < state.coords.size; px += 2) {
+                    const coord = map.coordByPixel(map.pos[0] + px, map.pos[1] + py);
+                    const key = coord && `${coord[0]}|${coord[1]}`;
+                    if (key && state.coords.has(key) && !found.has(key)) found.set(key, { px, py });
+                }
+            }
+            if (!found.size) continue;
+            if (getComputedStyle(container).position === "static") container.style.position = "relative";
+            const overlay = document.createElement("div");
+            overlay.className = `${APP.id}-minimapOverlay`;
+            overlay.style.setProperty("--tp-marker-color", state.color);
+            for (const [key, point] of found) {
+                const dot = document.createElement("span");
+                dot.className = `${APP.id}-miniDot`;
+                dot.title = key;
+                dot.style.left = `${point.px}px`;
+                dot.style.top = `${point.py}px`;
+                overlay.appendChild(dot);
+            }
+            container.appendChild(overlay);
+            return true;
+        }
+        return false;
     }
 
     function findPoliticalMap() {
