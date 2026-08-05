@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.1.0
+// @version      1.2.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.1.0",
+        version: "1.2.0",
         defaultColor: "#ff2d2d",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -93,7 +93,7 @@
     function injectStyles() {
         const style = document.createElement("style");
         style.textContent = `
-            #${APP.id}-launcher{position:fixed!important;top:476px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
+            #${APP.id}-launcher{position:fixed!important;top:446px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
             #${APP.id}-launcher:hover,#${APP.id}-launcher:focus-visible{width:390px!important;min-width:390px!important;gap:8px!important;padding:0 9px!important;background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
             .${APP.id}-launcherIcon{width:16px!important;height:16px!important;flex:0 0 16px!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
             .${APP.id}-launcherLabel{display:inline-block!important;max-width:0!important;opacity:0!important;overflow:hidden!important;transform:translateX(-4px)!important;white-space:nowrap!important;transition:max-width .18s ease,opacity .14s ease,transform .18s ease!important}
@@ -110,12 +110,19 @@
             #${APP.id}-panel button.tp-action{border:1px solid #653417;border-radius:3px;padding:6px 12px;background:#815026;color:#fff;font-weight:bold;cursor:pointer}
             #${APP.id}-panel button.tp-secondary{background:#eee0bd;color:#43230f}
             #${APP.id}-panel .tp-help{color:#67472f;font-size:11px;line-height:1.5}
+            .${APP.id}-native{box-sizing:border-box;width:590px;max-width:calc(100vw - 70px);padding:6px 8px 10px;color:#32190d;font:13px Verdana,Arial,sans-serif}
+            .${APP.id}-native textarea{width:100%;height:210px;resize:vertical;box-sizing:border-box;padding:8px;border:1px solid #804000;background:#fffdf6;font:13px Consolas,monospace}
+            .${APP.id}-native .tp-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0}
+            .${APP.id}-native .tp-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+            .${APP.id}-native button.tp-action{border:1px solid #653417;border-radius:3px;padding:6px 12px;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer;text-shadow:1px 1px #000}
+            .${APP.id}-native button.tp-secondary{background:linear-gradient(#fff6dd,#dfc99d);color:#43230f;text-shadow:none}
+            .${APP.id}-native .tp-help{margin-bottom:5px;color:#67472f;font-size:11px;line-height:1.5}
             .${APP.id}-marked{overflow:visible!important;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 4px var(--tp-marker-color))!important;outline:3px solid var(--tp-marker-color)!important;outline-offset:1px!important;border-radius:50%!important;z-index:20!important}
             .${APP.id}-badge{position:absolute;z-index:1000;pointer-events:none;transform:translate(-50%,-115%);padding:1px 3px;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:0 1px #000;font:bold 9px Arial;white-space:nowrap;box-shadow:0 1px 2px #0008}
             .${APP.id}-minimapOverlay{position:absolute;inset:0;z-index:50;pointer-events:none;overflow:hidden}
-            .${APP.id}-miniDot{position:absolute;width:8px;height:8px;transform:translate(-50%,-50%);box-sizing:border-box;border:2px solid #fff;border-radius:50%;background:var(--tp-marker-color);box-shadow:0 0 0 2px var(--tp-marker-color),0 0 5px #000}
+            .${APP.id}-miniDot{position:absolute;width:5px;height:5px;transform:translate(-50%,-50%);box-sizing:border-box;border:1px solid #fff;border-radius:50%;background:var(--tp-marker-color);box-shadow:0 0 0 1px var(--tp-marker-color),0 0 3px #000}
             .${APP.id}-mainOverlay{z-index:100!important}
-            .${APP.id}-mapPin{position:absolute;width:28px;height:28px;transform:translate(-50%,-50%);box-sizing:border-box;border:4px solid var(--tp-marker-color);border-radius:50%;background:#ffffff1f;box-shadow:0 0 0 2px #fff,0 0 9px 4px var(--tp-marker-color);animation:${APP.id}-pulse 1.35s ease-in-out infinite}
+            .${APP.id}-mapPin{position:absolute;width:16px;height:16px;transform:translate(-50%,-50%);box-sizing:border-box;border:3px solid var(--tp-marker-color);border-radius:50%;background:#ffffff1f;box-shadow:0 0 0 1px #fff,0 0 5px 2px var(--tp-marker-color)}
             .${APP.id}-mapPin::after{content:attr(data-label);position:absolute;left:50%;bottom:30px;transform:translateX(-50%);padding:2px 4px;border:1px solid #fff;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:1px 1px #000;font:bold 10px Verdana;white-space:nowrap}
             .${APP.id}-mapPin:not([data-label])::after{display:none}
             @keyframes ${APP.id}-pulse{0%,100%{filter:brightness(1);transform:translate(-50%,-50%) scale(.9)}50%{filter:brightness(1.35);transform:translate(-50%,-50%) scale(1.12)}}
@@ -157,14 +164,10 @@
     }
 
     function openPanel() {
-        state.panel?.remove();
-        const panel = document.createElement("div");
-        panel.id = `${APP.id}-panel`;
+        if (state.panel) closePanel();
         const coordinates = [...state.coords.values()].map(({ x, y }) => `${x}|${y}`).join("\n");
-        panel.innerHTML = `
-            <div class="tp-card" role="dialog" aria-modal="true" aria-labelledby="${APP.id}-title">
-                <div class="tp-head"><span id="${APP.id}-title">📍 ${APP.title}</span><button class="tp-close" title="Fechar">×</button></div>
-                <div class="tp-body">
+        const body = `
+            <div class="tp-body">
                     <div class="tp-help">Cola coordenadas em qualquer texto. São aceites, por exemplo, <b>500|500</b>, <b>500 500</b> e <b>500,500</b>. Repetidas são removidas automaticamente.</div>
                     <textarea spellcheck="false" placeholder="500|500\n501|502\n498|507">${escapeHtml(coordinates)}</textarea>
                     <div class="tp-row">
@@ -174,15 +177,25 @@
                         <strong class="tp-count">${state.coords.size} aldeia(s)</strong>
                     </div>
                     <div class="tp-actions"><button class="tp-action tp-secondary tp-clear">Limpar</button><button class="tp-action tp-save">Guardar e marcar</button></div>
-                </div>
             </div>`;
-        document.body.appendChild(panel);
+        const dialog = window.Dialog;
+        let panel;
+        if (dialog && typeof dialog.show === "function") {
+            dialog.show(`${APP.id}Dialog`, `<div id="${APP.id}-native" class="${APP.id}-native">${body}</div>`);
+            panel = document.getElementById(`${APP.id}-native`);
+        } else {
+            panel = document.createElement("div");
+            panel.id = `${APP.id}-panel`;
+            panel.innerHTML = `<div class="tp-card" role="dialog" aria-modal="true"><div class="tp-head"><span>📍 ${APP.title}</span><button class="tp-close" title="Fechar">×</button></div>${body}</div>`;
+            document.body.appendChild(panel);
+            panel.querySelector(".tp-close").addEventListener("click", closePanel);
+            panel.addEventListener("click", (event) => { if (event.target === panel) closePanel(); });
+        }
+        if (!panel) return;
         state.panel = panel;
         const textarea = panel.querySelector("textarea");
         const updateCount = () => panel.querySelector(".tp-count").textContent = `${parseCoordinates(textarea.value).size} aldeia(s)`;
         textarea.addEventListener("input", updateCount);
-        panel.querySelector(".tp-close").addEventListener("click", closePanel);
-        panel.addEventListener("click", (event) => { if (event.target === panel) closePanel(); });
         panel.querySelector(".tp-clear").addEventListener("click", () => { textarea.value = ""; updateCount(); });
         panel.querySelector(".tp-save").addEventListener("click", () => {
             setCoordinates(textarea.value);
@@ -198,7 +211,11 @@
     }
 
     function closePanel() {
-        state.panel?.remove();
+        if (window.Dialog && typeof window.Dialog.close === "function" && document.getElementById(`${APP.id}-native`)) {
+            window.Dialog.close(`${APP.id}Dialog`);
+        } else {
+            state.panel?.remove();
+        }
         state.panel = null;
     }
 
@@ -237,15 +254,40 @@
     function isOwnMarker(node) {
         return node.classList?.contains(`${APP.id}-badge`) ||
             node.classList?.contains(`${APP.id}-minimapOverlay`) ||
-            node.classList?.contains(`${APP.id}-miniDot`);
+            node.classList?.contains(`${APP.id}-miniDot`) ||
+            node.classList?.contains(`${APP.id}-mapPin`);
     }
 
     function refreshMarkers() {
         removeMarkers();
         if (!state.enabled || !state.coords.size) return;
-        markMainMapByGrid();
-        markVillageElements();
+        markMainMapAnchored();
         markPoliticalMap();
+    }
+
+    function markMainMapAnchored() {
+        const twMap = window.TWMap;
+        if (!twMap?.villages) return;
+        const tileX = Number(twMap.tileSize?.[0]) || 53;
+        const tileY = Number(twMap.tileSize?.[1]) || 38;
+        for (const { x, y } of state.coords.values()) {
+            const village = twMap.villages[`${x}${y}`];
+            const villageId = village?.id ?? village?.[0];
+            if (villageId == null) continue;
+            const image = document.getElementById(`map_village_${villageId}`);
+            if (!image?.parentElement) continue;
+            const left = Number.parseFloat(image.style.left);
+            const top = Number.parseFloat(image.style.top);
+            if (!Number.isFinite(left) || !Number.isFinite(top)) continue;
+            const marker = document.createElement("span");
+            marker.className = `${APP.id}-mapPin`;
+            marker.title = `${x}|${y}`;
+            marker.style.setProperty("--tp-marker-color", state.color);
+            marker.style.left = `${left + tileX / 2}px`;
+            marker.style.top = `${top + tileY / 2}px`;
+            if (state.showLabels) marker.dataset.label = `${x}|${y}`;
+            image.parentElement.appendChild(marker);
+        }
     }
 
     function markMainMapByGrid() {
@@ -281,7 +323,7 @@
 
     function removeMarkers() {
         document.querySelectorAll(`.${APP.id}-marked`).forEach((el) => el.classList.remove(`${APP.id}-marked`));
-        document.querySelectorAll(`.${APP.id}-badge,.${APP.id}-minimapOverlay`).forEach((el) => el.remove());
+        document.querySelectorAll(`.${APP.id}-badge,.${APP.id}-minimapOverlay,.${APP.id}-mapPin`).forEach((el) => el.remove());
     }
 
     function markVillageElements() {

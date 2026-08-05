@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.42
+// @version      1.0.43
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.42",
+        version: "1.0.43",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -618,6 +618,30 @@
                 inset: 0;
                 z-index: 90;
                 overflow: visible;
+                pointer-events: none;
+            }
+            .${APP.id}-minimap-layer {
+                position: absolute;
+                inset: 0;
+                z-index: 70;
+                overflow: hidden;
+                pointer-events: none;
+            }
+            .${APP.id}-minimap-dot {
+                --${APP.id}-marker-color: #d9152f;
+                --${APP.id}-marker-rgb: 217,21,47;
+                --${APP.id}-marker-bg-alpha: .95;
+                --${APP.id}-marker-glow: rgba(217,21,47,.95);
+                position: absolute;
+                z-index: 71;
+                width: 7px;
+                height: 7px;
+                box-sizing: border-box;
+                border: 1px solid #fff1b8;
+                border-radius: 50%;
+                background: rgba(var(--${APP.id}-marker-rgb), var(--${APP.id}-marker-bg-alpha));
+                box-shadow: 0 0 0 1px var(--${APP.id}-marker-color), 0 0 4px var(--${APP.id}-marker-glow), 0 1px 2px rgba(0,0,0,.75);
+                transform: translate(-50%, -50%);
                 pointer-events: none;
             }
             .${APP.id}-map-marker {
@@ -1450,8 +1474,9 @@
             const hours = Number(settings.hours || 24);
             const since = hours > 0 ? Math.floor(Date.now() / 1000) - hours * 3600 : 0;
             const conquerPath = buildConquerPath(hours, since);
+            const conquerKey = `${conquerPath}|since=${since}`;
             const mapExpired = Date.now() - state.mapsLoadedAt > APP.mapCacheMs;
-            const conquerExpired = Date.now() - state.conquestsLoadedAt > APP.conquerCacheMs || conquerPath !== state.lastConquerPath;
+            const conquerExpired = Date.now() - state.conquestsLoadedAt > APP.conquerCacheMs || conquerKey !== state.lastConquerPath;
 
             const mapPromise = forceMap || mapExpired || !state.maps.players.size
                 ? loadMaps(forceMap)
@@ -1462,7 +1487,7 @@
                 const conquerText = await fetchCachedText(`conquer:${conquerPath}`, conquerPath, APP.conquerCacheMs, forceConquer, false);
                 state.rows = parseConquests(conquerText, since);
                 state.conquestsLoadedAt = Date.now();
-                state.lastConquerPath = conquerPath;
+                state.lastConquerPath = conquerKey;
             }
 
             if (hasPanelControls()) render();
@@ -1494,7 +1519,7 @@
     }
 
     function buildConquerPath(hours, since) {
-        if (hours > 0 && hours <= 24) {
+        if (hours > 0 && hours < 24) {
             return `/interface.php?func=get_conquer&since=${since}`;
         }
         return "/map/conquer.txt";
@@ -1883,7 +1908,6 @@
         if (!markMapEnabled() || !state.rows.length) return;
 
         const root = findMapRoot();
-        if (!root) return;
 
         const rows = mapMarkerRows().slice().sort((a, b) => b.timestamp - a.timestamp);
         const latestByVillage = new Map();
@@ -1894,14 +1918,18 @@
 
         let marked = 0;
         const candidates = Array.from(latestByVillage.values()).slice(0, APP.mapMarkerSearchMax);
-        for (const row of candidates) {
-            if (markMapVillage(root, row)) marked += 1;
-            if (marked >= APP.mapMarkerMax) break;
+        if (root) {
+            for (const row of candidates) {
+                if (markMapVillage(root, row)) marked += 1;
+                if (marked >= APP.mapMarkerMax) break;
+            }
         }
+        markMiniMap(candidates);
     }
 
     function clearMapMarkers() {
         document.querySelectorAll(`.${APP.id}-map-layer`).forEach((node) => node.remove());
+        document.querySelectorAll(`.${APP.id}-minimap-layer`).forEach((node) => node.remove());
         document.querySelectorAll(`.${APP.id}-map-marker`).forEach((node) => node.remove());
         document.querySelectorAll(`.${APP.id}-map-marker-host`).forEach((node) => {
             const original = node.dataset ? node.dataset.tpconqPosition : undefined;
@@ -1940,6 +1968,139 @@
             || document.querySelector(".map_container")
             || document.getElementById("map"),
         );
+    }
+
+    function markMiniMap(rows) {
+        const container = findMiniMapContainer();
+        if (!container || !rows.length) return 0;
+        return markMiniMapByGrid(container, rows) || markMiniMapByBounds(container, rows);
+    }
+
+    function markMiniMapByGrid(container, rows) {
+        const rowByCoord = rowsByVillageCoord(rows);
+        if (!rowByCoord.size) return 0;
+
+        const twMap = window.TWMap || {};
+        const maps = [twMap.minimap, twMap.pmap, twMap.politicalMap, twMap.pmapHandler?.map].filter(Boolean);
+        for (const map of maps) {
+            if (!Array.isArray(map.pos) || typeof map.coordByPixel !== "function") continue;
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            if (width <= 30 || height <= 30) continue;
+
+            const found = new Map();
+            for (let py = 0; py <= height && found.size < rowByCoord.size && found.size < APP.mapMarkerMax; py += 2) {
+                for (let px = 0; px <= width && found.size < rowByCoord.size && found.size < APP.mapMarkerMax; px += 2) {
+                    const coord = map.coordByPixel(map.pos[0] + px, map.pos[1] + py);
+                    const key = coord && `${coord[0]}|${coord[1]}`;
+                    const row = key ? rowByCoord.get(key) : null;
+                    if (row && !found.has(key)) found.set(key, { px, py, row });
+                }
+            }
+            if (!found.size) continue;
+
+            const layer = ensureMiniMapLayer(container);
+            found.forEach((point) => addMiniMapDot(layer, point.row, `${point.px}px`, `${point.py}px`));
+            return found.size;
+        }
+        return 0;
+    }
+
+    function markMiniMapByBounds(container, rows) {
+        const bounds = miniMapBounds(container);
+        if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) return 0;
+
+        const layer = ensureMiniMapLayer(container);
+        let marked = 0;
+        for (const row of rows) {
+            if (marked >= APP.mapMarkerMax) break;
+            const x = Number(row.village && row.village.x);
+            const y = Number(row.village && row.village.y);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+            if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) continue;
+            addMiniMapDot(
+                layer,
+                row,
+                `${((x - bounds.minX) / (bounds.maxX - bounds.minX)) * 100}%`,
+                `${((y - bounds.minY) / (bounds.maxY - bounds.minY)) * 100}%`,
+            );
+            marked += 1;
+        }
+        if (!marked) layer.remove();
+        return marked;
+    }
+
+    function rowsByVillageCoord(rows) {
+        const rowByCoord = new Map();
+        rows.forEach((row) => {
+            const coords = row.village && row.village.coords;
+            if (coords && !rowByCoord.has(coords)) rowByCoord.set(coords, row);
+        });
+        return rowByCoord;
+    }
+
+    function findMiniMapContainer() {
+        const selectors = ["#minimap", "#politicalmap", "#pmap", "#minimap_container", ".minimap"];
+        return selectors
+            .map((selector) => document.querySelector(selector))
+            .find((node) => node && node.offsetWidth > 30 && node.offsetHeight > 30) || null;
+    }
+
+    function ensureMiniMapLayer(container) {
+        if (window.getComputedStyle(container).position === "static") container.style.position = "relative";
+        let layer = container.querySelector(`#${APP.id}-minimap-layer`);
+        if (!layer) {
+            layer = document.createElement("div");
+            layer.id = `${APP.id}-minimap-layer`;
+            layer.className = `${APP.id}-minimap-layer`;
+            container.appendChild(layer);
+        }
+        return layer;
+    }
+
+    function addMiniMapDot(layer, row, left, top) {
+        const dot = document.createElement("span");
+        dot.className = `${APP.id}-minimap-dot ${markerAgeClass(row)}`;
+        dot.title = `${row.village.name} (${row.village.coords}) - ${formatDateTime(row.date)} - ${markerAgeLabel(row)}`;
+        dot.style.left = left;
+        dot.style.top = top;
+        dot.style.setProperty(`--${APP.id}-marker-bg-alpha`, String(markerOpacityValue()));
+        layer.appendChild(dot);
+    }
+
+    function miniMapBounds(container) {
+        const twMap = window.TWMap || {};
+        const maps = [twMap.minimap, twMap.pmap, twMap.politicalMap, twMap.pmapHandler].filter(Boolean);
+        for (const map of maps) {
+            const pos = map.pos || map.position || map._pos;
+            const size = map.size || map.mapSize || map._size;
+            if (Array.isArray(pos) && Array.isArray(size) && size[0] > 0 && size[1] > 0) {
+                return { minX: +pos[0], minY: +pos[1], maxX: +pos[0] + +size[0], maxY: +pos[1] + +size[1] };
+            }
+            const minX = numberFrom(map, ["minX", "x", "startX"]);
+            const minY = numberFrom(map, ["minY", "y", "startY"]);
+            const maxX = numberFrom(map, ["maxX", "endX"]);
+            const maxY = numberFrom(map, ["maxY", "endY"]);
+            if ([minX, minY, maxX, maxY].every(Number.isFinite)) return { minX, minY, maxX, maxY };
+        }
+
+        const source = Array.from(container.querySelectorAll("img"))
+            .map((image) => image.currentSrc || image.src)
+            .find(Boolean) || window.getComputedStyle(container).backgroundImage;
+        const urlBounds = parseMiniMapUrl(source);
+        if (urlBounds) return urlBounds;
+
+        const map = twMap.map;
+        const pos = map && map.pos;
+        const tileSize = twMap.tileSize || (map && map.tileSize) || 53;
+        const tileX = Array.isArray(tileSize) ? Number(tileSize[0]) : Number(tileSize);
+        const tileY = Array.isArray(tileSize) ? Number(tileSize[1]) : Number(tileSize);
+        if (Array.isArray(pos) && tileX > 0 && tileY > 0) {
+            const visibleX = Math.max(1, (document.querySelector("#map")?.clientWidth || 795) / tileX);
+            const visibleY = Math.max(1, (document.querySelector("#map")?.clientHeight || 570) / tileY);
+            return { minX: pos[0] - visibleX * 1.5, minY: pos[1] - visibleY * 1.5, maxX: pos[0] + visibleX * 2.5, maxY: pos[1] + visibleY * 2.5 };
+        }
+        return null;
     }
 
     function normalizeMapOverlayRoot(root) {
@@ -2125,6 +2286,31 @@
 
     function cssAttr(value) {
         return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    }
+
+    function parseMiniMapUrl(source) {
+        const clean = String(source || "").replace(/^url\(["']?|["']?\)$/g, "");
+        try {
+            const url = new URL(clean, window.location.href);
+            const x = Number(url.searchParams.get("x"));
+            const y = Number(url.searchParams.get("y"));
+            const width = Number(url.searchParams.get("w") || url.searchParams.get("width"));
+            const height = Number(url.searchParams.get("h") || url.searchParams.get("height"));
+            if ([x, y, width, height].every(Number.isFinite) && width > 0 && height > 0) {
+                return { minX: x, minY: y, maxX: x + width, maxY: y + height };
+            }
+        } catch (_) {
+            // Some minimap backgrounds are not regular URLs.
+        }
+        return null;
+    }
+
+    function numberFrom(object, keys) {
+        for (const key of keys) {
+            const value = Number(object && object[key]);
+            if (Number.isFinite(value)) return value;
+        }
+        return NaN;
     }
 
     function renderSummary(rows) {
