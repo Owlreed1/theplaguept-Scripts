@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.29
+// @version      1.0.31
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -1935,10 +1935,7 @@
     }
 
     function obterContadorIncomings() {
-        const candidatos = [
-            ...document.querySelectorAll(SELETORES.contadorIncomings),
-            ...document.querySelectorAll(SELETORES.linkIncomings),
-        ];
+        const candidatos = [...document.querySelectorAll(SELETORES.contadorIncomings)];
 
         return candidatos.reduce((maior, elemento) => {
             const texto = elemento.textContent || elemento.getAttribute("title") || elemento.getAttribute("aria-label") || "";
@@ -1999,10 +1996,12 @@
             return;
         }
 
-        const elementos = [
-            ...document.querySelectorAll(SELETORES.contadorIncomings),
-            ...document.querySelectorAll(SELETORES.linkIncomings),
-        ];
+        const elementos = [...document.querySelectorAll(SELETORES.contadorIncomings)];
+        if (elementos.length === 0) {
+            log("Contador real de ataques nao encontrado; sem verificacoes automaticas nesta pagina.");
+            return;
+        }
+
         ultimoContadorObservado = obterContadorIncomings();
 
         const verificarAumento = () => {
@@ -2026,8 +2025,6 @@
                 childList: true,
                 characterData: true,
                 subtree: true,
-                attributes: true,
-                attributeFilter: ["title", "aria-label"],
             });
         });
     }
@@ -2101,9 +2098,10 @@
             ? "A etiquetar ataques em fundo, sem redirecionar a pagina atual."
             : "A verificar ataques em fundo, sem redirecionar a pagina atual.");
 
+        const timeoutLimpeza = modo === "detetar" ? 20_000 : 120_000;
         window.setTimeout(() => {
             iframe.remove();
-        }, 240_000);
+        }, timeoutLimpeza);
     }
 
     function notificarDetecaoIncomings(dados) {
@@ -2216,6 +2214,14 @@
             atualizarContadorBotao();
             atualizarAlertaNobreUI();
         });
+    }
+
+    function limparFrameFundoAntigo() {
+        if (estaEmFrame()) {
+            return;
+        }
+
+        document.querySelector(`#${FRAME_FUNDO_ID}`)?.remove();
     }
 
     function lerBooleanoPainel(nome, raiz = document) {
@@ -2926,7 +2932,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.29</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.31</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -3094,6 +3100,7 @@
     }
 
     function iniciar() {
+        limparFrameFundoAntigo();
         instalarListenerFrameFundo();
         instalarDesbloqueioAudio();
         criarPainel();
