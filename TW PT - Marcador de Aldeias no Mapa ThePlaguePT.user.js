@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.2.0
+// @version      1.3.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,8 +23,8 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.2.0",
-        defaultColor: "#ff2d2d",
+        version: "1.3.0",
+        defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
     };
@@ -93,7 +93,7 @@
     function injectStyles() {
         const style = document.createElement("style");
         style.textContent = `
-            #${APP.id}-launcher{position:fixed!important;top:446px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
+            #${APP.id}-launcher{position:fixed!important;top:432px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
             #${APP.id}-launcher:hover,#${APP.id}-launcher:focus-visible{width:390px!important;min-width:390px!important;gap:8px!important;padding:0 9px!important;background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
             .${APP.id}-launcherIcon{width:16px!important;height:16px!important;flex:0 0 16px!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
             .${APP.id}-launcherLabel{display:inline-block!important;max-width:0!important;opacity:0!important;overflow:hidden!important;transform:translateX(-4px)!important;white-space:nowrap!important;transition:max-width .18s ease,opacity .14s ease,transform .18s ease!important}
@@ -120,12 +120,12 @@
             .${APP.id}-marked{overflow:visible!important;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 4px var(--tp-marker-color))!important;outline:3px solid var(--tp-marker-color)!important;outline-offset:1px!important;border-radius:50%!important;z-index:20!important}
             .${APP.id}-badge{position:absolute;z-index:1000;pointer-events:none;transform:translate(-50%,-115%);padding:1px 3px;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:0 1px #000;font:bold 9px Arial;white-space:nowrap;box-shadow:0 1px 2px #0008}
             .${APP.id}-minimapOverlay{position:absolute;inset:0;z-index:50;pointer-events:none;overflow:hidden}
-            .${APP.id}-miniDot{position:absolute;width:5px;height:5px;transform:translate(-50%,-50%);box-sizing:border-box;border:1px solid #fff;border-radius:50%;background:var(--tp-marker-color);box-shadow:0 0 0 1px var(--tp-marker-color),0 0 3px #000}
+            .${APP.id}-miniDot{position:absolute;width:6px;height:6px;transform:translate(-50%,-90%) rotate(-45deg);box-sizing:border-box;border:1px solid #5f1713;border-radius:50% 50% 50% 0;background:var(--tp-marker-color);box-shadow:0 1px 1px #0008}
             .${APP.id}-mainOverlay{z-index:100!important}
-            .${APP.id}-mapPin{position:absolute;width:16px;height:16px;transform:translate(-50%,-50%);box-sizing:border-box;border:3px solid var(--tp-marker-color);border-radius:50%;background:#ffffff1f;box-shadow:0 0 0 1px #fff,0 0 5px 2px var(--tp-marker-color)}
-            .${APP.id}-mapPin::after{content:attr(data-label);position:absolute;left:50%;bottom:30px;transform:translateX(-50%);padding:2px 4px;border:1px solid #fff;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:1px 1px #000;font:bold 10px Verdana;white-space:nowrap}
-            .${APP.id}-mapPin:not([data-label])::after{display:none}
-            @keyframes ${APP.id}-pulse{0%,100%{filter:brightness(1);transform:translate(-50%,-50%) scale(.9)}50%{filter:brightness(1.35);transform:translate(-50%,-50%) scale(1.12)}}
+            .${APP.id}-mapPin{position:absolute;width:0;height:0;z-index:40;pointer-events:none;color:var(--tp-marker-color)}
+            .${APP.id}-pinIcon{position:absolute;left:0;bottom:0;width:15px;height:15px;box-sizing:border-box;transform:translateX(-50%) rotate(-45deg);transform-origin:50% 50%;border:1px solid #5f1713;border-radius:50% 50% 50% 0;background:currentColor;box-shadow:0 1px 2px #0009}
+            .${APP.id}-pinIcon::after{content:"";position:absolute;left:4px;top:4px;width:5px;height:5px;border-radius:50%;background:#f4dfb5;box-shadow:inset 0 0 0 1px #6a2b20}
+            .${APP.id}-pinLabel{position:absolute;left:0;bottom:19px;transform:translateX(-50%);padding:2px 4px;border:1px solid #612019;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:1px 1px #000;font:bold 10px Verdana;line-height:12px;white-space:nowrap;box-shadow:0 1px 2px #0008}
         `;
         document.head.appendChild(style);
     }
@@ -268,24 +268,24 @@
     function markMainMapAnchored() {
         const twMap = window.TWMap;
         if (!twMap?.villages) return;
-        const tileX = Number(twMap.tileSize?.[0]) || 53;
-        const tileY = Number(twMap.tileSize?.[1]) || 38;
         for (const { x, y } of state.coords.values()) {
             const village = twMap.villages[`${x}${y}`];
             const villageId = village?.id ?? village?.[0];
             if (villageId == null) continue;
             const image = document.getElementById(`map_village_${villageId}`);
             if (!image?.parentElement) continue;
-            const left = Number.parseFloat(image.style.left);
-            const top = Number.parseFloat(image.style.top);
-            if (!Number.isFinite(left) || !Number.isFinite(top)) continue;
+            const imageRect = image.getBoundingClientRect();
+            const parentRect = image.parentElement.getBoundingClientRect();
+            if (!imageRect.width || !imageRect.height) continue;
+            const left = imageRect.left - parentRect.left + imageRect.width / 2;
+            const top = imageRect.top - parentRect.top + imageRect.height / 2;
             const marker = document.createElement("span");
             marker.className = `${APP.id}-mapPin`;
             marker.title = `${x}|${y}`;
             marker.style.setProperty("--tp-marker-color", state.color);
-            marker.style.left = `${left + tileX / 2}px`;
-            marker.style.top = `${top + tileY / 2}px`;
-            if (state.showLabels) marker.dataset.label = `${x}|${y}`;
+            marker.style.left = `${left}px`;
+            marker.style.top = `${top}px`;
+            marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels ? `<b class="${APP.id}-pinLabel">${x}|${y}</b>` : ""}`;
             image.parentElement.appendChild(marker);
         }
     }
