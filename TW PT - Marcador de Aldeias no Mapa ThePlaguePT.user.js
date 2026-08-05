@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.5.0
+// @version      1.6.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.5.0",
+        version: "1.6.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -36,6 +36,10 @@
         color: APP.defaultColor,
         showLabels: true,
         enabled: true,
+        distance: 20,
+        zoneSize: 25,
+        zones: [],
+        ownVillages: null,
         observer: null,
         refreshTimer: 0,
         pendingMiniRefresh: false,
@@ -59,7 +63,12 @@
             state.color = /^#[0-9a-f]{6}$/i.test(saved.color) ? saved.color : APP.defaultColor;
             state.showLabels = saved.showLabels !== false;
             state.enabled = saved.enabled !== false;
+            state.distance = Math.max(1, Math.min(200, Number(saved.distance) || 20));
+            state.zoneSize = Number(saved.zoneSize) === 50 ? 50 : 25;
             setCoordinates(Array.isArray(saved.coords) ? saved.coords.map((item) => `${item.x}|${item.y}`) : []);
+            state.zones = Array.isArray(saved.zones) ? saved.zones.map((zone) =>
+                [...parseCoordinates((zone || []).map((item) => `${item.x}|${item.y}`)).values()]
+            ).filter((zone) => zone.length) : [];
         } catch (_) {
             // Uma preferência inválida nunca deve impedir o carregamento do mapa.
         }
@@ -71,6 +80,9 @@
             color: state.color,
             showLabels: state.showLabels,
             enabled: state.enabled,
+            distance: state.distance,
+            zoneSize: state.zoneSize,
+            zones: state.zones,
         }));
     }
 
@@ -89,6 +101,80 @@
 
     function setCoordinates(value) {
         state.coords = parseCoordinates(value);
+    }
+
+    function buildZones(coordinates, maximum) {
+        const zones = [];
+        const split = (items, groupCount = Math.ceil(items.length / maximum)) => {
+            if (groupCount <= 1 || items.length <= maximum) {
+                zones.push(items.slice().sort((a, b) => a.y - b.y || a.x - b.x));
+                return;
+            }
+            const xs = items.map((item) => item.x);
+            const ys = items.map((item) => item.y);
+            const useX = Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
+            const sorted = items.slice().sort((a, b) => useX ? a.x - b.x || a.y - b.y : a.y - b.y || a.x - b.x);
+            const leftGroups = Math.ceil(groupCount / 2);
+            const middle = Math.min(leftGroups * maximum, Math.round(sorted.length * leftGroups / groupCount));
+            split(sorted.slice(0, middle), leftGroups);
+            split(sorted.slice(middle), groupCount - leftGroups);
+        };
+        split(coordinates);
+        return zones.sort((a, b) => zoneCenter(a).y - zoneCenter(b).y || zoneCenter(a).x - zoneCenter(b).x);
+    }
+
+    function zoneCenter(zone) {
+        return {
+            x: zone.reduce((sum, item) => sum + item.x, 0) / zone.length,
+            y: zone.reduce((sum, item) => sum + item.y, 0) / zone.length,
+        };
+    }
+
+    function formatZones(zones) {
+        return zones.map((zone, index) =>
+            `ZONA ${index + 1} (${zone.length})\n${zone.map(({ x, y }) => `${x}|${y}`).join(" ")}`
+        ).join("\n\n");
+    }
+
+    function updateZonesOutput(panel) {
+        const output = panel.querySelector(`.${APP.id}-zonesOutput`);
+        if (!output) return;
+        output.value = formatZones(state.zones);
+        output.classList.toggle("tp-visible", Boolean(state.zones.length));
+    }
+
+    async function loadOwnVillages() {
+        if (state.ownVillages?.length) return state.ownVillages;
+        const playerId = Number(gd.player?.id);
+        if (!playerId) throw new Error("jogador não identificado");
+        const cacheKey = `${APP.id}:own:${world}:${playerId}`;
+        try {
+            const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
+            if (cached?.time > Date.now() - 6 * 60 * 60 * 1000 && Array.isArray(cached.villages)) {
+                state.ownVillages = cached.villages;
+                return state.ownVillages;
+            }
+        } catch (_) { /* cache inválida */ }
+        const response = await fetch(`${location.origin}/map/village.txt`, { credentials: "same-origin" });
+        if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
+        const text = await response.text();
+        state.ownVillages = text.split("\n").reduce((villages, line) => {
+            const fields = line.trim().split(",");
+            if (Number(fields[4]) === playerId) villages.push({ x: Number(fields[2]), y: Number(fields[3]) });
+            return villages;
+        }, []);
+        if (!state.ownVillages.length) throw new Error("nenhuma aldeia própria encontrada");
+        try { localStorage.setItem(cacheKey, JSON.stringify({ time: Date.now(), villages: state.ownVillages })); } catch (_) { /* cache cheia */ }
+        return state.ownVillages;
+    }
+
+    function zoneForCoordinate(x, y) {
+        return state.zones.findIndex((zone) => zone.some((item) => item.x === x && item.y === y));
+    }
+
+    function zoneColor(index) {
+        const colors = ["#b8322a", "#2767a8", "#b06b18", "#6d4398", "#267a55", "#9a356d", "#557b20", "#3e7180", "#8a512b", "#4b55a5", "#8a7521", "#7d3d3d"];
+        return index >= 0 ? colors[index % colors.length] : state.color;
     }
 
     function injectStyles() {
@@ -118,11 +204,21 @@
             .${APP.id}-native button.tp-action{border:1px solid #653417;border-radius:3px;padding:6px 12px;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer;text-shadow:1px 1px #000}
             .${APP.id}-native button.tp-secondary{background:linear-gradient(#fff6dd,#dfc99d);color:#43230f;text-shadow:none}
             .${APP.id}-native .tp-help{margin-bottom:5px;color:#67472f;font-size:11px;line-height:1.5}
+            .${APP.id}-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+            .${APP.id}-tool{border:1px solid #9a744b;background:#ead9b3;padding:7px}
+            .${APP.id}-toolTitle{display:block;margin-bottom:6px;color:#4b2411;font:bold 12px Verdana}
+            .${APP.id}-toolLine{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+            .${APP.id}-tool input[type="number"],.${APP.id}-tool select{height:25px;border:1px solid #80522d;background:#fffaf0}
+            .${APP.id}-tool input[type="number"]{width:58px}
+            .${APP.id}-tool button{height:26px;border:1px solid #603419;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer}
+            .${APP.id}-zonesOutput{display:none;width:100%;height:115px!important;margin-top:7px;background:#fffaf0!important}
+            .${APP.id}-zonesOutput.tp-visible{display:block}
             .${APP.id}-marked{overflow:visible!important;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 4px var(--tp-marker-color))!important;outline:3px solid var(--tp-marker-color)!important;outline-offset:1px!important;border-radius:50%!important;z-index:20!important}
             .${APP.id}-badge{position:absolute;z-index:1000;pointer-events:none;transform:translate(-50%,-115%);padding:1px 3px;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:0 1px #000;font:bold 9px Arial;white-space:nowrap;box-shadow:0 1px 2px #0008}
             .${APP.id}-minimapOverlay{position:absolute;inset:0;z-index:50;pointer-events:none;overflow:hidden}
             .${APP.id}-miniDot{position:absolute;width:9px;height:9px;transform:translate(-50%,-90%) rotate(-45deg);box-sizing:border-box;border:1px solid #4b1512;border-radius:50% 50% 50% 0;background:var(--tp-marker-color);box-shadow:0 1px 2px #000a}
             .${APP.id}-miniDot::after{content:"";position:absolute;left:2px;top:2px;width:3px;height:3px;border-radius:50%;background:#f3dfb5}
+            .${APP.id}-zoneBadge{position:absolute;z-index:4;transform:translate(-50%,-50%);display:grid;place-items:center;min-width:18px;height:18px;padding:0 2px;border:2px solid #fff;border-radius:50%;background:var(--tp-zone-color);color:#fff;text-shadow:1px 1px #000;font:bold 10px Verdana;box-shadow:0 1px 3px #000}
             .${APP.id}-mainOverlay{z-index:100!important}
             .${APP.id}-mapPin{position:absolute;width:0;height:0;z-index:40;pointer-events:none;color:var(--tp-marker-color)}
             .${APP.id}-pinIcon{position:absolute;left:0;bottom:0;width:15px;height:15px;box-sizing:border-box;transform:translateX(-50%) rotate(-45deg);transform-origin:50% 50%;border:1px solid #5f1713;border-radius:50% 50% 50% 0;background:currentColor;box-shadow:0 1px 2px #0009}
@@ -173,6 +269,17 @@
             <div class="tp-body">
                     <div class="tp-help">Cola coordenadas em qualquer texto. São aceites, por exemplo, <b>500|500</b>, <b>500 500</b> e <b>500,500</b>. Repetidas são removidas automaticamente.</div>
                     <textarea spellcheck="false" placeholder="500|500\n501|502\n498|507">${escapeHtml(coordinates)}</textarea>
+                    <div class="${APP.id}-tools">
+                        <div class="${APP.id}-tool">
+                            <span class="${APP.id}-toolTitle">Distância às minhas aldeias</span>
+                            <div class="${APP.id}-toolLine"><span>Máximo</span><input class="tp-distance" type="number" min="1" max="200" step="1" value="${state.distance}"><span>campos</span><button class="tp-filter" type="button">Filtrar lista</button></div>
+                        </div>
+                        <div class="${APP.id}-tool">
+                            <span class="${APP.id}-toolTitle">Zonas geográficas</span>
+                            <div class="${APP.id}-toolLine"><span>Máximo</span><select class="tp-zone-size"><option value="25" ${state.zoneSize === 25 ? "selected" : ""}>25 aldeias</option><option value="50" ${state.zoneSize === 50 ? "selected" : ""}>50 aldeias</option></select><button class="tp-zones" type="button">Criar zonas</button></div>
+                        </div>
+                    </div>
+                    <textarea class="${APP.id}-zonesOutput ${state.zones.length ? "tp-visible" : ""}" readonly spellcheck="false" placeholder="As zonas separadas aparecem aqui.">${escapeHtml(formatZones(state.zones))}</textarea>
                     <div class="tp-row">
                         <label>Cor <input class="tp-color" type="color" value="${state.color}"></label>
                         <label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label>
@@ -198,13 +305,55 @@
         state.panel = panel;
         const textarea = panel.querySelector("textarea");
         const updateCount = () => panel.querySelector(".tp-count").textContent = `${parseCoordinates(textarea.value).size} aldeia(s)`;
-        textarea.addEventListener("input", updateCount);
+        textarea.addEventListener("input", () => {
+            state.zones = [];
+            updateZonesOutput(panel);
+            updateCount();
+        });
         panel.querySelector(".tp-clear").addEventListener("click", () => { textarea.value = ""; updateCount(); });
+        panel.querySelector(".tp-filter").addEventListener("click", async (event) => {
+            const button = event.currentTarget;
+            const distance = Math.max(1, Math.min(200, Number(panel.querySelector(".tp-distance").value) || 20));
+            const candidates = [...parseCoordinates(textarea.value).values()];
+            if (!candidates.length) return notify("Não existem coordenadas para filtrar.");
+            button.disabled = true;
+            button.textContent = "A carregar…";
+            try {
+                const own = await loadOwnVillages();
+                const maxSquared = distance * distance;
+                const filtered = candidates.filter((target) => own.some((village) => {
+                    const dx = target.x - village.x;
+                    const dy = target.y - village.y;
+                    return dx * dx + dy * dy <= maxSquared;
+                }));
+                textarea.value = filtered.map(({ x, y }) => `${x}|${y}`).join("\n");
+                state.distance = distance;
+                state.zones = [];
+                updateZonesOutput(panel);
+                updateCount();
+                notify(`${filtered.length} de ${candidates.length} aldeias estão a até ${distance} campos.`);
+            } catch (error) {
+                notify(`Não foi possível carregar as tuas aldeias: ${error.message}`);
+            } finally {
+                button.disabled = false;
+                button.textContent = "Filtrar lista";
+            }
+        });
+        panel.querySelector(".tp-zones").addEventListener("click", () => {
+            const coordinatesToGroup = [...parseCoordinates(textarea.value).values()];
+            if (!coordinatesToGroup.length) return notify("Não existem coordenadas para agrupar.");
+            state.zoneSize = Number(panel.querySelector(".tp-zone-size").value) === 50 ? 50 : 25;
+            state.zones = buildZones(coordinatesToGroup, state.zoneSize);
+            updateZonesOutput(panel);
+            notify(`${state.zones.length} zona(s) criada(s).`);
+        });
         panel.querySelector(".tp-save").addEventListener("click", () => {
             setCoordinates(textarea.value);
             state.color = panel.querySelector(".tp-color").value;
             state.showLabels = panel.querySelector(".tp-labels").checked;
             state.enabled = panel.querySelector(".tp-enabled").checked;
+            state.distance = Math.max(1, Math.min(200, Number(panel.querySelector(".tp-distance").value) || 20));
+            state.zoneSize = Number(panel.querySelector(".tp-zone-size").value) === 50 ? 50 : 25;
             save();
             refreshMarkers();
             closePanel();
@@ -298,7 +447,7 @@
             const marker = document.createElement("span");
             marker.className = `${APP.id}-mapPin`;
             marker.title = `${x}|${y}`;
-            marker.style.setProperty("--tp-marker-color", state.color);
+            marker.style.setProperty("--tp-marker-color", zoneColor(zoneForCoordinate(x, y)));
             marker.style.left = `${left}px`;
             marker.style.top = `${top}px`;
             marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels ? `<b class="${APP.id}-pinLabel">${x}|${y}</b>` : ""}`;
@@ -387,10 +536,23 @@
             const dot = document.createElement("span");
             dot.className = `${APP.id}-miniDot`;
             dot.title = `${x}|${y}`;
+            dot.style.setProperty("--tp-marker-color", zoneColor(zoneForCoordinate(x, y)));
             dot.style.left = `${((x - bounds.minX) / (bounds.maxX - bounds.minX)) * 100}%`;
             dot.style.top = `${((y - bounds.minY) / (bounds.maxY - bounds.minY)) * 100}%`;
             overlay.appendChild(dot);
         }
+        state.zones.forEach((zone, index) => {
+            const center = zoneCenter(zone);
+            if (center.x < bounds.minX || center.x > bounds.maxX || center.y < bounds.minY || center.y > bounds.maxY) return;
+            const badge = document.createElement("span");
+            badge.className = `${APP.id}-zoneBadge`;
+            badge.textContent = String(index + 1);
+            badge.title = `Zona ${index + 1} (${zone.length} aldeias)`;
+            badge.style.setProperty("--tp-zone-color", zoneColor(index));
+            badge.style.left = `${((center.x - bounds.minX) / (bounds.maxX - bounds.minX)) * 100}%`;
+            badge.style.top = `${((center.y - bounds.minY) / (bounds.maxY - bounds.minY)) * 100}%`;
+            overlay.appendChild(badge);
+        });
         if (overlay.childElementCount) container.appendChild(overlay);
     }
 
@@ -422,13 +584,34 @@
             const overlay = document.createElement("div");
             overlay.className = `${APP.id}-minimapOverlay`;
             overlay.style.setProperty("--tp-marker-color", state.color);
+            const zonePoints = new Map();
             for (const [key, area] of found) {
                 const dot = document.createElement("span");
                 dot.className = `${APP.id}-miniDot`;
                 dot.title = key;
-                dot.style.left = `${(area.minX + area.maxX) / 2}px`;
-                dot.style.top = `${(area.minY + area.maxY) / 2}px`;
+                const centerX = (area.minX + area.maxX) / 2;
+                const centerY = (area.minY + area.maxY) / 2;
+                const [x, y] = key.split("|").map(Number);
+                const zoneIndex = zoneForCoordinate(x, y);
+                dot.style.setProperty("--tp-marker-color", zoneColor(zoneIndex));
+                dot.style.left = `${centerX}px`;
+                dot.style.top = `${centerY}px`;
                 overlay.appendChild(dot);
+                if (zoneIndex >= 0) {
+                    const points = zonePoints.get(zoneIndex) || [];
+                    points.push({ x: centerX, y: centerY });
+                    zonePoints.set(zoneIndex, points);
+                }
+            }
+            for (const [zoneIndex, points] of zonePoints) {
+                const badge = document.createElement("span");
+                badge.className = `${APP.id}-zoneBadge`;
+                badge.textContent = String(zoneIndex + 1);
+                badge.title = `Zona ${zoneIndex + 1} (${state.zones[zoneIndex].length} aldeias)`;
+                badge.style.setProperty("--tp-zone-color", zoneColor(zoneIndex));
+                badge.style.left = `${points.reduce((sum, point) => sum + point.x, 0) / points.length}px`;
+                badge.style.top = `${points.reduce((sum, point) => sum + point.y, 0) / points.length}px`;
+                overlay.appendChild(badge);
             }
             container.appendChild(overlay);
             return true;
