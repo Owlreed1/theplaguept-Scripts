@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.26
+// @version      1.0.29
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -42,8 +42,10 @@
         formatoContagem: "{nome} [{grupo} {pos}/{total}]",
         atrasoIncomingsMinMs: 1_000,
         atrasoIncomingsMaxMs: 3_000,
-        atrasoGlobalMinMs: 3_000,
-        atrasoGlobalMaxMs: 8_000,
+        atrasoGlobalMinMs: 8_000,
+        atrasoGlobalMaxMs: 15_000,
+        esperaLoteAtaquesMinMs: 60_000,
+        esperaLoteAtaquesMaxMs: 60_000,
         intervaloEdicaoMinMs: 800,
         intervaloEdicaoMaxMs: 2_000,
         pausaLoteQuantidade: 8,
@@ -173,14 +175,12 @@
     let config = carregarConfig();
     let estado = carregarEstado();
     let execucaoEmCurso = false;
-    let verificacaoAgendada = false;
-    let verificacaoTimer = 0;
-    let monitorWorker = null;
     let posicionamentoBotaoFrame = 0;
     let posicaoBotaoLeft = null;
     let posicaoBotaoBloqueada = false;
     let ultimoContadorObservado = null;
     let verificacaoContadorTimer = 0;
+    let etiquetagemLoteTimer = 0;
     let audioDesbloqueado = false;
     const audios = new Map();
     let filaSons = [];
@@ -205,9 +205,18 @@
                 (carregado.atrasoGlobalMinMs === 60_000 && carregado.atrasoGlobalMaxMs === 180_000)
                 || (carregado.atrasoGlobalMinMs === 30_000 && carregado.atrasoGlobalMaxMs === 90_000)
                 || (carregado.atrasoGlobalMinMs === 10_000 && carregado.atrasoGlobalMaxMs === 25_000)
+                || (carregado.atrasoGlobalMinMs === 3_000 && carregado.atrasoGlobalMaxMs === 8_000)
             ) {
                 carregado.atrasoGlobalMinMs = CONFIG_PADRAO.atrasoGlobalMinMs;
                 carregado.atrasoGlobalMaxMs = CONFIG_PADRAO.atrasoGlobalMaxMs;
+            }
+
+            if (
+                carregado.esperaLoteAtaquesMinMs === 8_000
+                && carregado.esperaLoteAtaquesMaxMs === 14_000
+            ) {
+                carregado.esperaLoteAtaquesMinMs = CONFIG_PADRAO.esperaLoteAtaquesMinMs;
+                carregado.esperaLoteAtaquesMaxMs = CONFIG_PADRAO.esperaLoteAtaquesMaxMs;
             }
 
             carregado.recarregarAoTerminar = false;
@@ -331,6 +340,10 @@
 
     function randomPaginaIncomings() {
         return randomEntre(config.atrasoIncomingsMinMs, config.atrasoIncomingsMaxMs);
+    }
+
+    function randomEsperaLoteAtaques() {
+        return randomEntre(config.esperaLoteAtaquesMinMs, config.esperaLoteAtaquesMaxMs);
     }
 
     function randomEdicao() {
@@ -1814,9 +1827,6 @@
                 if (paginaComVerificacaoManual()) {
                     log("Verificacao manual detetada; estado dos ataques preservado.");
                     notificarProcessamentoConcluido();
-                    if (!estaEmFrame()) {
-                        agendarVerificacaoGlobal();
-                    }
                     return;
                 }
 
@@ -1824,9 +1834,6 @@
                 atualizarEstadoSemIncomings();
                 log("Consulta concluida sem ataques a chegar.");
                 notificarProcessamentoConcluido();
-                if (!estaEmFrame()) {
-                    agendarVerificacaoGlobal();
-                }
                 return;
             }
 
@@ -1910,18 +1917,12 @@
                 if (!etiquetaEnviada) {
                     limparComandosPendentes();
                     log("Nao foi possivel submeter a etiqueta automaticamente.");
-                    if (!estaEmFrame()) {
-                        agendarVerificacaoGlobal();
-                    }
                 }
                 return;
             } else {
                 atualizarEstadoIncomings(linhas);
                 log("Todos os comandos conhecidos estao tratados. A pagina visivel permanece parada.");
                 notificarProcessamentoConcluido();
-                if (!estaEmFrame()) {
-                    agendarVerificacaoGlobal();
-                }
             }
         } finally {
             execucaoEmCurso = false;
@@ -1978,6 +1979,21 @@
         );
     }
 
+    function agendarEtiquetagemEmLote(motivo = "novo ataque") {
+        if (!config.ativo || estaEmFrame()) {
+            return;
+        }
+
+        window.clearTimeout(etiquetagemLoteTimer);
+        const atraso = randomEsperaLoteAtaques();
+        log(`${motivo}: a aguardar ${formatarTempo(atraso)} para juntar ataques do mesmo lote.`);
+
+        etiquetagemLoteTimer = window.setTimeout(() => {
+            etiquetagemLoteTimer = 0;
+            processarIncomingsEmFundo(true, "etiquetar");
+        }, atraso);
+    }
+
     function instalarObservadorContador() {
         if (estaEmFrame()) {
             return;
@@ -1998,8 +2014,8 @@
                 atualizarContadorBotao();
 
                 if (config.ativo && totalAtual > totalAnterior) {
-                    log(`Contador aumentou de ${totalAnterior} para ${totalAtual}. Verificacao imediata.`);
-                    processarIncomingsEmFundo(true);
+                    log(`Contador aumentou de ${totalAnterior} para ${totalAtual}.`);
+                    processarIncomingsEmFundo(true, "detetar");
                 }
             }, 150);
         };
@@ -2021,19 +2037,30 @@
             return;
         }
 
-        processarIncomingsEmFundo(true);
+        processarIncomingsEmFundo(true, "etiquetar");
     }
 
-    function obterUrlIncomings() {
+    function obterModoFrameIncomings() {
+        if (!estaEmFrame()) {
+            return "";
+        }
+
+        return window.location.hash === "#ti-etiquetador-detetar"
+            ? "detetar"
+            : (window.location.hash === "#ti-etiquetador-etiquetar" ? "etiquetar" : "");
+    }
+
+    function obterUrlIncomings(modo = "detetar") {
         const link = document.querySelector(SELETORES.linkIncomings);
         const url = new URL(link?.href || window.location.href, window.location.href);
         url.searchParams.set("screen", "overview_villages");
         url.searchParams.set("mode", "incomings");
         url.searchParams.set("page", "-1");
+        url.hash = `ti-etiquetador-${modo}`;
         return url.toString();
     }
 
-    function processarIncomingsEmFundo(forcarFrame = false) {
+    function processarIncomingsEmFundo(forcarFrame = false, modo = "detetar") {
         if (paginaDeIncomings() && !forcarFrame) {
             etiquetarIncomings();
             return;
@@ -2045,13 +2072,18 @@
 
         const existente = document.querySelector(`#${FRAME_FUNDO_ID}`);
         if (existente) {
-            log("Processamento em fundo ja esta aberto.");
-            return;
+            if (modo === "etiquetar" && existente.dataset.tiModo === "detetar") {
+                existente.remove();
+            } else {
+                log("Processamento em fundo ja esta aberto.");
+                return;
+            }
         }
 
         const iframe = document.createElement("iframe");
         iframe.id = FRAME_FUNDO_ID;
-        iframe.src = obterUrlIncomings();
+        iframe.dataset.tiModo = modo;
+        iframe.src = obterUrlIncomings(modo);
         iframe.title = "TW PT - Etiquetador de Ataques ThePlaguePT";
         iframe.style.cssText = [
             "position:absolute",
@@ -2065,11 +2097,65 @@
         ].join(";");
         document.body.appendChild(iframe);
 
-        log("A consultar ataques em fundo, sem redirecionar a pagina atual.");
+        log(modo === "etiquetar"
+            ? "A etiquetar ataques em fundo, sem redirecionar a pagina atual."
+            : "A verificar ataques em fundo, sem redirecionar a pagina atual.");
 
         window.setTimeout(() => {
             iframe.remove();
         }, 240_000);
+    }
+
+    function notificarDetecaoIncomings(dados) {
+        if (!estaEmFrame()) {
+            return;
+        }
+
+        window.parent.postMessage({
+            tipo: "tag-incomings-pt-detecao",
+            ...dados,
+        }, window.location.origin);
+    }
+
+    async function detetarIncomingsEmFrame() {
+        if (execucaoEmCurso) {
+            return;
+        }
+
+        execucaoEmCurso = true;
+
+        try {
+            sincronizarEstado();
+            await esperarTabelaIncomings();
+
+            const tabela = document.querySelector(SELETORES.tabela);
+            if (!tabela) {
+                if (!paginaComVerificacaoManual()) {
+                    sincronizarComandosConhecidos([]);
+                    atualizarEstadoSemIncomings();
+                }
+                notificarDetecaoIncomings({ total: 0, novos: 0, porTratar: 0, cancelados: 0 });
+                return;
+            }
+
+            const linhas = obterLinhasValidas();
+            const avisadosAntes = new Set(estado.comandosAvisadosAtaque || []);
+            const cancelados = sincronizarComandosConhecidos(linhas);
+            const novos = linhas.filter((linha) => !avisadosAntes.has(obterIdComando(linha))).length;
+            avisarNovosAtaques(linhas);
+            atualizarEstadoIncomings(linhas);
+            const porTratar = linhas.filter((linha) => !linhaJaEstaEtiquetada(linha)).length;
+
+            notificarDetecaoIncomings({
+                total: linhas.length,
+                novos,
+                porTratar,
+                cancelados,
+            });
+        } finally {
+            execucaoEmCurso = false;
+            notificarProcessamentoConcluido();
+        }
     }
 
     function notificarProcessamentoConcluido() {
@@ -2100,6 +2186,17 @@
                 return;
             }
 
+            if (evento.data?.tipo === "tag-incomings-pt-detecao") {
+                sincronizarEstado();
+                atualizarContadorBotao();
+                ultimoContadorObservado = Number(evento.data.total) || ultimoContadorObservado;
+
+                if ((Number(evento.data.novos) || 0) > 0 && (Number(evento.data.porTratar) || 0) > 0) {
+                    agendarEtiquetagemEmLote(`${evento.data.novos} novo(s) ataque(s) detetado(s)`);
+                }
+                return;
+            }
+
             if (evento.data?.tipo !== "tag-incomings-pt-concluido") {
                 return;
             }
@@ -2119,76 +2216,6 @@
             atualizarContadorBotao();
             atualizarAlertaNobreUI();
         });
-    }
-
-    function executarVerificacaoGlobal() {
-        verificacaoAgendada = false;
-        verificacaoTimer = 0;
-        processarIncomingsEmFundo(true);
-        agendarVerificacaoGlobal();
-    }
-
-    function obterMonitorWorker() {
-        if (monitorWorker !== null) {
-            return monitorWorker || null;
-        }
-
-        if (!window.Worker || !window.Blob || !window.URL?.createObjectURL) {
-            monitorWorker = false;
-            return null;
-        }
-
-        try {
-            const codigo = `
-                let timer = 0;
-                self.onmessage = (evento) => {
-                    if (evento.data?.tipo !== "agendar") return;
-                    clearTimeout(timer);
-                    timer = setTimeout(
-                        () => self.postMessage({ tipo: "verificar" }),
-                        Math.max(1000, Number(evento.data.atraso) || 1000)
-                    );
-                };
-            `;
-            const url = window.URL.createObjectURL(new Blob([codigo], { type: "text/javascript" }));
-            monitorWorker = new Worker(url);
-            window.URL.revokeObjectURL(url);
-            monitorWorker.addEventListener("message", (evento) => {
-                if (evento.data?.tipo === "verificar") {
-                    executarVerificacaoGlobal();
-                }
-            });
-            monitorWorker.addEventListener("error", () => {
-                monitorWorker?.terminate?.();
-                monitorWorker = false;
-                if (verificacaoAgendada && !verificacaoTimer) {
-                    verificacaoTimer = window.setTimeout(executarVerificacaoGlobal, 1_000);
-                }
-            });
-        } catch (erro) {
-            log("Web Worker indisponivel; a usar temporizador normal.", erro);
-            monitorWorker = false;
-        }
-
-        return monitorWorker || null;
-    }
-
-    function agendarVerificacaoGlobal() {
-        if (verificacaoAgendada) {
-            return;
-        }
-
-        verificacaoAgendada = true;
-        const atraso = randomGlobal();
-        log(`Monitor de novos ataques em ${formatarTempo(atraso)}.`);
-
-        const worker = obterMonitorWorker();
-        if (worker) {
-            worker.postMessage({ tipo: "agendar", atraso });
-            return;
-        }
-
-        verificacaoTimer = window.setTimeout(executarVerificacaoGlobal, atraso);
     }
 
     function lerBooleanoPainel(nome, raiz = document) {
@@ -2899,7 +2926,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.26</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.29</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -3078,6 +3105,11 @@
         }
 
         if (paginaDeIncomings()) {
+            if (obterModoFrameIncomings() === "detetar") {
+                detetarIncomingsEmFrame();
+                return;
+            }
+
             const atraso = randomPaginaIncomings();
             log(`Pagina de incomings detectada. Execucao em ${formatarTempo(atraso)}.`);
             window.setTimeout(etiquetarIncomings, atraso);
@@ -3088,10 +3120,8 @@
             return;
         }
 
-        const atrasoInicial = randomPaginaIncomings();
-        log(`Primeira consulta de ataques em ${formatarTempo(atrasoInicial)}.`);
-        window.setTimeout(() => processarIncomingsEmFundo(true), atrasoInicial);
-        agendarVerificacaoGlobal();
+        atualizarContadorBotao();
+        log("A aguardar aumento real do contador de ataques.");
     }
 
     iniciar();
