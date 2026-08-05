@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.3.0
+// @version      1.4.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.3.0",
+        version: "1.4.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -93,7 +93,7 @@
     function injectStyles() {
         const style = document.createElement("style");
         style.textContent = `
-            #${APP.id}-launcher{position:fixed!important;top:432px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
+            #${APP.id}-launcher{position:fixed!important;top:431px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
             #${APP.id}-launcher:hover,#${APP.id}-launcher:focus-visible{width:390px!important;min-width:390px!important;gap:8px!important;padding:0 9px!important;background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
             .${APP.id}-launcherIcon{width:16px!important;height:16px!important;flex:0 0 16px!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
             .${APP.id}-launcherLabel{display:inline-block!important;max-width:0!important;opacity:0!important;overflow:hidden!important;transform:translateX(-4px)!important;white-space:nowrap!important;transition:max-width .18s ease,opacity .14s ease,transform .18s ease!important}
@@ -120,12 +120,14 @@
             .${APP.id}-marked{overflow:visible!important;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 4px var(--tp-marker-color))!important;outline:3px solid var(--tp-marker-color)!important;outline-offset:1px!important;border-radius:50%!important;z-index:20!important}
             .${APP.id}-badge{position:absolute;z-index:1000;pointer-events:none;transform:translate(-50%,-115%);padding:1px 3px;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:0 1px #000;font:bold 9px Arial;white-space:nowrap;box-shadow:0 1px 2px #0008}
             .${APP.id}-minimapOverlay{position:absolute;inset:0;z-index:50;pointer-events:none;overflow:hidden}
-            .${APP.id}-miniDot{position:absolute;width:6px;height:6px;transform:translate(-50%,-90%) rotate(-45deg);box-sizing:border-box;border:1px solid #5f1713;border-radius:50% 50% 50% 0;background:var(--tp-marker-color);box-shadow:0 1px 1px #0008}
+            .${APP.id}-miniDot{position:absolute;width:9px;height:9px;transform:translate(-50%,-90%) rotate(-45deg);box-sizing:border-box;border:1px solid #4b1512;border-radius:50% 50% 50% 0;background:var(--tp-marker-color);box-shadow:0 1px 2px #000a}
+            .${APP.id}-miniDot::after{content:"";position:absolute;left:2px;top:2px;width:3px;height:3px;border-radius:50%;background:#f3dfb5}
             .${APP.id}-mainOverlay{z-index:100!important}
             .${APP.id}-mapPin{position:absolute;width:0;height:0;z-index:40;pointer-events:none;color:var(--tp-marker-color)}
             .${APP.id}-pinIcon{position:absolute;left:0;bottom:0;width:15px;height:15px;box-sizing:border-box;transform:translateX(-50%) rotate(-45deg);transform-origin:50% 50%;border:1px solid #5f1713;border-radius:50% 50% 50% 0;background:currentColor;box-shadow:0 1px 2px #0009}
             .${APP.id}-pinIcon::after{content:"";position:absolute;left:4px;top:4px;width:5px;height:5px;border-radius:50%;background:#f4dfb5;box-shadow:inset 0 0 0 1px #6a2b20}
-            .${APP.id}-pinLabel{position:absolute;left:0;bottom:19px;transform:translateX(-50%);padding:2px 4px;border:1px solid #612019;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:1px 1px #000;font:bold 10px Verdana;line-height:12px;white-space:nowrap;box-shadow:0 1px 2px #0008}
+            .${APP.id}-pinLabel{position:absolute;left:0;bottom:20px;transform:translateX(-50%);padding:2px 5px 3px;border:2px solid var(--tp-marker-color);border-radius:3px;background:#f7e9c7;color:#35180d;text-shadow:0 1px #fff;font:bold 10px Consolas,"Courier New",monospace;line-height:11px;letter-spacing:.2px;white-space:nowrap;box-shadow:0 1px 3px #0009}
+            .${APP.id}-pinLabel::after{content:"";position:absolute;left:50%;bottom:-5px;width:6px;height:6px;transform:translateX(-50%) rotate(45deg);border-right:2px solid var(--tp-marker-color);border-bottom:2px solid var(--tp-marker-color);background:#f7e9c7}
         `;
         document.head.appendChild(style);
     }
@@ -248,7 +250,7 @@
 
     function scheduleRefresh() {
         clearTimeout(state.refreshTimer);
-        state.refreshTimer = setTimeout(refreshMarkers, 80);
+        state.refreshTimer = setTimeout(() => refreshMarkers(false), 16);
     }
 
     function isOwnMarker(node) {
@@ -258,11 +260,11 @@
             node.classList?.contains(`${APP.id}-mapPin`);
     }
 
-    function refreshMarkers() {
-        removeMarkers();
+    function refreshMarkers(refreshMiniMap = true) {
+        removeMarkers(refreshMiniMap);
         if (!state.enabled || !state.coords.size) return;
         markMainMapAnchored();
-        markPoliticalMap();
+        if (refreshMiniMap) markPoliticalMap();
     }
 
     function markMainMapAnchored() {
@@ -321,9 +323,10 @@
         if (overlay.childElementCount) container.appendChild(overlay);
     }
 
-    function removeMarkers() {
+    function removeMarkers(includeMiniMap = true) {
         document.querySelectorAll(`.${APP.id}-marked`).forEach((el) => el.classList.remove(`${APP.id}-marked`));
-        document.querySelectorAll(`.${APP.id}-badge,.${APP.id}-minimapOverlay,.${APP.id}-mapPin`).forEach((el) => el.remove());
+        document.querySelectorAll(`.${APP.id}-badge,.${APP.id}-mapPin`).forEach((el) => el.remove());
+        if (includeMiniMap) document.querySelectorAll(`.${APP.id}-minimapOverlay`).forEach((el) => el.remove());
     }
 
     function markVillageElements() {
@@ -385,12 +388,19 @@
             const width = container.clientWidth;
             const height = container.clientHeight;
             const found = new Map();
-            // Amostragem de 2 px: os campos do minimapa têm normalmente 4–6 px.
-            for (let py = 0; py <= height && found.size < state.coords.size; py += 2) {
-                for (let px = 0; px <= width && found.size < state.coords.size; px += 2) {
+            // Mede toda a célula para colocar o pin no centro, não no primeiro píxel encontrado.
+            for (let py = 0; py <= height; py += 1) {
+                for (let px = 0; px <= width; px += 1) {
                     const coord = map.coordByPixel(map.pos[0] + px, map.pos[1] + py);
                     const key = coord && `${coord[0]}|${coord[1]}`;
-                    if (key && state.coords.has(key) && !found.has(key)) found.set(key, { px, py });
+                    if (!key || !state.coords.has(key)) continue;
+                    const area = found.get(key);
+                    if (area) {
+                        area.maxX = px;
+                        area.maxY = py;
+                    } else {
+                        found.set(key, { minX: px, minY: py, maxX: px, maxY: py });
+                    }
                 }
             }
             if (!found.size) continue;
@@ -398,12 +408,12 @@
             const overlay = document.createElement("div");
             overlay.className = `${APP.id}-minimapOverlay`;
             overlay.style.setProperty("--tp-marker-color", state.color);
-            for (const [key, point] of found) {
+            for (const [key, area] of found) {
                 const dot = document.createElement("span");
                 dot.className = `${APP.id}-miniDot`;
                 dot.title = key;
-                dot.style.left = `${point.px}px`;
-                dot.style.top = `${point.py}px`;
+                dot.style.left = `${(area.minX + area.maxX) / 2}px`;
+                dot.style.top = `${(area.minY + area.maxY) / 2}px`;
                 overlay.appendChild(dot);
             }
             container.appendChild(overlay);
