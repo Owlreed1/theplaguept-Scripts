@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.123
+// @version      0.1.124
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.123',
+        version: '0.1.124',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -2668,9 +2668,35 @@
     }
 
     function readStrictUnitTableAmountsFromRoot(root) {
+        const candidates = [];
+
+        root.find('table').addBack('table').each(function () {
+            const table = $(this);
+            const troops = readStrictUnitTableAmountsFromScope(table);
+            if (!hasTroops(troops)) return;
+
+            candidates.push({
+                troops,
+                score: scoreStrictUnitTable(table, troops)
+            });
+        });
+
+        if (candidates.length) {
+            candidates.sort(function (a, b) {
+                if (b.score !== a.score) return b.score - a.score;
+                return calculateTroopPopulation(b.troops) - calculateTroopPopulation(a.troops);
+            });
+
+            return cloneTroops(candidates[0].troops);
+        }
+
+        return readStrictUnitTableAmountsFromScope(root);
+    }
+
+    function readStrictUnitTableAmountsFromScope(scope) {
         const troops = {};
 
-        root.find('tr').addBack('tr').each(function () {
+        scope.find('tr').addBack('tr').each(function () {
             const iconRow = $(this);
             const markers = iconRow.find(
                 'img[src*="/unit/unit_"], img[src*="unit/unit_"], ' +
@@ -2695,6 +2721,18 @@
         });
 
         return troops;
+    }
+
+    function scoreStrictUnitTable(table, troops) {
+        const text = clean(table.text());
+        let score = Object.keys(troops || {}).length * 10;
+
+        if (/\b(apoio|suporte|support|tropas|unidades|units)\b/.test(text)) score += 30;
+        if (/\b(comando|command|chegada|chega em)\b/.test(text)) score += 10;
+        if (/\b(baixas|atacante|defensor|simulador|muralha|edificios|edificios|recursos|producao|custos|construcoes)\b/.test(text)) score -= 60;
+        if (table.closest('#show_units, #unit_overview_table, #commands_incomings, #tpdefWallResistance').length) score -= 80;
+
+        return score;
     }
 
     function readUnitAmountsFromRoot(root) {
@@ -3842,7 +3880,13 @@
     function fetchReceivedSupportCommands() {
         const deferred = $.Deferred();
         const urls = getReceivedSupportCommandsPageUrls();
-        let fallbackCommands = collectVisibleIncomingSupportCommands();
+        const visibleCommands = collectVisibleIncomingSupportCommands();
+        let fallbackCommands = visibleCommands;
+
+        if (visibleCommands.some(hasSupportCommandFetchTarget)) {
+            deferred.resolve(visibleCommands);
+            return deferred.promise();
+        }
 
         function tryNext(index) {
             if (index >= urls.length) {
@@ -3875,6 +3919,10 @@
 
         tryNext(0);
         return deferred.promise();
+    }
+
+    function hasSupportCommandFetchTarget(command) {
+        return Boolean(command && command.url) || hasTroops(command && command.troops);
     }
 
     function getReceivedSupportCommandsPageUrls() {
@@ -3914,9 +3962,14 @@
             if (!url && !hasTroops(troops)) return;
 
             const arrival = clean(row.children('td,th').eq(2).text());
-            const key = hasTroops(troops)
-                ? `row_${index}_${arrival}_${getTroopsSignature(troops)}`
-                : id || url || `support_${index}`;
+            const commandName = clean(getCommandNameCell(row).text()).slice(0, 90);
+            const key = [
+                id || url || 'support',
+                index,
+                arrival,
+                commandName,
+                hasTroops(troops) ? getTroopsSignature(troops) : ''
+            ].join('|');
 
             commands.set(key, {
                 id: id || `support_${index}`,
