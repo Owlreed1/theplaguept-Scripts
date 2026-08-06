@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.120
+// @version      0.1.121
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.120',
+        version: '0.1.121',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -2667,7 +2667,7 @@
         return match ? parseAmount(match[1]) : 0;
     }
 
-    function readUnitAmountsFromRoot(root) {
+    function readStrictUnitTableAmountsFromRoot(root) {
         const troops = {};
 
         root.find('tr').addBack('tr').each(function () {
@@ -2690,6 +2690,12 @@
                 if (amount > 0) troops[match[1]] = Math.max(troops[match[1]] || 0, amount);
             });
         });
+
+        return troops;
+    }
+
+    function readUnitAmountsFromRoot(root) {
+        const troops = readStrictUnitTableAmountsFromRoot(root);
 
         root.find(
             'img[src*="/unit/unit_"], img[src*="unit/unit_"], ' +
@@ -3449,15 +3455,8 @@
         const totals = {};
 
         getIncomingSupportRows().each(function (index) {
-            const row = $(this);
-            const rowTroops = {};
-
-            mergeTroopsByMaximum(rowTroops, readUnitAmountsFromRoot(row));
-            mergeTroopsByMaximum(rowTroops, readUnitAmountsFromMetadata(row));
-
-            const key = getSupportCommandKey(row, index);
-            mergeTroopsByMaximum(rowTroops, state.supportPopupTroopsByCommand[key] || {});
-            addTroops(totals, rowTroops);
+            const key = getSupportCommandKey($(this), index);
+            addTroops(totals, state.supportPopupTroopsByCommand[key] || {});
         });
 
         return totals;
@@ -3611,14 +3610,30 @@
     function getCurrentVillageCoords() {
         const village = game_data.village || {};
 
+        if (village.coord) {
+            const coordMatch = String(village.coord).match(/\b\d{1,3}\|\d{1,3}\b/);
+            if (coordMatch) return coordMatch[0];
+        }
+
         if (village.x !== undefined && village.y !== undefined) {
             const x = parseAmount(village.x);
             const y = parseAmount(village.y);
             if (x > 0 && y > 0) return `${x}|${y}`;
         }
 
-        const match = $('#menu_row2, #content_value, body').first().text().match(/\b\d{1,3}\|\d{1,3}\b/);
-        return match ? match[0] : '';
+        const selectors = [
+            '#menu_row2',
+            '#content_value h2',
+            '#content_value .village_anchor',
+            '#content_value'
+        ];
+
+        for (let i = 0; i < selectors.length; i += 1) {
+            const match = $(selectors[i]).first().text().match(/\b\d{1,3}\|\d{1,3}\b/);
+            if (match) return match[0];
+        }
+
+        return '';
     }
 
     function installSupportPopupCapture() {
@@ -3826,8 +3841,11 @@
             $.get(urls[index])
                 .done(function (html) {
                     const commands = parseReceivedSupportCommandsPage(html);
+                    const hasCommandTroops = commands.some(function (command) {
+                        return hasTroops(command.troops);
+                    });
 
-                    if (commands.length || index === urls.length - 1) {
+                    if (hasCommandTroops || index === urls.length - 1) {
                         deferred.resolve(commands);
                     } else {
                         tryNext(index + 1);
@@ -3844,12 +3862,13 @@
 
     function getReceivedSupportCommandsPageUrls() {
         const candidates = [
-            `${game_data.link_base_pure}place&mode=command&page=-1`,
-            `${game_data.link_base_pure}place&mode=command&type=incoming&page=-1`,
-            `${game_data.link_base_pure}place&mode=commands&page=-1`,
-            `${game_data.link_base_pure}overview_villages&mode=commands&page=-1`,
+            `${game_data.link_base_pure}overview_villages&mode=commands&type=support&page=-1`,
             `${game_data.link_base_pure}overview_villages&mode=commands&type=incoming&page=-1`,
-            `${game_data.link_base_pure}overview_villages&mode=commands&type=support&page=-1`
+            `${game_data.link_base_pure}overview_villages&mode=commands&type=all&page=-1`,
+            `${game_data.link_base_pure}overview_villages&mode=commands&page=-1`,
+            `${game_data.link_base_pure}place&mode=command&type=incoming&page=-1`,
+            `${game_data.link_base_pure}place&mode=command&page=-1`,
+            `${game_data.link_base_pure}place&mode=commands&page=-1`
         ];
 
         return Array.from(new Set(candidates.map(resolveGameUrl)));
@@ -3894,9 +3913,11 @@
         let bestCount = 0;
 
         table.find('tr').each(function () {
+            const headerRow = $(this);
             const rowColumns = {};
+            if (isCommandLikeRow(headerRow)) return;
 
-            $(this).children('th,td').each(function (index) {
+            headerRow.children('th,td').each(function (index) {
                 const cell = $(this);
                 const marker = cell.find(
                     'img[src*="/unit/unit_"], img[src*="unit/unit_"], ' +
@@ -3908,7 +3929,7 @@
             });
 
             const count = Object.keys(rowColumns).length;
-            if (count > bestCount) {
+            if (count >= 2 && count > bestCount) {
                 bestCount = count;
                 Object.keys(columns).forEach(function (unit) {
                     delete columns[unit];
@@ -4040,7 +4061,7 @@
 
         const html = extractHtmlFromResponse(response);
         if (html) {
-            addTroops(troops, readUnitAmountsFromRoot(
+            addTroops(troops, readStrictUnitTableAmountsFromRoot(
                 $('<div>').append($.parseHTML(html, document, true))
             ));
         }
