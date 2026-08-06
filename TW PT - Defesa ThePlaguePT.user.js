@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.125
+// @version      0.1.126
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.125',
+        version: '0.1.126',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -88,7 +88,9 @@
             troops: {},
             linksKey: '',
             requestId: 0,
-            commandCount: 0
+            commandCount: 0,
+            readableCount: 0,
+            unreadCount: 0
         },
         supportPopupTroopsByCommand: {},
         supportPopupCaptureInstalled: false,
@@ -3200,6 +3202,7 @@
         const troops = forecast.troops || {};
         if (!hasTroops(troops) && parseAmount(forecast.count) <= 0) return;
         const hasSupportTroops = hasTroops(troops);
+        const status = $.trim(String(forecast.status || ''));
 
         const units = (game_data.units && game_data.units.length
             ? game_data.units
@@ -3224,6 +3227,15 @@
                 </td>
             </tr>
         `;
+        const metaRow = status
+            ? `
+                <tr>
+                    <td colspan="${units.length}" style="text-align:center; padding:4px 8px; color:#8f211b; font-weight:bold;">
+                        ${escapeHtml(status)}
+                    </td>
+                </tr>
+            `
+            : '';
 
         const incomingWidget = target.closest('.widget').first();
         const insertionAnchor = incomingWidget.length ? incomingWidget : target;
@@ -3234,6 +3246,7 @@
                 </tr>
                 <tr class="tpdef-support-icon-row">${iconCells}</tr>
                 ${hasSupportTroops ? `<tr class="tpdef-support-value-row">${valueCells}</tr>` : statusRow}
+                ${hasSupportTroops ? metaRow : ''}
             </table>
         `;
 
@@ -3479,6 +3492,8 @@
             return {
                 troops: cache.troops || {},
                 count: cache.commandCount || commandCount,
+                readableCount: cache.readableCount || 0,
+                unreadCount: cache.unreadCount || 0,
                 loading: cache.loading
             };
         }
@@ -3492,6 +3507,8 @@
         return {
             troops: cache.villageId === villageId ? cache.troops || {} : {},
             count: commandCount,
+            readableCount: cache.villageId === villageId ? cache.readableCount || 0 : 0,
+            unreadCount: cache.villageId === villageId ? cache.unreadCount || 0 : 0,
             loading: true
         };
     }
@@ -3831,45 +3848,63 @@
                 }).sort().join('|');
 
                 if (!commands.length) {
-                    finishCurrentVillageSupportTroopsRefresh(cache, requestId, {});
+                    finishCurrentVillageSupportTroopsRefresh(cache, requestId, {}, {readableCount: 0, unreadCount: 0});
                     return;
                 }
 
                 const totals = {};
                 let remaining = commands.length;
+                let readableCount = 0;
+                let unreadCount = 0;
+
+                function finishCommand(troops) {
+                    if (hasTroops(troops)) {
+                        addTroops(totals, troops);
+                        readableCount += 1;
+                    } else {
+                        unreadCount += 1;
+                    }
+
+                    remaining -= 1;
+                    if (remaining > 0) return;
+
+                    finishCurrentVillageSupportTroopsRefresh(cache, requestId, totals, {
+                        readableCount,
+                        unreadCount
+                    });
+                }
 
                 commands.forEach(function (command) {
                     if (hasTroops(command.troops)) {
-                        addTroops(totals, command.troops);
-                        remaining -= 1;
+                        finishCommand(command.troops);
+                        return;
+                    }
 
-                        if (remaining === 0) {
-                            finishCurrentVillageSupportTroopsRefresh(cache, requestId, totals);
-                        }
+                    if (!command.url) {
+                        finishCommand({});
                         return;
                     }
 
                     fetchIncomingSupportCommandTroops(command.url)
                         .done(function (troops) {
-                            addTroops(totals, troops);
+                            finishCommand(troops);
                         })
-                        .always(function () {
-                            remaining -= 1;
-                            if (remaining > 0) return;
-
-                            finishCurrentVillageSupportTroopsRefresh(cache, requestId, totals);
+                        .fail(function () {
+                            finishCommand({});
                         });
                 });
             })
             .fail(function () {
-                finishCurrentVillageSupportTroopsRefresh(cache, requestId, {});
+                finishCurrentVillageSupportTroopsRefresh(cache, requestId, {}, {readableCount: 0, unreadCount: 0});
             });
     }
 
-    function finishCurrentVillageSupportTroopsRefresh(cache, requestId, troops) {
+    function finishCurrentVillageSupportTroopsRefresh(cache, requestId, troops, meta) {
         if (requestId !== cache.requestId) return;
 
         cache.troops = cloneTroops(troops || {});
+        cache.readableCount = parseAmount(meta && meta.readableCount);
+        cache.unreadCount = parseAmount(meta && meta.unreadCount);
         cache.loadedAt = Date.now();
         cache.loading = false;
 
@@ -3881,9 +3916,15 @@
         const deferred = $.Deferred();
         const urls = getReceivedSupportCommandsPageUrls();
         const visibleCommands = collectVisibleIncomingSupportCommands();
+        const visibleCount = getIncomingSupportRows().length;
         let fallbackCommands = visibleCommands;
         let bestCommands = [];
         let bestScore = 0;
+
+        if (visibleCount > 0 && visibleCommands.length >= visibleCount) {
+            deferred.resolve(visibleCommands);
+            return deferred.promise();
+        }
 
         function tryNext(index) {
             if (index >= urls.length) {
@@ -4008,6 +4049,12 @@
 
     function extractSupportCommandUrl(row) {
         let url = '';
+        const rowHtml = String(row.prop('outerHTML') || '').replace(/&amp;/g, '&');
+        const embeddedUrl = rowHtml.match(/(?:https?:\/\/[^'"\s<>]+|\/?game\.php\?[^'"\s<>]+|\?[^'"\s<>]*screen=info_command[^'"\s<>]*)/i);
+
+        if (embeddedUrl && /screen=info_command/i.test(embeddedUrl[0]) && /[?&]id=\d+/.test(embeddedUrl[0])) {
+            return resolveGameUrl(embeddedUrl[0]);
+        }
 
         row.find('a[href]').each(function () {
             if (url) return;
@@ -4274,6 +4321,16 @@
     }
 
     function extractSupportCommandId(row) {
+        const rowHtml = String(row.prop('outerHTML') || '').replace(/&amp;/g, '&');
+        const rowInfoMatch = rowHtml.match(/screen=info_command[^'"\s<>]*?[?&]id=(\d+)/i);
+        if (rowInfoMatch) return rowInfoMatch[1];
+
+        const rowPopupMatch = rowHtml.match(/CommandPopup[^\d]{0,160}(\d{4,})/i);
+        if (rowPopupMatch) return rowPopupMatch[1];
+
+        const rowCommandMatch = rowHtml.match(/(?:data-command-id|command_id|command-id|cmd_id|cmd-id|command_|cmd_)[^\d]{0,20}(\d{3,})/i);
+        if (rowCommandMatch) return rowCommandMatch[1];
+
         const elements = row.find('*').addBack();
 
         for (let i = 0; i < elements.length; i += 1) {
@@ -4286,6 +4343,7 @@
                 {name: 'onmouseenter', value: element.attr('onmouseenter')},
                 {name: 'onclick', value: element.attr('onclick')},
                 {name: 'id', value: element.attr('id')},
+                {name: 'class', value: element.attr('class')},
                 {name: 'name', value: element.attr('name')},
                 {name: 'value', value: element.attr('value')}
             ].filter(function (attribute) {
@@ -4299,6 +4357,11 @@
                 if (attribute.name === 'data-command-id') {
                     const directMatch = value.match(/\d{3,}/);
                     if (directMatch) return directMatch[0];
+                }
+
+                if (attribute.name === 'id' || attribute.name === 'class') {
+                    const safeElementMatch = value.match(/(?:^|\s)(?:command|cmd)[_-](\d{3,})(?:\s|$)/i);
+                    if (safeElementMatch) return safeElementMatch[1];
                 }
 
                 if (/screen=info_command/i.test(value)) {
@@ -5235,17 +5298,16 @@
     function getDefenseAgainstAttackModel(troops, wall, model, incomingInfo, supportTroops, supportData) {
         const supportCount = parseAmount(supportData && supportData.count);
         const supportLoading = !!(supportData && supportData.loading);
+        const supportReadableCount = parseAmount(supportData && supportData.readableCount);
+        const supportUnreadCount = parseAmount(supportData && supportData.unreadCount);
+        const supportStatus = getSupportTroopsStatus(hasTroops(supportTroops), supportLoading, supportReadableCount, supportUnreadCount);
 
         if (!hasAttackModel(model)) {
             const supportForecast = hasTroops(supportTroops) || supportCount > 0
                 ? {
                     troops: cloneTroops(supportTroops || {}),
                     count: supportCount,
-                    status: hasTroops(supportTroops)
-                        ? ''
-                        : supportLoading
-                            ? 'A carregar tropas...'
-                            : 'Quantidades não disponibilizadas pelo jogo.',
+                    status: supportStatus,
                     capacity: 'define o modelo de ataque'
                 }
                 : null;
@@ -5318,11 +5380,7 @@
             ? {
                 troops: cloneTroops(supportTroops || {}),
                 count: supportCount,
-                status: supportFullEndurance
-                    ? ''
-                    : supportLoading
-                        ? 'A carregar tropas...'
-                        : 'Quantidades não disponibilizadas pelo jogo.',
+                status: supportStatus,
                 capacity: supportFullEndurance
                     ? formatFullCapacityLabel(supportFullsText)
                     : 'por calcular'
@@ -5386,6 +5444,15 @@
             supportForecast,
             icon: '/graphic/command/attack.png'
         };
+    }
+
+    function getSupportTroopsStatus(hasSupportTroops, loading, readableCount, unreadCount) {
+        if (loading) return 'A carregar tropas...';
+        if (unreadCount > 0 && hasSupportTroops) {
+            return `Total parcial: ${readableCount} apoios lidos; ${unreadCount} por ler.`;
+        }
+        if (unreadCount > 0) return `${unreadCount} apoios sem quantidades disponiveis.`;
+        return hasSupportTroops ? '' : 'Quantidades nao disponibilizadas pelo jogo.';
     }
 
     function getNoIncomingProjectionCount(endurance, fullTarget) {
