@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.126
+// @version      0.1.127
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.126',
+        version: '0.1.127',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -92,6 +92,8 @@
             readableCount: 0,
             unreadCount: 0
         },
+        supportTroopsRefreshTimer: null,
+        supportTroopsRefreshVillageId: '',
         supportPopupTroopsByCommand: {},
         supportPopupCaptureInstalled: false,
         supportPopupObserver: null,
@@ -3474,6 +3476,12 @@
         if (String(game_data.screen || '') !== 'overview') return;
 
         state.supportTroopsCache.loadedAt = 0;
+        state.supportTroopsCache.loading = false;
+        if (state.supportTroopsRefreshTimer) {
+            clearTimeout(state.supportTroopsRefreshTimer);
+            state.supportTroopsRefreshTimer = null;
+            state.supportTroopsRefreshVillageId = '';
+        }
         addWallResistanceWidget();
     }
 
@@ -3501,7 +3509,7 @@
         cache.commandCount = commandCount;
 
         if (!cache.loading || cache.villageId !== villageId) {
-            refreshCurrentVillageSupportTroopsCache();
+            scheduleCurrentVillageSupportTroopsRefresh(5000);
         }
 
         return {
@@ -3511,6 +3519,33 @@
             unreadCount: cache.villageId === villageId ? cache.unreadCount || 0 : 0,
             loading: true
         };
+    }
+
+    function scheduleCurrentVillageSupportTroopsRefresh(delay) {
+        const villageId = String(game_data.village && game_data.village.id || '');
+        const cache = state.supportTroopsCache;
+
+        cache.villageId = villageId;
+        cache.commandCount = getIncomingSupportRows().length;
+        cache.loading = true;
+
+        if (
+            state.supportTroopsRefreshTimer &&
+            state.supportTroopsRefreshVillageId === villageId
+        ) {
+            return;
+        }
+
+        if (state.supportTroopsRefreshTimer) {
+            clearTimeout(state.supportTroopsRefreshTimer);
+        }
+
+        state.supportTroopsRefreshVillageId = villageId;
+        state.supportTroopsRefreshTimer = setTimeout(function () {
+            state.supportTroopsRefreshTimer = null;
+            state.supportTroopsRefreshVillageId = '';
+            refreshCurrentVillageSupportTroopsCache();
+        }, delay);
     }
 
     function getCurrentVillageIncomingSupportTroops() {
