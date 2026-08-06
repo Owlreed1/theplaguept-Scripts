@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.124
+// @version      0.1.125
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.124',
+        version: '0.1.125',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -3882,15 +3882,12 @@
         const urls = getReceivedSupportCommandsPageUrls();
         const visibleCommands = collectVisibleIncomingSupportCommands();
         let fallbackCommands = visibleCommands;
-
-        if (visibleCommands.some(hasSupportCommandFetchTarget)) {
-            deferred.resolve(visibleCommands);
-            return deferred.promise();
-        }
+        let bestCommands = [];
+        let bestScore = 0;
 
         function tryNext(index) {
             if (index >= urls.length) {
-                deferred.resolve(fallbackCommands);
+                deferred.resolve(bestCommands.length ? bestCommands : fallbackCommands);
                 return;
             }
 
@@ -3900,17 +3897,14 @@
                     if (commands.length && !fallbackCommands.length) {
                         fallbackCommands = commands;
                     }
-                    const hasCommandTroops = commands.some(function (command) {
-                        return hasTroops(command.troops);
-                    });
 
-                    if (hasCommandTroops) {
-                        deferred.resolve(commands);
-                    } else if (index === urls.length - 1) {
-                        deferred.resolve(fallbackCommands.length ? fallbackCommands : commands);
-                    } else {
-                        tryNext(index + 1);
+                    const score = scoreSupportCommandSource(commands, visibleCommands.length);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestCommands = commands;
                     }
+
+                    tryNext(index + 1);
                 })
                 .fail(function () {
                     tryNext(index + 1);
@@ -3921,8 +3915,39 @@
         return deferred.promise();
     }
 
-    function hasSupportCommandFetchTarget(command) {
-        return Boolean(command && command.url) || hasTroops(command && command.troops);
+    function scoreSupportCommandSource(commands, expectedCount) {
+        if (!commands || !commands.length) return 0;
+
+        const withTroops = commands.filter(function (command) {
+            return hasTroops(command.troops);
+        });
+        if (!withTroops.length) return 0;
+
+        const count = commands.length;
+        const expected = parseAmount(expectedCount);
+        const countScore = expected > 0
+            ? Math.max(0, 200 - Math.abs(expected - count) * 35)
+            : Math.min(count, 20) * 8;
+        const troopScore = withTroops.length * 60;
+        const completeScore = expected > 0 && withTroops.length >= expected ? 150 : 0;
+
+        return countScore + troopScore + completeScore + Math.min(totalTroopAmount(sumSupportCommandTroops(withTroops)) / 1000, 120);
+    }
+
+    function sumSupportCommandTroops(commands) {
+        const totals = {};
+
+        (commands || []).forEach(function (command) {
+            addTroops(totals, command && command.troops || {});
+        });
+
+        return totals;
+    }
+
+    function totalTroopAmount(troops) {
+        return Object.keys(troops || {}).reduce(function (sum, unit) {
+            return sum + parseAmount(troops[unit]);
+        }, 0);
     }
 
     function getReceivedSupportCommandsPageUrls() {
@@ -3988,7 +4013,7 @@
             if (url) return;
 
             const href = String($(this).attr('href') || '');
-            if (/[?&]id=\d+/.test(href) || /screen=info_command/.test(href)) {
+            if (/screen=info_command/.test(href) && /[?&]id=\d+/.test(href)) {
                 url = resolveGameUrl(href);
             }
         });
@@ -4254,21 +4279,32 @@
         for (let i = 0; i < elements.length; i += 1) {
             const element = elements.eq(i);
             const attributes = [
-                element.attr('data-command-id'),
-                element.attr('data-id'),
-                element.attr('href'),
-                element.attr('onmouseover'),
-                element.attr('onmouseenter'),
-                element.attr('onclick'),
-                element.attr('id'),
-                element.attr('name'),
-                element.attr('value')
-            ].filter(Boolean);
+                {name: 'data-command-id', value: element.attr('data-command-id')},
+                {name: 'data-id', value: element.attr('data-id')},
+                {name: 'href', value: element.attr('href')},
+                {name: 'onmouseover', value: element.attr('onmouseover')},
+                {name: 'onmouseenter', value: element.attr('onmouseenter')},
+                {name: 'onclick', value: element.attr('onclick')},
+                {name: 'id', value: element.attr('id')},
+                {name: 'name', value: element.attr('name')},
+                {name: 'value', value: element.attr('value')}
+            ].filter(function (attribute) {
+                return attribute.value;
+            });
 
             for (let j = 0; j < attributes.length; j += 1) {
-                const value = String(attributes[j]);
-                const queryMatch = value.match(/[?&]id=(\d+)/);
-                if (queryMatch) return queryMatch[1];
+                const attribute = attributes[j];
+                const value = String(attribute.value);
+
+                if (attribute.name === 'data-command-id') {
+                    const directMatch = value.match(/\d{3,}/);
+                    if (directMatch) return directMatch[0];
+                }
+
+                if (/screen=info_command/i.test(value)) {
+                    const queryMatch = value.match(/[?&]id=(\d+)/);
+                    if (queryMatch) return queryMatch[1];
+                }
 
                 const popupMatch = value.match(/CommandPopup[^(]*\([^)]*?[,(\s'"](\d{3,})[,)\s'"]/i);
                 if (popupMatch) return popupMatch[1];
@@ -4279,7 +4315,7 @@
                 const infoCommandMatch = value.match(/screen=info_command[^'"]*?[?&]id=(\d+)/i);
                 if (infoCommandMatch) return infoCommandMatch[1];
 
-                const commandMatch = value.match(/(?:command|cmd)[^\d]{0,12}(\d{3,})/i);
+                const commandMatch = value.match(/(?:command_id|command-id|cmd_id|cmd-id)[^\d]{0,12}(\d{3,})/i);
                 if (commandMatch) return commandMatch[1];
             }
         }
