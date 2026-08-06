@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.121
+// @version      0.1.122
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.121',
+        version: '0.1.122',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -2686,7 +2686,9 @@
                 const match = String(image.attr('src') || '').match(/unit_([a-z_]+)\.png/);
                 if (!match || !APP.unitStats[match[1]]) return;
 
-                const amount = parseMapPopupTroopAmount(valueRow.children('td,th').eq(image.closest('td,th').index()).text());
+                const cell = image.closest('td,th');
+                const amount = parseMapPopupTroopAmount(valueRow.children('td,th').eq(cell.index()).text()) ||
+                    parseMapPopupTroopAmount(cell.clone().children().remove().end().text());
                 if (amount > 0) troops[match[1]] = Math.max(troops[match[1]] || 0, amount);
             });
         });
@@ -3158,6 +3160,7 @@
 
         const troops = forecast.troops || {};
         if (!hasTroops(troops) && parseAmount(forecast.count) <= 0) return;
+        const hasSupportTroops = hasTroops(troops);
 
         const units = (game_data.units && game_data.units.length
             ? game_data.units
@@ -3175,6 +3178,13 @@
         const valueCells = units.map(function (unit) {
             return `<td>${formatNumber(parseAmount(troops[unit]))}</td>`;
         }).join('');
+        const statusRow = `
+            <tr>
+                <td colspan="${units.length}" style="text-align:center; padding:5px 8px; color:#8f211b; font-weight:bold;">
+                    ${escapeHtml(forecast.status || 'A carregar tropas...')}
+                </td>
+            </tr>
+        `;
 
         const incomingWidget = target.closest('.widget').first();
         const insertionAnchor = incomingWidget.length ? incomingWidget : target;
@@ -3184,7 +3194,7 @@
                     <th colspan="${units.length}">Apoio a chegar</th>
                 </tr>
                 <tr class="tpdef-support-icon-row">${iconCells}</tr>
-                <tr class="tpdef-support-value-row">${valueCells}</tr>
+                ${hasSupportTroops ? `<tr class="tpdef-support-value-row">${valueCells}</tr>` : statusRow}
             </table>
         `;
 
@@ -3831,22 +3841,28 @@
     function fetchReceivedSupportCommands() {
         const deferred = $.Deferred();
         const urls = getReceivedSupportCommandsPageUrls();
+        let fallbackCommands = [];
 
         function tryNext(index) {
             if (index >= urls.length) {
-                deferred.resolve([]);
+                deferred.resolve(fallbackCommands);
                 return;
             }
 
             $.get(urls[index])
                 .done(function (html) {
                     const commands = parseReceivedSupportCommandsPage(html);
+                    if (commands.length && !fallbackCommands.length) {
+                        fallbackCommands = commands;
+                    }
                     const hasCommandTroops = commands.some(function (command) {
                         return hasTroops(command.troops);
                     });
 
-                    if (hasCommandTroops || index === urls.length - 1) {
+                    if (hasCommandTroops) {
                         deferred.resolve(commands);
+                    } else if (index === urls.length - 1) {
+                        deferred.resolve(commands.length ? commands : fallbackCommands);
                     } else {
                         tryNext(index + 1);
                     }
@@ -4083,7 +4099,19 @@
     }
 
     function extractHtmlFromResponse(response) {
-        if (typeof response === 'string') return response;
+        if (typeof response === 'string') {
+            const text = $.trim(response);
+
+            if (/^[\[{]/.test(text)) {
+                try {
+                    return extractHtmlFromResponse(JSON.parse(text)) || response;
+                } catch (err) {
+                    return response;
+                }
+            }
+
+            return response;
+        }
         if (!response || typeof response !== 'object') return '';
 
         const fields = ['html', 'dialog', 'content', 'body', 'data'];
@@ -4163,9 +4191,33 @@
     }
 
     function resolveGameUrl(href) {
-        if (/^https?:\/\//.test(href)) return href;
-        if (href.charAt(0) === '/') return `${location.origin}${href}`;
-        return `${location.origin}${location.pathname}?${href.replace(/^\?/, '')}`;
+        let raw = String(href || '').trim().replace(/&amp;/g, '&');
+        if (!raw) return '';
+
+        try {
+            if (/^javascript:/i.test(raw)) {
+                const embedded = raw.match(/(https?:\/\/[^'"\s)]+|\/?game\.php\?[^'"\s)]+|\?[^'"\s)]*screen=info_command[^'"\s)]*)/i);
+                if (embedded) raw = embedded[1];
+            }
+
+            if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) {
+                return /^https?:\/\//i.test(raw) ? raw : '';
+            }
+
+            if (
+                raw.charAt(0) === '?' ||
+                raw.charAt(0) === '/' ||
+                raw.indexOf('./') === 0 ||
+                raw.indexOf('../') === 0 ||
+                /^[^/?#]+\.php(?:[?#]|$)/i.test(raw)
+            ) {
+                return new URL(raw, window.location.href).toString();
+            }
+
+            return new URL(`${location.pathname}?${raw.replace(/^\?/, '')}`, location.origin).toString();
+        } catch (err) {
+            return raw;
+        }
     }
 
     function getWallColor(wall) {
