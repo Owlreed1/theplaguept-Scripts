@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.122
+// @version      0.1.123
 // @description  Pack defensivo pessoal para Tribal Wars PT
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -22,7 +22,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.122',
+        version: '0.1.123',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -2672,24 +2672,25 @@
 
         root.find('tr').addBack('tr').each(function () {
             const iconRow = $(this);
-            const icons = iconRow.find('img[src*="/unit/unit_"], img[src*="unit/unit_"]').not('#tpdefMapDefenseInfo img');
-            if (!icons.length) return;
+            const markers = iconRow.find(
+                'img[src*="/unit/unit_"], img[src*="unit/unit_"], ' +
+                '[data-unit], [class*="unit-item-"], [class*="unit_"]'
+            ).not('#tpdefMapDefenseInfo img, #tpdefWallResistance img');
+            if (!markers.length) return;
 
             const valueRow = iconRow.nextAll('tr').slice(0, 4).filter(function () {
                 return isMapPopupTroopValueRow($(this));
             }).first();
 
-            if (!valueRow.length) return;
+            markers.each(function () {
+                const marker = $(this);
+                const unit = getUnitFromElement(marker);
+                if (!unit) return;
 
-            icons.each(function () {
-                const image = $(this);
-                const match = String(image.attr('src') || '').match(/unit_([a-z_]+)\.png/);
-                if (!match || !APP.unitStats[match[1]]) return;
-
-                const cell = image.closest('td,th');
-                const amount = parseMapPopupTroopAmount(valueRow.children('td,th').eq(cell.index()).text()) ||
+                const cell = marker.closest('td,th');
+                const amount = (valueRow.length ? parseMapPopupTroopAmount(valueRow.children('td,th').eq(cell.index()).text()) : 0) ||
                     parseMapPopupTroopAmount(cell.clone().children().remove().end().text());
-                if (amount > 0) troops[match[1]] = Math.max(troops[match[1]] || 0, amount);
+                if (amount > 0) troops[unit] = Math.max(troops[unit] || 0, amount);
             });
         });
 
@@ -3841,7 +3842,7 @@
     function fetchReceivedSupportCommands() {
         const deferred = $.Deferred();
         const urls = getReceivedSupportCommandsPageUrls();
-        let fallbackCommands = [];
+        let fallbackCommands = collectVisibleIncomingSupportCommands();
 
         function tryNext(index) {
             if (index >= urls.length) {
@@ -3862,7 +3863,7 @@
                     if (hasCommandTroops) {
                         deferred.resolve(commands);
                     } else if (index === urls.length - 1) {
-                        deferred.resolve(commands.length ? commands : fallbackCommands);
+                        deferred.resolve(fallbackCommands.length ? fallbackCommands : commands);
                     } else {
                         tryNext(index + 1);
                     }
@@ -3893,6 +3894,14 @@
     function parseReceivedSupportCommandsPage(html) {
         const root = $('<div>').append($.parseHTML(String(html || ''), document, true));
         const rows = findReceivedSupportCommandRows(root);
+        return buildReceivedSupportCommandsFromRows(rows);
+    }
+
+    function collectVisibleIncomingSupportCommands() {
+        return buildReceivedSupportCommandsFromRows(getIncomingSupportRows());
+    }
+
+    function buildReceivedSupportCommandsFromRows(rows) {
         const commands = new Map();
 
         rows.each(function (index) {
@@ -3900,12 +3909,7 @@
             const unitColumns = getCommandTableUnitColumns(row.closest('table'));
             const troops = readCommandTableRowTroops(row, unitColumns);
             const id = extractSupportCommandId(row);
-            const directLink = row.find('a[href*="info_command"][href*="id="]').first().attr('href');
-            const url = directLink
-                ? resolveGameUrl(directLink)
-                : id
-                    ? buildInfoCommandUrl(id)
-                    : '';
+            const url = extractSupportCommandUrl(row) || (id ? buildInfoCommandUrl(id) : '');
 
             if (!url && !hasTroops(troops)) return;
 
@@ -3922,6 +3926,46 @@
         });
 
         return Array.from(commands.values());
+    }
+
+    function extractSupportCommandUrl(row) {
+        let url = '';
+
+        row.find('a[href]').each(function () {
+            if (url) return;
+
+            const href = String($(this).attr('href') || '');
+            if (/[?&]id=\d+/.test(href) || /screen=info_command/.test(href)) {
+                url = resolveGameUrl(href);
+            }
+        });
+
+        if (url) return url;
+
+        row.find('*').addBack().each(function () {
+            if (url) return;
+
+            const element = $(this);
+            [
+                element.attr('data-url'),
+                element.attr('data-link'),
+                element.attr('data-href'),
+                element.attr('data-command-url'),
+                element.attr('href'),
+                element.attr('onmouseover'),
+                element.attr('onmouseenter'),
+                element.attr('onclick')
+            ].filter(Boolean).forEach(function (value) {
+                if (url) return;
+
+                const resolved = resolveGameUrl(value);
+                if (resolved && /screen=info_command/.test(resolved) && /[?&]id=\d+/.test(resolved)) {
+                    url = resolved;
+                }
+            });
+        });
+
+        return url;
     }
 
     function getCommandTableUnitColumns(table) {
@@ -4114,11 +4158,15 @@
         }
         if (!response || typeof response !== 'object') return '';
 
-        const fields = ['html', 'dialog', 'content', 'body', 'data'];
+        const fields = ['html', 'dialog', 'content', 'body', 'data', 'response', 'popup'];
 
         for (let i = 0; i < fields.length; i += 1) {
             const value = response[fields[i]];
             if (typeof value === 'string' && value.indexOf('<') >= 0) return value;
+            if (value && typeof value === 'object') {
+                const nested = extractHtmlFromResponse(value);
+                if (nested) return nested;
+            }
         }
 
         return '';
@@ -4171,6 +4219,12 @@
 
                 const popupMatch = value.match(/CommandPopup[^(]*\([^)]*?[,(\s'"](\d{3,})[,)\s'"]/i);
                 if (popupMatch) return popupMatch[1];
+
+                const loosePopupMatch = value.match(/CommandPopup[^\d]{0,120}(\d{4,})/i);
+                if (loosePopupMatch) return loosePopupMatch[1];
+
+                const infoCommandMatch = value.match(/screen=info_command[^'"]*?[?&]id=(\d+)/i);
+                if (infoCommandMatch) return infoCommandMatch[1];
 
                 const commandMatch = value.match(/(?:command|cmd)[^\d]{0,12}(\d{3,})/i);
                 if (commandMatch) return commandMatch[1];
