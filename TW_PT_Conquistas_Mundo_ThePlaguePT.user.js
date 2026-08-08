@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.43
+// @version      1.0.45
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.43",
+        version: "1.0.45",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -55,7 +55,6 @@
         autoTimer: null,
         mapMarkerTimer: null,
         mapLoadButton: null,
-        mapButtonForceMarkers: false,
         panelSettingsDraft: null,
         launcherPositionFrame: 0,
         memoryCache: new Map(),
@@ -688,20 +687,25 @@
                 --${APP.id}-marker-rgb: 217,21,47;
                 --${APP.id}-marker-glow: rgba(217,21,47,.95);
             }
+            .${APP.id}-map-toggle-row {
+                display: flex;
+                justify-content: flex-start;
+                align-items: center;
+                gap: 6px;
+                margin: 0 0 6px;
+                min-height: 28px;
+            }
             #${APP.id}-map-load {
-                position: absolute;
-                top: 8px;
-                right: 8px;
-                z-index: 95;
+                position: static;
+                z-index: 1;
                 display: inline-flex;
                 align-items: center;
                 justify-content: flex-start;
                 gap: 8px;
-                width: 34px;
-                height: 30px;
-                min-width: 34px;
-                max-width: 200px;
-                overflow: hidden;
+                width: auto;
+                min-width: 212px;
+                height: 28px;
+                overflow: visible;
                 white-space: nowrap;
                 border: 1px solid #4f120f;
                 border-radius: 2px;
@@ -710,14 +714,20 @@
                 color: #fff;
                 font: bold 12px Verdana, Arial, sans-serif;
                 text-shadow: 1px 1px 1px #000;
-                padding: 0 7px;
+                padding: 0 9px;
                 cursor: pointer;
-                transition: width .18s ease, background .12s ease;
+                transition: background .12s ease, filter .12s ease;
             }
             #${APP.id}-map-load:hover,
             #${APP.id}-map-load:focus {
-                width: 188px;
                 background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
+            }
+            #${APP.id}-map-load.${APP.id}-map-toggle-off {
+                background: linear-gradient(to bottom, #7f6040, #5b3d25 55%, #3d2819);
+            }
+            #${APP.id}-map-load.${APP.id}-map-toggle-off:hover,
+            #${APP.id}-map-load.${APP.id}-map-toggle-off:focus {
+                background: linear-gradient(to bottom, #8f704a, #68472d 55%, #4a301e);
             }
             #${APP.id}-map-load .${APP.id}-map-load-icon {
                 flex: 0 0 18px;
@@ -756,32 +766,12 @@
             }
             #${APP.id}-map-load .${APP.id}-map-load-label {
                 flex: 0 0 auto;
-                opacity: 0;
-                transform: translateX(-4px);
-                transition: opacity .12s ease, transform .12s ease;
-            }
-            #${APP.id}-map-load:hover .${APP.id}-map-load-label,
-            #${APP.id}-map-load:focus .${APP.id}-map-load-label {
                 opacity: 1;
                 transform: translateX(0);
             }
             #${APP.id}-map-load:disabled {
                 opacity: .72;
                 cursor: wait;
-            }
-            #${APP.id}-map-load:disabled,
-            #${APP.id}-map-load.${APP.id}-map-load-busy {
-                width: 138px;
-            }
-            #${APP.id}-map-load.${APP.id}-map-load-busy .${APP.id}-map-load-label {
-                opacity: 1;
-                transform: translateX(0);
-            }
-            #${APP.id}-map-load.${APP.id}-map-load-fixed {
-                position: fixed;
-                right: 122px;
-                bottom: 18px;
-                top: auto;
             }
             .${APP.id}-footer {
                 display: flex;
@@ -883,44 +873,86 @@
 
     function ensureMapLoadButton() {
         const existing = document.getElementById(`${APP.id}-map-load`);
+        const existingRow = document.getElementById(`${APP.id}-map-toggle-row`);
         if (!isMapScreen()) {
-            if (existing) existing.remove();
+            if (existingRow) existingRow.remove();
+            else if (existing) existing.remove();
             state.mapLoadButton = null;
-            state.mapButtonForceMarkers = false;
             return;
         }
 
-        const parent = findMapOverlayRoot() || document.body;
+        const mount = findMapToggleMount();
+        if (!mount) return;
+
+        let row = existingRow;
+        if (!row) {
+            row = document.createElement("div");
+            row.id = `${APP.id}-map-toggle-row`;
+            row.className = `${APP.id}-map-toggle-row`;
+        }
+
         let button = existing;
         if (!button) {
             button = document.createElement("button");
             button.id = `${APP.id}-map-load`;
             button.type = "button";
-            button.setAttribute("aria-label", "Marcar Conquistas");
-            button.title = "Marcar conquistas recentes no mapa";
             button.innerHTML = `
                 <span class="${APP.id}-map-load-icon" aria-hidden="true"></span>
-                <span class="${APP.id}-map-load-label">Marcar Conquistas</span>
+                <span class="${APP.id}-map-load-label"></span>
             `;
             button.addEventListener("click", loadConquestsFromMapButton);
         }
 
-        if (parent !== document.body && window.getComputedStyle(parent).position === "static") {
-            parent.style.position = "relative";
-        }
-        if (button.parentElement !== parent) parent.appendChild(button);
-        button.classList.toggle(`${APP.id}-map-load-fixed`, parent === document.body);
+        if (!row.contains(button)) row.appendChild(button);
+        if (row.parentElement !== mount.parent) mount.parent.insertBefore(row, mount.before);
         state.mapLoadButton = button;
+        syncMapLoadButtonState();
+    }
+
+    function findMapToggleMount() {
+        const toolbar = [
+            "#map_config",
+            "#map_actions",
+            "#map_controls",
+            ".map_controls",
+            "#map_topo",
+        ].map((selector) => document.querySelector(selector))
+            .find((node) => node && node.isConnected && !["TABLE", "TBODY", "THEAD", "TFOOT", "TR"].includes(node.tagName));
+
+        if (toolbar) return { parent: toolbar, before: null };
+
+        const anchor = document.getElementById("map_wrap")
+            || document.getElementById("map")
+            || findMapOverlayRoot();
+        const parent = (anchor && anchor.parentElement)
+            || document.querySelector("#content_value")
+            || document.body;
+        const before = anchor && anchor.parentElement === parent ? anchor : null;
+        return { parent, before };
     }
 
     function setMapLoadButtonBusy(isBusy) {
         if (!state.mapLoadButton) return;
-        const label = state.mapLoadButton.querySelector(`.${APP.id}-map-load-label`);
         state.mapLoadButton.disabled = isBusy;
         state.mapLoadButton.classList.toggle(`${APP.id}-map-load-busy`, isBusy);
-        state.mapLoadButton.setAttribute("aria-label", isBusy ? "A carregar conquistas" : "Marcar Conquistas");
-        state.mapLoadButton.title = isBusy ? "A carregar conquistas..." : "Marcar conquistas recentes no mapa";
-        if (label) label.textContent = isBusy ? "A carregar..." : "Marcar Conquistas";
+        syncMapLoadButtonState(isBusy);
+    }
+
+    function syncMapLoadButtonState(isBusy = false) {
+        if (!state.mapLoadButton) return;
+        const enabled = markMapEnabled();
+        const label = state.mapLoadButton.querySelector(`.${APP.id}-map-load-label`);
+        state.mapLoadButton.classList.toggle(`${APP.id}-map-toggle-on`, enabled);
+        state.mapLoadButton.classList.toggle(`${APP.id}-map-toggle-off`, !enabled);
+        state.mapLoadButton.setAttribute("aria-pressed", String(enabled));
+        state.mapLoadButton.setAttribute(
+            "aria-label",
+            enabled ? "Desligar marcacao de conquistas" : "Ligar marcacao de conquistas",
+        );
+        state.mapLoadButton.title = enabled
+            ? "Desligar marcacao de conquistas no mapa"
+            : "Ligar marcacao de conquistas no mapa";
+        if (label) label.textContent = isBusy ? "A carregar..." : enabled ? "Marcar Conquistas: ON" : "Marcar Conquistas: OFF";
     }
 
     function isMapScreen() {
@@ -930,10 +962,40 @@
     }
 
     async function loadConquestsFromMapButton() {
-        state.mapButtonForceMarkers = true;
-        if (hasPanelControls() && state.controls.markMap) state.controls.markMap.checked = true;
+        const nextEnabled = !markMapEnabled();
+        setMapMarkingEnabled(nextEnabled, true);
+        syncMapLoadButtonState();
+
+        if (!nextEnabled) {
+            clearMapMarkers();
+            setStatus("Marcacao no mapa desligada.");
+            return;
+        }
+
         await loadWorldData({ forceMap: false, forceConquer: true });
         scheduleMapMarkers(0);
+        setStatus("Marcacao no mapa ligada.");
+    }
+
+    function setMapMarkingEnabled(enabled, persist = false) {
+        if (hasPanelControls() && state.controls.markMap) {
+            state.controls.markMap.checked = enabled;
+            rememberPanelSettings();
+        } else {
+            const settings = Object.assign(defaultPanelSettings(), readPanelSettings() || {}, state.panelSettingsDraft || {});
+            settings.markMap = enabled;
+            state.panelSettingsDraft = settings;
+        }
+
+        if (!persist) return;
+        try {
+            window.localStorage.setItem(
+                panelSettingsKey(),
+                JSON.stringify(Object.assign(defaultPanelSettings(), state.panelSettingsDraft || {})),
+            );
+        } catch (_) {
+            // A definicao fica ativa nesta sessao mesmo que o browser bloqueie o storage.
+        }
     }
 
     function createPanel() {
@@ -1174,6 +1236,7 @@
                 } else {
                     render();
                 }
+                if (name === "markMap") syncMapLoadButtonState();
                 scheduleMapMarkers();
             }, name === "search" ? 160 : 0));
         });
@@ -1272,6 +1335,7 @@
         state.controls.mapOpacity.value = String(markerOpacityPercentFromValue(values.mapOpacity));
         syncMapOpacityOutput();
         state.controls.auto.checked = Boolean(values.auto);
+        syncMapLoadButtonState();
     }
 
     function setSelectValue(control, value) {
@@ -1893,8 +1957,7 @@
 
     function markMapEnabled() {
         if (hasPanelControls() && state.controls.markMap) return state.controls.markMap.checked;
-        if (state.mapButtonForceMarkers && isMapScreen()) return true;
-        const settings = readPanelSettings();
+        const settings = state.panelSettingsDraft || readPanelSettings();
         return !settings || settings.markMap !== false;
     }
 

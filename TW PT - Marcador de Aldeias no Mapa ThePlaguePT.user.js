@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.8.1
+// @version      1.8.2
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.8.1",
+        version: "1.8.2",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -207,10 +207,10 @@
             .${APP.id}-launcherIcon{width:16px!important;height:16px!important;flex:0 0 16px!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
             .${APP.id}-launcherLabel{display:inline-block!important;max-width:0!important;opacity:0!important;overflow:hidden!important;transform:translateX(-4px)!important;white-space:nowrap!important;transition:max-width .18s ease,opacity .14s ease,transform .18s ease!important}
             #${APP.id}-launcher:hover .${APP.id}-launcherLabel,#${APP.id}-launcher:focus-visible .${APP.id}-launcherLabel{max-width:345px!important;opacity:1!important;transform:translateX(0)!important}
-            #${APP.id}-mapToggle{position:absolute!important;top:6px!important;right:45px!important;z-index:1200!important;box-sizing:border-box!important;width:34px!important;min-width:34px!important;height:34px!important;padding:4px!important;border:2px solid #5a2b12!important;border-radius:3px!important;background:linear-gradient(#e8bc63 0%,#bd7d2f 52%,#8f4c1d 100%)!important;cursor:pointer!important;box-shadow:inset 0 0 0 1px #ffe5a0,inset 0 1px 2px #fff9,0 2px 4px #0009!important}
-            #${APP.id}-mapToggle:hover{background:linear-gradient(#f2ca75 0%,#cb8b3b 52%,#9d5927 100%)!important}
-            #${APP.id}-mapToggle .tp-togglePin{display:block;box-sizing:border-box;width:22px;height:22px;border:1px solid #641913;border-radius:2px;background:#a72c25 url("${APP.launcherIcon}") center/16px 16px no-repeat;filter:drop-shadow(0 1px 1px #000);box-shadow:inset 0 1px 1px #fff5}
-            #${APP.id}-mapToggle.tp-off{border-color:#493b2b!important;background:linear-gradient(#aaa08d,#756b5b)!important;filter:saturate(.2)}
+            #${APP.id}-mapToggle{position:absolute!important;top:9px!important;right:47px!important;z-index:1200!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;padding:0 6px!important;display:flex!important;align-items:center!important;justify-content:center!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;cursor:pointer!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important}
+            #${APP.id}-mapToggle:hover{background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
+            #${APP.id}-mapToggle .tp-togglePin{display:block!important;width:16px!important;height:16px!important;flex:0 0 16px!important;border:0!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;filter:none!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
+            #${APP.id}-mapToggle.tp-off{border-color:#493b2b!important;background:linear-gradient(#80766a,#514940)!important;filter:saturate(.2)}
             #${APP.id}-mapToggle.tp-off::after{content:"";position:absolute;left:3px;top:15px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
             #${APP.id}-panel{position:fixed;inset:0;z-index:60040;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
             #${APP.id}-panel.tp-hidden{display:none}
