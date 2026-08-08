@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.7.0
+// @version      1.8.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.7.0",
+        version: "1.8.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -45,6 +45,7 @@
         pendingMiniRefresh: false,
         panel: null,
         launcher: null,
+        mapToggle: null,
         launcherPositionFrame: 0,
     };
 
@@ -206,6 +207,11 @@
             .${APP.id}-launcherIcon{width:16px!important;height:16px!important;flex:0 0 16px!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
             .${APP.id}-launcherLabel{display:inline-block!important;max-width:0!important;opacity:0!important;overflow:hidden!important;transform:translateX(-4px)!important;white-space:nowrap!important;transition:max-width .18s ease,opacity .14s ease,transform .18s ease!important}
             #${APP.id}-launcher:hover .${APP.id}-launcherLabel,#${APP.id}-launcher:focus-visible .${APP.id}-launcherLabel{max-width:345px!important;opacity:1!important;transform:translateX(0)!important}
+            #${APP.id}-mapToggle{position:absolute!important;top:6px!important;right:45px!important;z-index:1200!important;box-sizing:border-box!important;width:34px!important;height:34px!important;padding:5px!important;border:2px solid #5b1c13!important;border-radius:3px!important;background:linear-gradient(#b43a32,#7d1d18)!important;cursor:pointer!important;box-shadow:inset 0 0 0 1px #e9b66c,inset 0 1px 2px #fff7,0 2px 4px #0009!important}
+            #${APP.id}-mapToggle:hover{filter:brightness(1.12)}
+            #${APP.id}-mapToggle .tp-togglePin{display:block;width:100%;height:100%;background:url("${APP.launcherIcon}") center/contain no-repeat;filter:drop-shadow(0 1px 1px #000)}
+            #${APP.id}-mapToggle.tp-off{border-color:#493b2b!important;background:linear-gradient(#807664,#51493e)!important;filter:saturate(.25)}
+            #${APP.id}-mapToggle.tp-off::after{content:"";position:absolute;left:3px;top:15px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
             #${APP.id}-panel{position:fixed;inset:0;z-index:60040;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
             #${APP.id}-panel.tp-hidden{display:none}
             #${APP.id}-panel .tp-card{width:min(620px,96vw);max-height:92vh;overflow:auto;padding:8px;border:2px solid #473019;border-radius:6px;background:linear-gradient(#d9c99e,#95805b);color:#32190d;box-shadow:0 0 0 1px #d8c99b,0 0 0 4px #5c4429,0 0 0 6px #dacba4e6,inset 0 0 0 2px #fff4cfcf,0 6px 18px #0000008c;font:13px Verdana}
@@ -278,6 +284,43 @@
         document.body.appendChild(button);
         state.launcher = button;
         setupLauncherPosition();
+    }
+
+    function createMapToggle() {
+        document.getElementById(`${APP.id}-mapToggle`)?.remove();
+        const host = document.querySelector("#map_wrap") || document.querySelector("#map_container") || document.querySelector("#map")?.parentElement;
+        if (!host) return;
+        if (getComputedStyle(host).position === "static") host.style.position = "relative";
+        const button = document.createElement("button");
+        button.id = `${APP.id}-mapToggle`;
+        button.type = "button";
+        button.innerHTML = `<span class="tp-togglePin" aria-hidden="true"></span>`;
+        button.addEventListener("click", () => {
+            state.enabled = !state.enabled;
+            save();
+            updateMapToggle();
+            const checkbox = state.panel?.querySelector(".tp-enabled");
+            if (checkbox) checkbox.checked = state.enabled;
+            if (state.enabled) {
+                refreshMarkers(true);
+                notify("Marcações ativadas no mapa e minimapa.");
+            } else {
+                removeMarkers(true);
+                notify("Marcações desativadas no mapa e minimapa.");
+            }
+        });
+        host.appendChild(button);
+        state.mapToggle = button;
+        updateMapToggle();
+    }
+
+    function updateMapToggle() {
+        const button = state.mapToggle || document.getElementById(`${APP.id}-mapToggle`);
+        if (!button) return;
+        button.classList.toggle("tp-off", !state.enabled);
+        button.title = state.enabled ? "Desligar marcações no mapa e minimapa" : "Ligar marcações no mapa e minimapa";
+        button.setAttribute("aria-label", button.title);
+        button.setAttribute("aria-pressed", String(state.enabled));
     }
 
     function setupLauncherPosition() {
@@ -409,6 +452,7 @@
             state.distance = Math.max(1, Math.min(200, Number(panel.querySelector(".tp-distance").value) || 20));
             state.zoneSize = Number(panel.querySelector(".tp-zone-size").value) === 50 ? 50 : 25;
             save();
+            updateMapToggle();
             refreshMarkers();
             closePanel();
             notify(`${state.coords.size} aldeia(s) guardada(s).`);
@@ -427,6 +471,7 @@
 
     function waitForMap(attempt = 0) {
         if (document.querySelector("#map, #map_wrap, #map_container") || attempt > 80) {
+            createMapToggle();
             observeMap();
             refreshMarkers();
             return;
