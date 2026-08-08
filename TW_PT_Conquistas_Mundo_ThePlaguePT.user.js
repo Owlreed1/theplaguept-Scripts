@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.46
+// @version      1.0.47
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.46",
+        version: "1.0.47",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -717,11 +717,25 @@
                 background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
             }
             #${APP.id}-map-load.${APP.id}-map-toggle-off {
-                background: linear-gradient(to bottom, #7f6040, #5b3d25 55%, #3d2819);
+                border-color: #2f302d;
+                background: linear-gradient(to bottom, #7c7d75, #55564f 55%, #353631);
             }
             #${APP.id}-map-load.${APP.id}-map-toggle-off:hover,
             #${APP.id}-map-load.${APP.id}-map-toggle-off:focus {
-                background: linear-gradient(to bottom, #8f704a, #68472d 55%, #4a301e);
+                background: linear-gradient(to bottom, #8b8c84, #62635c 55%, #42433d);
+            }
+            #${APP.id}-map-load.${APP.id}-map-toggle-off::after {
+                content: "";
+                position: absolute;
+                left: 5px;
+                top: 12px;
+                width: 20px;
+                height: 3px;
+                border-radius: 3px;
+                background: #f4ead0;
+                box-shadow: 0 0 0 1px #2d2d29, 1px 1px 2px rgba(0,0,0,.75);
+                transform: rotate(-45deg);
+                pointer-events: none;
             }
             #${APP.id}-map-load .${APP.id}-map-load-icon {
                 flex: 0 0 17px;
@@ -736,6 +750,11 @@
                     linear-gradient(to bottom, #f2d08a, #d49a40);
                 box-shadow: 0 0 0 1px #7b241f, 0 0 6px rgba(255,214,122,.75);
                 transform: skewX(-8deg);
+            }
+            #${APP.id}-map-load.${APP.id}-map-toggle-off .${APP.id}-map-load-icon {
+                filter: grayscale(1) brightness(.78);
+                opacity: .92;
+                box-shadow: 0 0 0 1px #3c3d38, 0 0 4px rgba(255,255,255,.35);
             }
             #${APP.id}-map-load .${APP.id}-map-load-icon::before {
                 content: "";
@@ -757,6 +776,10 @@
                 border-radius: 50%;
                 background: #d9152f;
                 box-shadow: 0 0 0 1px #fff1b8;
+            }
+            #${APP.id}-map-load.${APP.id}-map-toggle-off .${APP.id}-map-load-icon::after {
+                background: #6e6f68;
+                box-shadow: 0 0 0 1px #f4ead0;
             }
             #${APP.id}-map-load .${APP.id}-map-load-label {
                 display: none;
