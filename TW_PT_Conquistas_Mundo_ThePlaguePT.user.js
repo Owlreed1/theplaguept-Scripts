@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.45
+// @version      1.0.46
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.45",
+        version: "1.0.46",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -687,23 +687,17 @@
                 --${APP.id}-marker-rgb: 217,21,47;
                 --${APP.id}-marker-glow: rgba(217,21,47,.95);
             }
-            .${APP.id}-map-toggle-row {
-                display: flex;
-                justify-content: flex-start;
-                align-items: center;
-                gap: 6px;
-                margin: 0 0 6px;
-                min-height: 28px;
-            }
             #${APP.id}-map-load {
-                position: static;
-                z-index: 1;
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                z-index: 120;
                 display: inline-flex;
                 align-items: center;
-                justify-content: flex-start;
-                gap: 8px;
-                width: auto;
-                min-width: 212px;
+                justify-content: center;
+                gap: 0;
+                width: 30px;
+                min-width: 30px;
                 height: 28px;
                 overflow: visible;
                 white-space: nowrap;
@@ -714,7 +708,7 @@
                 color: #fff;
                 font: bold 12px Verdana, Arial, sans-serif;
                 text-shadow: 1px 1px 1px #000;
-                padding: 0 9px;
+                padding: 0;
                 cursor: pointer;
                 transition: background .12s ease, filter .12s ease;
             }
@@ -730,11 +724,11 @@
                 background: linear-gradient(to bottom, #8f704a, #68472d 55%, #4a301e);
             }
             #${APP.id}-map-load .${APP.id}-map-load-icon {
-                flex: 0 0 18px;
+                flex: 0 0 17px;
                 position: relative;
                 display: inline-block;
-                width: 18px;
-                height: 16px;
+                width: 17px;
+                height: 15px;
                 border: 1px solid #fff1b8;
                 border-radius: 2px;
                 background:
@@ -746,10 +740,10 @@
             #${APP.id}-map-load .${APP.id}-map-load-icon::before {
                 content: "";
                 position: absolute;
-                left: 7px;
+                left: 6px;
                 top: 1px;
                 width: 1px;
-                height: 12px;
+                height: 11px;
                 background: rgba(96,57,19,.75);
                 box-shadow: 6px 0 0 rgba(96,57,19,.65);
             }
@@ -757,7 +751,7 @@
                 content: "";
                 position: absolute;
                 left: 3px;
-                top: 5px;
+                top: 4px;
                 width: 5px;
                 height: 5px;
                 border-radius: 50%;
@@ -765,9 +759,7 @@
                 box-shadow: 0 0 0 1px #fff1b8;
             }
             #${APP.id}-map-load .${APP.id}-map-load-label {
-                flex: 0 0 auto;
-                opacity: 1;
-                transform: translateX(0);
+                display: none;
             }
             #${APP.id}-map-load:disabled {
                 opacity: .72;
@@ -875,22 +867,13 @@
         const existing = document.getElementById(`${APP.id}-map-load`);
         const existingRow = document.getElementById(`${APP.id}-map-toggle-row`);
         if (!isMapScreen()) {
+            if (existing) existing.remove();
             if (existingRow) existingRow.remove();
-            else if (existing) existing.remove();
             state.mapLoadButton = null;
             return;
         }
 
-        const mount = findMapToggleMount();
-        if (!mount) return;
-
-        let row = existingRow;
-        if (!row) {
-            row = document.createElement("div");
-            row.id = `${APP.id}-map-toggle-row`;
-            row.className = `${APP.id}-map-toggle-row`;
-        }
-
+        const parent = findMapOverlayRoot() || document.getElementById("map") || document.body;
         let button = existing;
         if (!button) {
             button = document.createElement("button");
@@ -903,32 +886,13 @@
             button.addEventListener("click", loadConquestsFromMapButton);
         }
 
-        if (!row.contains(button)) row.appendChild(button);
-        if (row.parentElement !== mount.parent) mount.parent.insertBefore(row, mount.before);
+        if (existingRow) existingRow.remove();
+        if (parent !== document.body && window.getComputedStyle(parent).position === "static") {
+            parent.style.position = "relative";
+        }
+        if (button.parentElement !== parent) parent.appendChild(button);
         state.mapLoadButton = button;
         syncMapLoadButtonState();
-    }
-
-    function findMapToggleMount() {
-        const toolbar = [
-            "#map_config",
-            "#map_actions",
-            "#map_controls",
-            ".map_controls",
-            "#map_topo",
-        ].map((selector) => document.querySelector(selector))
-            .find((node) => node && node.isConnected && !["TABLE", "TBODY", "THEAD", "TFOOT", "TR"].includes(node.tagName));
-
-        if (toolbar) return { parent: toolbar, before: null };
-
-        const anchor = document.getElementById("map_wrap")
-            || document.getElementById("map")
-            || findMapOverlayRoot();
-        const parent = (anchor && anchor.parentElement)
-            || document.querySelector("#content_value")
-            || document.body;
-        const before = anchor && anchor.parentElement === parent ? anchor : null;
-        return { parent, before };
     }
 
     function setMapLoadButtonBusy(isBusy) {
