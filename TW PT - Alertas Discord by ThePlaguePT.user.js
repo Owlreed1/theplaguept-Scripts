@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.25
+// @version      1.3.26
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.25 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.26 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2772,6 +2772,28 @@
         return rowTotals;
     }
 
+    function parseTroopRowTotalsFromRight(row, columns) {
+        const rowTotals = createTroopTotals();
+        const cells = Array.from(row ? row.children : []);
+
+        if (!cells.length || !columns || !columns.length) return rowTotals;
+
+        const unitCells = cells.length >= columns.length
+            ? cells.slice(cells.length - columns.length)
+            : cells;
+
+        columns.slice(-unitCells.length).forEach((column, index) => {
+            const cell = unitCells[index];
+            const value = parseSafeTroopCellNumber(cell ? (cell.innerText || cell.textContent || '') : '');
+
+            if (value > 0) {
+                rowTotals[column.key] += value;
+            }
+        });
+
+        return rowTotals;
+    }
+
     function createTroopTotals() {
         const totals = {};
 
@@ -2876,13 +2898,12 @@
             .filter(row => !row.querySelector('th'));
 
         const homeRow = rows.find(row => {
-            const firstCell = row.children[0];
-            const firstText = normalizeSearchText(firstCell ? (firstCell.innerText || firstCell.textContent || '') : '');
+            const rowText = getTroopOverviewRowText(row);
 
-            return firstText.includes('desta aldeia') || firstText.includes('esta aldeia');
+            return rowText.includes('desta aldeia') || rowText.includes('esta aldeia');
         });
 
-        return homeRow ? parseTroopRowTotals(homeRow, columns) : totals;
+        return homeRow ? parseTroopRowTotalsFromRight(homeRow, columns) : totals;
     }
 
     function parseScavengingTroopTotals(doc) {
@@ -2898,14 +2919,13 @@
             .filter(row => !row.querySelector('th'));
 
         const totalRow = rows.find(row => {
-            const firstCell = row.children[0];
-            const firstText = normalizeSearchText(firstCell ? (firstCell.innerText || firstCell.textContent || '') : '');
+            const rowText = getTroopOverviewRowText(row);
 
-            return /^total\b/.test(firstText);
+            return /^total\b/.test(rowText) || rowText.includes(' total ');
         });
 
         if (totalRow) {
-            return parseTroopRowTotals(totalRow, columns);
+            return parseTroopRowTotalsFromRight(totalRow, columns);
         }
 
         rows.forEach(row => {
@@ -2913,7 +2933,7 @@
 
             if (!/busca\s+(fraca|humilde|inteligente|extrema)/.test(rowText)) return;
 
-            addTroopTotals(totals, parseTroopRowTotals(row, columns));
+            addTroopTotals(totals, parseTroopRowTotalsFromRight(row, columns));
         });
 
         return totals;
@@ -2937,7 +2957,7 @@
             if (isIgnoredTroopOverviewRow(rowText)) return;
             if (isSupportTroopOverviewRow(rowText)) return;
 
-            const rowTotals = parseTroopRowTotals(row, columns);
+            const rowTotals = parseTroopRowTotalsFromRight(row, columns);
 
             if (!hasTroopValues(rowTotals)) return;
 
