@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.26
+// @version      1.3.27
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.26 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.27 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2794,6 +2794,16 @@
         return rowTotals;
     }
 
+    function parsePlaceTroopRowTotals(row, columns) {
+        const normalTotals = parseTroopRowTotals(row, columns);
+
+        if (hasTroopValues(normalTotals)) {
+            return normalTotals;
+        }
+
+        return parseTroopRowTotalsFromRight(row, columns);
+    }
+
     function createTroopTotals() {
         const totals = {};
 
@@ -2841,16 +2851,18 @@
 
             const table = getNextTableAfter(heading);
 
-            if (table && getTroopColumns(table).length) {
+            if (table && getTroopColumns(table).length && tableHasDirectRow(table, rowText =>
+                /busca\s+(fraca|humilde|inteligente|extrema)/.test(rowText) || /^total\b/.test(rowText)
+            )) {
                 return table;
             }
         }
 
         return Array.from(doc.querySelectorAll('table.vis, table')).find(table => {
-            const tableText = normalizeSearchText(table.innerText || table.textContent || '');
-
-            return /busca\s+(fraca|humilde|inteligente|extrema)/.test(tableText) &&
-            getTroopColumns(table).length;
+            return tableHasDirectRow(table, rowText =>
+                /busca\s+(fraca|humilde|inteligente|extrema)/.test(rowText) || /^total\b/.test(rowText)
+            ) &&
+                getTroopColumns(table).length;
         }) || null;
     }
 
@@ -2866,7 +2878,9 @@
 
             const table = getNextTableAfter(heading);
 
-            if (table && getTroopColumns(table).length) {
+            if (table && getTroopColumns(table).length && tableHasDirectRow(table, rowText =>
+                Boolean(rowText && (!rowText.includes('aldeia') || parseCoords(rowText)))
+            )) {
                 return table;
             }
         }
@@ -2874,13 +2888,17 @@
         return null;
     }
 
+    function tableHasDirectRow(table, matcher) {
+        return getDirectTableRows(table).some(row => matcher(getTroopOverviewRowText(row), row));
+    }
+
     function findHomeDefenseTroopTable(doc) {
         if (!doc || !doc.body) return null;
 
         return Array.from(doc.querySelectorAll('table.vis, table')).find(table => {
-            const tableText = normalizeSearchText(table.innerText || table.textContent || '');
-
-            return (tableText.includes('desta aldeia') || tableText.includes('esta aldeia')) &&
+            return tableHasDirectRow(table, rowText =>
+                rowText.includes('desta aldeia') || rowText.includes('esta aldeia')
+            ) &&
                 getTroopColumns(table).length;
         }) || null;
     }
@@ -2903,7 +2921,7 @@
             return rowText.includes('desta aldeia') || rowText.includes('esta aldeia');
         });
 
-        return homeRow ? parseTroopRowTotalsFromRight(homeRow, columns) : totals;
+        return homeRow ? parsePlaceTroopRowTotals(homeRow, columns) : totals;
     }
 
     function parseScavengingTroopTotals(doc) {
@@ -2925,7 +2943,7 @@
         });
 
         if (totalRow) {
-            return parseTroopRowTotalsFromRight(totalRow, columns);
+            return parsePlaceTroopRowTotals(totalRow, columns);
         }
 
         rows.forEach(row => {
@@ -2933,7 +2951,7 @@
 
             if (!/busca\s+(fraca|humilde|inteligente|extrema)/.test(rowText)) return;
 
-            addTroopTotals(totals, parseTroopRowTotalsFromRight(row, columns));
+            addTroopTotals(totals, parsePlaceTroopRowTotals(row, columns));
         });
 
         return totals;
@@ -2957,7 +2975,7 @@
             if (isIgnoredTroopOverviewRow(rowText)) return;
             if (isSupportTroopOverviewRow(rowText)) return;
 
-            const rowTotals = parseTroopRowTotalsFromRight(row, columns);
+            const rowTotals = parsePlaceTroopRowTotals(row, columns);
 
             if (!hasTroopValues(rowTotals)) return;
 
@@ -3420,10 +3438,15 @@
                 addTroopTotals(placeTotals, scavengingTotals);
                 addTroopTotals(placeTotals, transitTotals);
 
-                village.totals = placeTotals;
-                rebuiltVillages.push(village);
-                addTroopTotals(rebuiltTotals, placeTotals);
-                placeVillageCount += 1;
+                if (hasTroopValues(placeTotals)) {
+                    village.totals = placeTotals;
+                    rebuiltVillages.push(village);
+                    addTroopTotals(rebuiltTotals, placeTotals);
+                    placeVillageCount += 1;
+                } else if (hasTroopValues(village.totals)) {
+                    rebuiltVillages.push(village);
+                    addTroopTotals(rebuiltTotals, village.totals);
+                }
 
                 if (hasTroopValues(scavengingTotals) || hasTroopValues(transitTotals)) {
                     movementVillageCount += 1;
@@ -3437,7 +3460,7 @@
             }
         }
 
-        if (placeVillageCount > 0) {
+        if (rebuiltVillages.length > 0) {
             summary.totals = rebuiltTotals;
             summary.villages = rebuiltVillages;
         }
