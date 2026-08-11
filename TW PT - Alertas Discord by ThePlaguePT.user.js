@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.24
+// @version      1.3.25
 // @description  Notificacoes de ataques Tribal Wars PT -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.24 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.25 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2852,6 +2852,39 @@
         return null;
     }
 
+    function findHomeDefenseTroopTable(doc) {
+        if (!doc || !doc.body) return null;
+
+        return Array.from(doc.querySelectorAll('table.vis, table')).find(table => {
+            const tableText = normalizeSearchText(table.innerText || table.textContent || '');
+
+            return (tableText.includes('desta aldeia') || tableText.includes('esta aldeia')) &&
+                getTroopColumns(table).length;
+        }) || null;
+    }
+
+    function parseHomeDefenseTroopTotals(doc) {
+        const totals = createTroopTotals();
+        const table = findHomeDefenseTroopTable(doc);
+
+        if (!table) return totals;
+
+        const columns = getTroopColumns(table);
+        if (!columns.length) return totals;
+
+        const rows = getDirectTableRows(table)
+            .filter(row => !row.querySelector('th'));
+
+        const homeRow = rows.find(row => {
+            const firstCell = row.children[0];
+            const firstText = normalizeSearchText(firstCell ? (firstCell.innerText || firstCell.textContent || '') : '');
+
+            return firstText.includes('desta aldeia') || firstText.includes('esta aldeia');
+        });
+
+        return homeRow ? parseTroopRowTotals(homeRow, columns) : totals;
+    }
+
     function parseScavengingTroopTotals(doc) {
         const totals = createTroopTotals();
         const table = findScavengingTroopTable(doc);
@@ -2978,7 +3011,22 @@
     }
 
     function getTroopOverviewRowText(row) {
-        return normalizeSearchText(row ? (row.innerText || row.textContent || '') : '');
+        if (!row) return '';
+
+        const imgTexts = Array.from(row.querySelectorAll('img'))
+            .map(img => [
+                img.getAttribute('src') || '',
+                img.getAttribute('title') || '',
+                img.getAttribute('alt') || '',
+                img.className || ''
+            ].join(' '))
+            .join(' ');
+
+        return normalizeSearchText([
+            row.innerText || row.textContent || '',
+            row.className || '',
+            imgTexts
+        ].join(' '));
     }
 
     function isIgnoredTroopOverviewRow(rowText) {
@@ -3329,7 +3377,10 @@
             return true;
         });
 
-        let scavengingVillageCount = 0;
+        const rebuiltTotals = createTroopTotals();
+        const rebuiltVillages = [];
+        let placeVillageCount = 0;
+        let movementVillageCount = 0;
 
         for (const village of villages) {
             try {
@@ -3340,20 +3391,25 @@
                     break;
                 }
 
+                const homeTotals = parseHomeDefenseTroopTotals(doc);
                 const scavengingTotals = parseScavengingTroopTotals(doc);
                 const transitTotals = parseTransitTroopTotals(doc);
-                const placeMovementTotals = createTroopTotals();
+                const placeTotals = createTroopTotals();
 
-                addTroopTotals(placeMovementTotals, scavengingTotals);
-                addTroopTotals(placeMovementTotals, transitTotals);
+                addTroopTotals(placeTotals, homeTotals);
+                addTroopTotals(placeTotals, scavengingTotals);
+                addTroopTotals(placeTotals, transitTotals);
 
-                if (!hasTroopValues(placeMovementTotals)) continue;
+                village.totals = placeTotals;
+                rebuiltVillages.push(village);
+                addTroopTotals(rebuiltTotals, placeTotals);
+                placeVillageCount += 1;
 
-                addTroopTotals(summary.totals, placeMovementTotals);
-                addTroopTotals(village.totals, placeMovementTotals);
-                scavengingVillageCount += 1;
+                if (hasTroopValues(scavengingTotals) || hasTroopValues(transitTotals)) {
+                    movementVillageCount += 1;
+                }
             } catch (error) {
-                console.warn('[TW] Erro ao carregar tropas em busca da aldeia:', village.id, error);
+                console.warn('[TW] Erro ao carregar tropas da Praca de Reunioes da aldeia:', village.id, error);
             }
 
             if (villages.length > 1) {
@@ -3361,7 +3417,13 @@
             }
         }
 
-        summary.scavengingVillageCount = scavengingVillageCount;
+        if (placeVillageCount > 0) {
+            summary.totals = rebuiltTotals;
+            summary.villages = rebuiltVillages;
+        }
+
+        summary.placeVillageCount = placeVillageCount;
+        summary.scavengingVillageCount = movementVillageCount;
         summary.attackFullCounter = calculateAttackFullCounter(summary.villages);
 
         return summary;
