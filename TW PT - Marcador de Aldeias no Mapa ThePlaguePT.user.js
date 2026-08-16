@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.0.0
+// @version      2.0.1
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "2.0.0",
+        version: "2.0.1",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -334,7 +334,7 @@
             .${APP.id}-section:first-child{border-top:0}.${APP.id}-section>div{min-width:0}
             .${APP.id}-section h3{margin:0 0 3px;color:#8f2b25;font-size:13px;line-height:16px;text-transform:uppercase}
             .${APP.id}-section p{margin:2px 0;color:#5e3b16;font-size:11px;line-height:14px}
-            .${APP.id}-coordsSection{border-left-color:#c72d2d}.${APP.id}-toolsSection{border-left-color:#8b48c8}.${APP.id}-zonesSection{border-left-color:#1f9ac5}.${APP.id}-settingsSection{border-left-color:#e0a51d}.${APP.id}-actionsSection{border-left-color:#8a6424}
+            .${APP.id}-coordsSection{border-left-color:#c72d2d}.${APP.id}-toolsSection{border-left-color:#8b48c8}.${APP.id}-bonusSection{border-left-color:#18874a}.${APP.id}-zonesSection{border-left-color:#1f9ac5}.${APP.id}-settingsSection{border-left-color:#e0a51d}.${APP.id}-actionsSection{border-left-color:#8a6424}
             .${APP.id}-native textarea{width:100%;height:210px;resize:vertical;box-sizing:border-box;padding:8px;border:1px solid #804000;background:#fffdf6;font:13px Consolas,monospace}
             .${APP.id}-native .tp-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0}
             .${APP.id}-native .tp-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
@@ -348,7 +348,7 @@
             .${APP.id}-tool input[type="number"],.${APP.id}-tool select{height:25px;border:1px solid #80522d;background:#fffaf0}
             .${APP.id}-tool input[type="number"]{width:58px}
             .${APP.id}-tool button{height:26px;border:1px solid #603419;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer}
-            .${APP.id}-bonusTool{grid-column:1/-1}
+            .${APP.id}-bonusTool{grid-column:1/-1;background:#efe0ba}
             .${APP.id}-bonusOptions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 10px;margin:6px 0}
             .${APP.id}-bonusOption{display:flex;align-items:flex-start;gap:5px;min-width:0;color:#3b2508;font-size:11px}
             .${APP.id}-bonusOption span{overflow-wrap:anywhere}.${APP.id}-bonusEmpty{color:#75583b;font-style:italic}
@@ -495,8 +495,11 @@
                         <div class="${APP.id}-tools">
                             <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Distância às minhas aldeias</span><div class="${APP.id}-toolLine"><span>Máximo</span><input class="tp-distance" type="number" min="1" max="200" step="1" value="${state.distance}"><span>campos</span><button class="tp-filter" type="button">Filtrar lista</button></div></div>
                             <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Zonas geográficas</span><div class="${APP.id}-toolLine"><span>Máximo</span><select class="tp-zone-size"><option value="25" ${state.zoneSize === 25 ? "selected" : ""}>25 aldeias</option><option value="50" ${state.zoneSize === 50 ? "selected" : ""}>50 aldeias</option></select><button class="tp-zones" type="button">Criar zonas</button></div></div>
-                            <div class="${APP.id}-tool ${APP.id}-bonusTool"><span class="${APP.id}-toolTitle">Aldeias bárbaras bónus por tipo</span><div class="${APP.id}-bonusOptions">${bonusOptionsHtml()}</div><div class="${APP.id}-toolLine"><label><input class="tp-bonus-enabled" type="checkbox" ${state.bonusEnabled ? "checked" : ""}> Marcação automática ativa</label><button class="tp-bonus-apply" type="button">Analisar mapa e marcar</button><strong class="tp-bonus-count">${state.bonusCoords.size ? `${state.bonusCoords.size} encontrada(s)` : ""}</strong></div></div>
                         </div>
+                    </section>
+                    <section class="${APP.id}-section ${APP.id}-bonusSection">
+                        <div><h3>Bárbaras bónus</h3><p>Analisa automaticamente as aldeias bárbaras e marca apenas os tipos de bónus selecionados.</p></div>
+                        <div class="${APP.id}-tool ${APP.id}-bonusTool"><span class="${APP.id}-toolTitle">Tipos de aldeia bónus</span><div class="${APP.id}-bonusOptions">${bonusOptionsHtml()}</div><div class="${APP.id}-toolLine"><label><input class="tp-bonus-enabled" type="checkbox" ${state.bonusEnabled ? "checked" : ""}> Marcação de bárbaras bónus ativa</label><button class="tp-bonus-apply" type="button">Analisar mapa e marcar</button><strong class="tp-bonus-count">${state.bonusCoords.size ? `${state.bonusCoords.size} encontrada(s)` : ""}</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
                         <div><h3>Zonas</h3><p>Uma caixa independente por zona, ordenada da mais próxima para a mais distante.</p></div>
