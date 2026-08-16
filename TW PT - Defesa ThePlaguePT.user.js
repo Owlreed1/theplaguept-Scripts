@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.129
+// @version      0.1.130
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.129',
+        version: '0.1.130',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -999,6 +999,21 @@
                     overflow-wrap: anywhere;
                 }
 
+                .tpdef-shortage-ideal {
+                    display: block;
+                    margin-top: 2px;
+                    padding-top: 2px;
+                    border-top: 1px solid #ead8aa;
+                    color: #237a3b;
+                    font-weight: bold;
+                    line-height: 13px;
+                }
+
+                .tpdef-shortage-ideal-label {
+                    color: #237a3b;
+                    margin-right: 3px;
+                }
+
                 .tpdef-defense-shortage img {
                     width: 14px;
                     height: 14px;
@@ -1269,6 +1284,18 @@
                     gap: 4px;
                     align-items: center;
                     font-weight: bold;
+                }
+
+                .tpdef-calc-ideal {
+                    margin-top: 7px;
+                    padding-top: 6px;
+                    border-top: 1px solid #d7bd74;
+                }
+
+                .tpdef-calc-ideal .tpdef-calc-title {
+                    margin-bottom: 4px;
+                    color: #237a3b;
+                    font-size: 12px;
                 }
 
                 .tpdef-calc-unit {
@@ -4932,6 +4959,7 @@
             <div class="tpdef-calc-units">
                 ${renderTroopAmountBadges(result.troops)}
             </div>
+            ${renderIdealDefenseCalculatorHtml(result.ideal)}
             <div class="tpdef-calc-wall-flow">
                 <span class="tpdef-calc-chip">
                     <span class="icon header population"></span> Pop ataque/full ${formatNumber(attackPop)}
@@ -4964,6 +4992,34 @@
         `;
     }
 
+    function renderIdealDefenseCalculatorHtml(ideal) {
+        if (!ideal || !hasTroops(ideal.troops)) return '';
+
+        const idealPop = calculateTroopPopulation(ideal.troops);
+
+        return `
+            <div class="tpdef-calc-ideal">
+                <div class="tpdef-calc-title">
+                    <img src="/graphic/command/support.png" alt="">Sugestão ideal para menos perdas
+                </div>
+                <div class="tpdef-calc-units">
+                    ${renderTroopAmountBadges(ideal.troops)}
+                </div>
+                <div class="tpdef-calc-wall-flow">
+                    <span class="tpdef-calc-chip">
+                        <span class="icon header population"></span> Pop defesa ideal ${formatNumber(idealPop)}
+                    </span>
+                    <span class="tpdef-calc-chip">
+                        <img src="/graphic/buildings/wall.png" alt="">Muralha Restante ${ideal.endurance.finalWall}/20
+                    </span>
+                </div>
+                <div class="tpdef-calc-meta">
+                    Valores arredondados para reforço prático e mais margem contra perdas.
+                </div>
+            </div>
+        `;
+    }
+
     function renderNightBonusCalculatorNote() {
         if (!isNightBonusApplied()) return '';
 
@@ -4975,7 +5031,7 @@
         `;
     }
 
-    function calculateRequiredDefenseForFulls(fulls, wall, minFinalWall, attackModel, defenseModel, includeSimulations) {
+    function calculateRequiredDefenseForFulls(fulls, wall, minFinalWall, attackModel, defenseModel, includeSimulations, includeIdeal) {
         if (fulls <= 0) {
             return {
                 ok: false,
@@ -5044,13 +5100,78 @@
             endurance = estimateDefenseEndurance(troops, wall, attackModel, fulls);
         }
 
-        return {
+        const result = {
             ok: true,
             factor: high,
             troops,
             endurance,
             simulations: includeSimulations === false ? [] : buildCalculatorSimulations(troops, wall, attackModel, fulls)
         };
+
+        if (includeIdeal !== false) {
+            result.ideal = calculateIdealDefenseForFulls(result, fulls, wall, minFinalWall, attackModel, defenseModel);
+        }
+
+        return result;
+    }
+
+    function calculateIdealDefenseForFulls(minimumResult, fulls, wall, minFinalWall, attackModel, defenseModel) {
+        if (!minimumResult || !minimumResult.ok) return null;
+
+        const targetWall = getIdealFinalWallTarget(minimumResult.endurance.finalWall, wall, minFinalWall, fulls);
+        let idealSource = null;
+
+        for (let target = targetWall; target > minimumResult.endurance.finalWall; target -= 1) {
+            const candidate = calculateRequiredDefenseForFulls(fulls, wall, target, attackModel, defenseModel, false, false);
+            if (candidate.ok) {
+                idealSource = candidate;
+                break;
+            }
+        }
+
+        if (!idealSource) idealSource = minimumResult;
+
+        const troops = roundDefenseTroopsForPlanning(idealSource.troops);
+        const endurance = estimateDefenseEndurance(troops, wall, attackModel, fulls);
+
+        return {
+            troops,
+            endurance,
+            targetWall: idealSource.endurance.finalWall
+        };
+    }
+
+    function getIdealFinalWallTarget(minimumFinalWall, wall, minFinalWall, fulls) {
+        const currentWall = clamp(parseAmount(wall), 0, 20);
+        const minimumWall = clamp(parseAmount(minFinalWall), 0, currentWall);
+        const finalWall = clamp(parseAmount(minimumFinalWall), 0, currentWall);
+        const lostWall = Math.max(0, currentWall - finalWall);
+        const extraProtection = Math.max(2, Math.ceil(lostWall * 0.35), Math.ceil(Math.max(1, fulls) / 2));
+
+        return clamp(Math.max(minimumWall, finalWall + extraProtection), 0, currentWall);
+    }
+
+    function roundDefenseTroopsForPlanning(troops) {
+        const rounded = {};
+
+        APP.defenseModelUnits.forEach(function (unit) {
+            const amount = parseAmount(troops && troops[unit]);
+            if (amount <= 0) return;
+
+            const step = getDefensePlanningRoundStep(unit, amount);
+            rounded[unit] = Math.ceil(amount / step) * step;
+        });
+
+        return rounded;
+    }
+
+    function getDefensePlanningRoundStep(unit, amount) {
+        if (unit === 'catapult') return 25;
+        if (unit === 'heavy' || unit === 'light') return amount >= 1000 ? 100 : 50;
+        if (amount >= 3000) return 500;
+        if (amount >= 1000) return 250;
+        if (amount >= 250) return 50;
+        return 25;
     }
 
     function meetsDefenseTarget(endurance, fulls, minFinalWall) {
@@ -5762,6 +5883,21 @@
             <span class="tpdef-shortage-units">${renderDefenseRequirementUnits(result.troops)}</span>
             <span class="tpdef-shortage-wall">
                 <img src="/graphic/buildings/wall.png" title="Muralha restante" alt="">Muralha restante ${result.endurance.finalWall}/20
+            </span>
+            ${renderIdealDefenseRequirementSuggestion(result.ideal)}
+        `;
+    }
+
+    function renderIdealDefenseRequirementSuggestion(ideal) {
+        if (!ideal || !hasTroops(ideal.troops)) return '';
+
+        return `
+            <span class="tpdef-shortage-ideal">
+                <span class="tpdef-shortage-ideal-label">Ideal:</span>
+                <span class="tpdef-shortage-units">${renderDefenseRequirementUnits(ideal.troops)}</span>
+                <span class="tpdef-shortage-wall">
+                    <img src="/graphic/buildings/wall.png" title="Muralha restante ideal" alt="">Muralha ${ideal.endurance.finalWall}/20
+                </span>
             </span>
         `;
     }

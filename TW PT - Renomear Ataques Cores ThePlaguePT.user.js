@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         TW PT - Renomear Ataques Cores ThePlaguePT
 // @namespace    theplaguept.tw.renomeador
-// @version      1.0.1
+// @version      1.0.2
 // @description  Botoes rapidos para renomear e colorir ataques recebidos no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Renomear%20Ataques%20Cores%20ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Renomear%20Ataques%20Cores%20ThePlaguePT.user.js
-// @include      *://*.tribalwars.com.pt/game.php*
+// @include      *://*/game.php*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
@@ -223,6 +223,8 @@
             return;
         }
 
+        if (!isPaginaTribalWars()) return;
+
         carregarConfiguracao();
         aplicarEstilos();
         criarBotaoConfiguracao();
@@ -239,6 +241,16 @@
 
         setInterval(executar, CONFIG.intervaloFallbackMs);
         console.log("[Renomear Ataques TP] Script carregado:", location.href);
+    }
+
+    function isPaginaTribalWars() {
+        const dadosJogo = obterGameDataSeguro();
+        if (dadosJogo?.player && dadosJogo?.world) return true;
+
+        return Boolean(
+            document.querySelector("#main_layout, #content_value")
+            && document.querySelector('a[href*="screen="], img[src*="/graphic/"]'),
+        );
     }
 
     function agendarExecucao() {

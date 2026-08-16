@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.27
-// @description  Notificacoes de ataques Tribal Wars PT -> Discord
+// @version      1.3.28
+// @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
+// @include      /^https:\/\/[a-z0-9-]+\.(tribalwars\.[^\/]+|die-staemme\.de|plemiona\.pl|divokekmeny\.cz|divoke-kmene\.sk|guerretribale\.fr|guerrastribales\.es|triburile\.ro|fyletikesmaxes\.gr|klanhaboru\.hu|klanlar\.org)\/.*$/
 // @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
@@ -19,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.27 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.28 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -583,7 +584,7 @@
                 'Abre o jogo e valida manualmente.'
             ].join('\n'),
             color: 16776960,
-            footer: { text: 'Tribal Wars PT' },
+            footer: { text: 'Tribal Wars' },
             timestamp: new Date().toISOString()
         }, 'TW Verification Alert', getVerificationWebhook(), {
             content: mention || undefined,
@@ -1257,7 +1258,7 @@
                     inline: false
                 }
             ],
-            footer: { text: 'Tribal Wars PT' },
+            footer: { text: 'Tribal Wars' },
             timestamp: new Date().toISOString()
         };
     }
@@ -1738,7 +1739,7 @@
                     inline: false
                 }
             ],
-            footer: { text: 'Tribal Wars PT' },
+            footer: { text: 'Tribal Wars' },
             timestamp: new Date().toISOString()
         };
     }
@@ -2044,7 +2045,7 @@
                     inline: false
                 }
             ],
-            footer: { text: 'Tribal Wars PT' },
+            footer: { text: 'Tribal Wars' },
             timestamp: new Date().toISOString()
         };
     }
@@ -2158,7 +2159,7 @@
                 : '📊 ━━━ ATAQUES A CHEGAR ━━━ 📊',
             color: totalNobles > 0 ? 16753920 : 16711680,
             fields,
-            footer: { text: 'Tribal Wars PT' },
+            footer: { text: 'Tribal Wars' },
             timestamp: new Date().toISOString()
         };
     }
@@ -2823,6 +2824,124 @@
         });
     }
 
+    function rowHasCoords(row) {
+        return Boolean(parseCoords(row ? (row.innerText || row.textContent || '') : ''));
+    }
+
+    function isTotalTroopRow(rowText) {
+        return [
+            'total',
+            'totals',
+            'totais',
+            'totales',
+            'totaux',
+            'totalt',
+            'gesamt',
+            'summe',
+            'samlet',
+            'i alt',
+            'totaal',
+            'totale',
+            'totali',
+            'razem',
+            'suma',
+            'celkem',
+            'celkom',
+            'osszesen',
+            'toplam',
+            'yhteensa',
+            'ukupno',
+            'skupaj',
+            'sveukupno',
+            'sucet',
+            'souhrn',
+            'συνολο',
+            'итого',
+            'всего',
+            'общо'
+        ].some(term => rowText.includes(term));
+    }
+
+    function isScavengingTroopOverviewRow(rowText) {
+        return /busca\s+(fraca|humilde|inteligente|extrema)|scaveng|loot|haul|gather|collect|recolha|coleta|colecta|forrage|fourrage|plunder|beute|rohstoff|ressourcen|zbiorka|zbieractwo|rabunek|sber|zber|gyujt|forras|colectare|strangere|toplama|kaynak/.test(rowText);
+    }
+
+    function isKnownHomeTroopRow(rowText) {
+        return [
+            'desta aldeia',
+            'esta aldeia',
+            'this village',
+            'from this village',
+            'from here',
+            'in this village',
+            'aus diesem dorf',
+            'in diesem dorf',
+            'dit dorp',
+            'ce village',
+            'ceci village',
+            'questo villaggio',
+            'questo paese',
+            'esta aldea',
+            'esta vila',
+            'z tej wioski',
+            'v teto vesnici',
+            'v tejto dedine',
+            'din acest sat',
+            'ebbol a falubol',
+            'bu koyden',
+            'bu koyden',
+            'z tego miejsca',
+            'z teto vesnice',
+            'from own village',
+            'own village'
+        ].some(label => rowText.includes(label));
+    }
+
+    function getPlaceTroopColumns(table) {
+        return getTroopColumns(table);
+    }
+
+    function getPlaceTroopDataRows(table, columns) {
+        return getDirectTableRows(table)
+            .filter(row => !row.querySelector('th'))
+            .map(row => ({
+                row,
+                text: getTroopOverviewRowText(row),
+                totals: parsePlaceTroopRowTotals(row, columns)
+            }))
+            .filter(item => item.text && hasTroopValues(item.totals));
+    }
+
+    function getPlaceTroopTables(doc) {
+        if (!doc || !doc.body) return [];
+
+        return Array.from(doc.querySelectorAll('table.vis, table'))
+            .map(table => ({
+                table,
+                columns: getPlaceTroopColumns(table)
+            }))
+            .filter(item => item.columns.length)
+            .map(item => Object.assign(item, {
+                rows: getPlaceTroopDataRows(item.table, item.columns)
+            }))
+            .filter(item => item.rows.length);
+    }
+
+    function isLikelyScavengingTroopTable(tableInfo) {
+        const noCoordRows = tableInfo.rows.filter(item =>
+            !rowHasCoords(item.row) &&
+            !isTotalTroopRow(item.text) &&
+            !isSupportTroopOverviewRow(item.text)
+        );
+
+        return noCoordRows.length >= 3 ||
+            tableInfo.rows.some(item => isScavengingTroopOverviewRow(item.text));
+    }
+
+    function isLikelyTransitTroopTable(tableInfo) {
+        return tableInfo.rows.some(item => rowHasCoords(item.row));
+    }
+
     function getNextTableAfter(element) {
         let current = element;
 
@@ -2840,52 +2959,17 @@
     }
 
     function findScavengingTroopTable(doc) {
-        if (!doc || !doc.body) return null;
+        const tableInfo = getPlaceTroopTables(doc)
+            .find(isLikelyScavengingTroopTable);
 
-        const headings = Array.from(doc.querySelectorAll('h2, h3, h4'));
-
-        for (const heading of headings) {
-            const headingText = normalizeSearchText(heading.innerText || heading.textContent || '');
-
-            if (!headingText.includes('tropas em busca')) continue;
-
-            const table = getNextTableAfter(heading);
-
-            if (table && getTroopColumns(table).length && tableHasDirectRow(table, rowText =>
-                /busca\s+(fraca|humilde|inteligente|extrema)/.test(rowText) || /^total\b/.test(rowText)
-            )) {
-                return table;
-            }
-        }
-
-        return Array.from(doc.querySelectorAll('table.vis, table')).find(table => {
-            return tableHasDirectRow(table, rowText =>
-                /busca\s+(fraca|humilde|inteligente|extrema)/.test(rowText) || /^total\b/.test(rowText)
-            ) &&
-                getTroopColumns(table).length;
-        }) || null;
+        return tableInfo ? tableInfo.table : null;
     }
 
     function findTransitTroopTable(doc) {
-        if (!doc || !doc.body) return null;
+        const tableInfo = getPlaceTroopTables(doc)
+            .find(isLikelyTransitTroopTable);
 
-        const headings = Array.from(doc.querySelectorAll('h2, h3, h4'));
-
-        for (const heading of headings) {
-            const headingText = normalizeSearchText(heading.innerText || heading.textContent || '');
-
-            if (!headingText.includes('tropas em transito')) continue;
-
-            const table = getNextTableAfter(heading);
-
-            if (table && getTroopColumns(table).length && tableHasDirectRow(table, rowText =>
-                Boolean(rowText && (!rowText.includes('aldeia') || parseCoords(rowText)))
-            )) {
-                return table;
-            }
-        }
-
-        return null;
+        return tableInfo ? tableInfo.table : null;
     }
 
     function tableHasDirectRow(table, matcher) {
@@ -2893,14 +2977,24 @@
     }
 
     function findHomeDefenseTroopTable(doc) {
-        if (!doc || !doc.body) return null;
+        const tables = getPlaceTroopTables(doc);
+        const knownHomeTable = tables.find(tableInfo =>
+            tableInfo.rows.some(item => isKnownHomeTroopRow(item.text))
+        );
 
-        return Array.from(doc.querySelectorAll('table.vis, table')).find(table => {
-            return tableHasDirectRow(table, rowText =>
-                rowText.includes('desta aldeia') || rowText.includes('esta aldeia')
-            ) &&
-                getTroopColumns(table).length;
-        }) || null;
+        if (knownHomeTable) return knownHomeTable.table;
+
+        const likelyHomeTable = tables.find(tableInfo =>
+            !isLikelyTransitTroopTable(tableInfo) &&
+            !isLikelyScavengingTroopTable(tableInfo) &&
+            tableInfo.rows.some(item =>
+                !rowHasCoords(item.row) &&
+                !isTotalTroopRow(item.text) &&
+                !isSupportTroopOverviewRow(item.text)
+            )
+        );
+
+        return likelyHomeTable ? likelyHomeTable.table : null;
     }
 
     function parseHomeDefenseTroopTotals(doc) {
@@ -2918,7 +3012,13 @@
         const homeRow = rows.find(row => {
             const rowText = getTroopOverviewRowText(row);
 
-            return rowText.includes('desta aldeia') || rowText.includes('esta aldeia');
+            return isKnownHomeTroopRow(rowText);
+        }) || rows.find(row => {
+            const rowText = getTroopOverviewRowText(row);
+
+            return !rowHasCoords(row) &&
+                !isTotalTroopRow(rowText) &&
+                !isSupportTroopOverviewRow(rowText);
         });
 
         return homeRow ? parsePlaceTroopRowTotals(homeRow, columns) : totals;
@@ -2939,7 +3039,7 @@
         const totalRow = rows.find(row => {
             const rowText = getTroopOverviewRowText(row);
 
-            return /^total\b/.test(rowText) || rowText.includes(' total ');
+            return isTotalTroopRow(rowText);
         });
 
         if (totalRow) {
@@ -2949,7 +3049,12 @@
         rows.forEach(row => {
             const rowText = normalizeSearchText(row.innerText || row.textContent || '');
 
-            if (!/busca\s+(fraca|humilde|inteligente|extrema)/.test(rowText)) return;
+            if (
+                !isScavengingTroopOverviewRow(rowText) &&
+                (rowHasCoords(row) || isTotalTroopRow(rowText) || isSupportTroopOverviewRow(rowText))
+            ) {
+                return;
+            }
 
             addTroopTotals(totals, parsePlaceTroopRowTotals(row, columns));
         });
@@ -2973,6 +3078,7 @@
             const rowText = getTroopOverviewRowText(row);
 
             if (isIgnoredTroopOverviewRow(rowText)) return;
+            if (isTotalTroopRow(rowText)) return;
             if (isSupportTroopOverviewRow(rowText)) return;
 
             const rowTotals = parsePlaceTroopRowTotals(row, columns);
@@ -3068,11 +3174,13 @@
     }
 
     function isIgnoredTroopOverviewRow(rowText) {
-        return !rowText || /total|selecionar|seleccionar/.test(rowText);
+        return !rowText ||
+            isTotalTroopRow(rowText) ||
+            /\b(selecionar|seleccionar|select|auswahlen|auswaehlen|wybierz|vybrat|seleccionar|seleccion|selecteaza|kivalaszt|sec|secin)\b/.test(rowText);
     }
 
     function isSupportTroopOverviewRow(rowText) {
-        return /\b(apoio|apoios|apoiar|apoiando|suporte|support|supports|supporting|reforco|reforcos|reinforcement|reinforcements)\b/.test(rowText);
+        return /\b(apoio|apoios|apoiar|apoiando|suporte|suportes|support|supports|supporting|reforco|reforcos|reinforcement|reinforcements|unterstutzung|unterstuetzung|verstarkung|verstaerkung|ondersteuning|soutien|renfort|apoyo|apoyos|rinforzo|rinforzi|wsparcie|posilky|podpora|sprijin|suport|tamogatas|erosites|stotte|stod|stöd|tuki|destek)\b/.test(rowText);
     }
 
     function hasTroopValues(rowTotals) {
@@ -3172,6 +3280,54 @@
             .toLowerCase();
     }
 
+    function getAcademyNobleNumberRows(doc) {
+        if (!doc || !doc.body) return [];
+
+        let bestRows = [];
+        let bestScore = 0;
+        let bestHasNobleContext = false;
+
+        Array.from(doc.querySelectorAll('table')).forEach(table => {
+            const tableText = normalizeSearchText([
+                table.innerText || table.textContent || '',
+                table.innerHTML || ''
+            ].join(' '));
+            const numericRows = Array.from(table.querySelectorAll('tr'))
+                .map(row => {
+                    const cells = Array.from(row.children);
+                    if (cells.length < 2) return null;
+
+                    const label = normalizeSearchText(cells[0].innerText || cells[0].textContent || '');
+                    const valueText = cleanText(cells[cells.length - 1].innerText || cells[cells.length - 1].textContent || '');
+                    const valueMatch = valueText.match(/\d[\d.\s]*/);
+
+                    if (!label || !valueMatch) return null;
+
+                    return {
+                        label,
+                        value: parseResourceNumber(valueMatch[0])
+                    };
+                })
+                .filter(Boolean);
+
+            if (numericRows.length < 4) return;
+
+            const hasNobleContext = /\b(snob|noble|nobles|nobre|nobres|nobleman|noblemen|adel|adels|szlach|nobil|nobili)\b/.test(tableText);
+            const score = numericRows.length + (hasNobleContext ? 10 : 0);
+
+            if (
+                (hasNobleContext && !bestHasNobleContext) ||
+                (hasNobleContext === bestHasNobleContext && score > bestScore)
+            ) {
+                bestScore = score;
+                bestHasNobleContext = hasNobleContext;
+                bestRows = numericRows;
+            }
+        });
+
+        return bestRows;
+    }
+
     function parseAcademyNoblesAvailable(doc) {
         if (!doc || !doc.body) return null;
 
@@ -3210,6 +3366,11 @@
         for (const pattern of patterns) {
             const match = text.match(pattern);
             if (match) return parseResourceNumber(match[1]);
+        }
+
+        const numericRows = getAcademyNobleNumberRows(doc);
+        if (numericRows.length >= 4) {
+            return numericRows[numericRows.length - 1].value;
         }
 
         return null;
@@ -3261,6 +3422,13 @@
                     counts.existingNobles = parseResourceNumber(match[1]);
                     break;
                 }
+            }
+        }
+
+        if (counts.existingNobles === null) {
+            const numericRows = getAcademyNobleNumberRows(doc);
+            if (numericRows.length >= 2) {
+                counts.existingNobles = numericRows[1].value;
             }
         }
 
@@ -3481,8 +3649,20 @@
         return enrichTroopsSummaryWithScavenging(summary);
     }
 
+    function getNumberLocale() {
+        try {
+            if (navigator.languages && navigator.languages.length) {
+                return navigator.languages[0];
+            }
+
+            return navigator.language || 'pt-PT';
+        } catch (_) {
+            return 'pt-PT';
+        }
+    }
+
     function formatTroopNumber(value) {
-        return Number(value || 0).toLocaleString('pt-PT');
+        return Number(value || 0).toLocaleString(getNumberLocale());
     }
 
     function sumTroopUnits(totals, units) {
@@ -3561,7 +3741,7 @@
                 '🛡️ **Defesa**',
                 lines.join('\n')
             ].join('\n'),
-            footer: { text: 'Tribal Wars PT' },
+            footer: { text: 'Tribal Wars' },
             timestamp: new Date().toISOString()
         };
     }
@@ -3615,7 +3795,7 @@
                     inline: false
                 }
             ],
-            footer: { text: 'Tribal Wars PT' },
+            footer: { text: 'Tribal Wars' },
             timestamp: new Date().toISOString()
         };
     }
@@ -3698,7 +3878,7 @@
                     inline: false
                 }
             ],
-            footer: { text: 'Tribal Wars PT' },
+            footer: { text: 'Tribal Wars' },
             timestamp: new Date().toISOString()
         };
     }
@@ -5531,7 +5711,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                             `Jogador: **${getDefenderValue()}**`
                         ].join('\n'),
                         color: 5763719,
-                        footer: { text: 'Tribal Wars PT' },
+                        footer: { text: 'Tribal Wars' },
                         timestamp: new Date().toISOString()
                     }]
                 });
