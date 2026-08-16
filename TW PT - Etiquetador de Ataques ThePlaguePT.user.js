@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.33
+// @version      1.0.34
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -183,6 +183,7 @@
     let ultimoContadorObservado = null;
     let verificacaoContadorTimer = 0;
     let etiquetagemLoteTimer = 0;
+    let atualizacaoChegadasTimer = 0;
     let audioDesbloqueado = false;
     let contextoAudio = null;
     const audios = new Map();
@@ -290,6 +291,7 @@
             estado.alertaNobreAtivo = alertaGuardado === "1";
         }
         localStorage.setItem(STATE_KEY, JSON.stringify(estado));
+        agendarAtualizacaoChegadas();
     }
 
     function definirAlertaNobreAtivo(ativo) {
@@ -300,6 +302,80 @@
 
     function sincronizarEstado() {
         estado = carregarEstado();
+        const alterou = removerComandosChegados(false);
+        if (alterou) {
+            localStorage.setItem(STATE_KEY, JSON.stringify(estado));
+            agendarAtualizacaoChegadas();
+        }
+        return alterou;
+    }
+
+    function comandoAindaPorChegar(dados, agoraMs = obterAgoraServidorMs()) {
+        const chegadaMs = Number(dados?.chegadaMs);
+        return !Number.isFinite(chegadaMs) || chegadaMs <= 0 || chegadaMs > agoraMs;
+    }
+
+    function linhaAindaPorChegar(linha, agoraMs = obterAgoraServidorMs()) {
+        const chegadaMs = obterTimestampChegada(linha);
+        return !chegadaMs || chegadaMs > agoraMs;
+    }
+
+    function removerComandosChegados(guardar = true) {
+        const conhecidos = estado.comandosConhecidos || {};
+        const entradas = Object.entries(conhecidos);
+        if (entradas.length === 0) {
+            return false;
+        }
+
+        const agoraMs = obterAgoraServidorMs();
+        const ativos = Object.fromEntries(entradas.filter(([, dados]) => comandoAindaPorChegar(dados, agoraMs)));
+        const chavesAtivas = new Set(Object.keys(ativos));
+        if (chavesAtivas.size === entradas.length) {
+            return false;
+        }
+
+        estado.comandosConhecidos = ativos;
+        estado.comandosTratados = (estado.comandosTratados || []).filter((chave) => chavesAtivas.has(chave));
+        estado.comandosPendentes = (estado.comandosPendentes || []).filter((chave) => chavesAtivas.has(chave));
+        estado.comandosAvisadosAtaque = (estado.comandosAvisadosAtaque || []).filter((chave) => chavesAtivas.has(chave));
+        estado.comandosAvisadosNobre = (estado.comandosAvisadosNobre || []).filter((chave) => chavesAtivas.has(chave));
+        estado.ultimoTotalIncomings = chavesAtivas.size;
+        estado.ultimoTotalContador = Math.min(Number(estado.ultimoTotalContador) || chavesAtivas.size, chavesAtivas.size);
+        if (chavesAtivas.size === 0) {
+            estado.ultimaAssinatura = "";
+        }
+
+        if (guardar) {
+            guardarEstado();
+        }
+        return true;
+    }
+
+    function agendarAtualizacaoChegadas() {
+        if (estaEmFrame()) {
+            return;
+        }
+
+        window.clearTimeout(atualizacaoChegadasTimer);
+        const agoraMs = obterAgoraServidorMs();
+        const proximaChegada = Object.values(estado.comandosConhecidos || {})
+            .map((dados) => Number(dados?.chegadaMs))
+            .filter((chegadaMs) => Number.isFinite(chegadaMs) && chegadaMs > agoraMs)
+            .sort((a, b) => a - b)[0];
+
+        if (!proximaChegada) {
+            atualizacaoChegadasTimer = 0;
+            return;
+        }
+
+        const atraso = Math.max(1_000, Math.min(2_147_000_000, proximaChegada - agoraMs + 1_000));
+        atualizacaoChegadasTimer = window.setTimeout(() => {
+            atualizacaoChegadasTimer = 0;
+            if (sincronizarEstado()) {
+                atualizarContadorBotao();
+            }
+            agendarAtualizacaoChegadas();
+        }, atraso);
     }
 
     function juntarConfig(base, extra) {
@@ -914,7 +990,8 @@
     }
 
     function criarSnapshotComandos(linhas) {
-        return Object.fromEntries(linhas.map((linha) => [
+        const agoraMs = obterAgoraServidorMs();
+        return Object.fromEntries(linhas.filter((linha) => linhaAindaPorChegar(linha, agoraMs)).map((linha) => [
             obterIdComando(linha),
             {
                 chegadaMs: obterTimestampChegada(linha),
@@ -995,21 +1072,23 @@
     }
 
     function atualizarEstadoIncomings(linhas = obterLinhasValidas()) {
-        const chavesAtuais = new Set(linhas.map(obterIdComando).filter(Boolean));
+        const agoraMs = obterAgoraServidorMs();
+        const linhasAtivas = linhas.filter((linha) => linhaAindaPorChegar(linha, agoraMs));
+        const chavesAtuais = new Set(linhasAtivas.map(obterIdComando).filter(Boolean));
         const tratados = new Set([
             ...(estado.comandosTratados || []),
             ...(estado.comandosPendentes || []),
         ]);
 
-        linhas.forEach((linha) => {
+        linhasAtivas.forEach((linha) => {
             if (linhaJaTemEtiquetaNoNome(linha)) {
                 tratados.add(obterIdComando(linha));
             }
         });
 
-        estado.ultimoTotalIncomings = linhas.length;
-        estado.ultimoTotalContador = obterLinhasTabela().length;
-        estado.ultimaAssinatura = assinaturaIncomings(linhas);
+        estado.ultimoTotalIncomings = linhasAtivas.length;
+        estado.ultimoTotalContador = linhasAtivas.length;
+        estado.ultimaAssinatura = assinaturaIncomings(linhasAtivas);
         estado.processado = true;
         estado.comandosTratados = [...tratados].filter((chave) => chavesAtuais.has(chave));
         estado.comandosPendentes = [];
@@ -1898,7 +1977,7 @@
             obterLinhasTabela()
                 .filter(linhaDoProprioJogador)
                 .forEach(desmarcarParaNaoEtiquetar);
-            const linhas = obterLinhasValidas();
+            const linhas = obterLinhasValidas().filter(linhaAindaPorChegar);
             sincronizarComandosConhecidos(linhas);
             avisarNovosAtaques(linhas);
             const gruposRepetidos = criarGruposPorAldeia(linhas);
@@ -2004,7 +2083,7 @@
         sincronizarEstado();
 
         if (paginaDeIncomings()) {
-            return obterLinhasValidas().length;
+            return obterLinhasValidas().filter(linhaAindaPorChegar).length;
         }
 
         return estado.processado
@@ -2213,7 +2292,7 @@
                 return;
             }
 
-            const linhas = obterLinhasValidas();
+            const linhas = obterLinhasValidas().filter(linhaAindaPorChegar);
             const avisadosAntes = new Set(estado.comandosAvisadosAtaque || []);
             const cancelados = sincronizarComandosConhecidos(linhas);
             const novos = linhas.filter((linha) => !avisadosAntes.has(obterIdComando(linha))).length;
@@ -3005,7 +3084,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.33</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.34</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
