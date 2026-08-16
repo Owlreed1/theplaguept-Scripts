@@ -1,15 +1,16 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.127
-// @description  Pack defensivo pessoal para Tribal Wars PT
+// @version      0.1.129
+// @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
 // @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Defesa%20ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Defesa%20ThePlaguePT.user.js
-// @include      *://*.tribalwars.com.pt/game.php*
+// @match        *://*/game.php*
+// @include      *://*/game.php*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
@@ -22,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.127',
+        version: '0.1.129',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -53,6 +54,16 @@
             normal: {spear: 6750, sword: 6750, heavy: 1000},
             slow: {spear: 10000, sword: 10000},
             fast: {spear: 7000, sword: 1000, heavy: 2000}
+        },
+        words: {
+            target: ['destino', 'alvo', 'target', 'doel', 'ziel', 'cible', 'objetivo', 'cel'],
+            source: ['origem', 'source', 'origin', 'herkomst', 'aldeia de origem', 'origen', 'origine', 'provenance', 'zrodlo', 'puvod', 'forras'],
+            arrival: ['chegada', 'arrival', 'aankomst', 'ankunft', 'arrivee', 'llegada', 'przybycie', 'prichod', 'sosire', 'erkezes'],
+            timer: ['chega em', 'arrives in', 'komt aan', 'ankunft in', 'arrive dans', 'llega en', 'dojdzie za', 'przybywa za', 'soseste in', 'erkezik'],
+            receiving: ['a receber', 'a chegar', 'receber', 'incoming', 'aldeia de origem', 'origem', 'source', 'origin', 'herkomst', 'origen', 'origine', 'ankunft', 'arrival'],
+            support: ['apoio', 'suporte', 'support', 'supports', 'unterstutzung', 'unterstuetzung', 'soutien', 'apoyo', 'reforco', 'reinforcement', 'wsparcie', 'podpora', 'pomoc', 'sprijin', 'segitseg', 'destek'],
+            attack: ['ataque', 'attack', 'angriff', 'attaque', 'attacco', 'aanval', 'atac', 'atak', 'utok', 'napad', 'tamad'],
+            ram: ['ariete', 'arietes', 'ram', 'rams', 'battering ram', 'belier', 'beliers', 'rammen', 'taran', 'taranis']
         },
         defaultSettings: {
             features: {
@@ -117,10 +128,31 @@
             return;
         }
 
+        if (!isTribalWarsRuntime()) return;
+
         settings = loadSettings();
         addStyles();
         addLauncher();
         runScreenEnhancements();
+    }
+
+    function isTribalWarsRuntime() {
+        const data = window.game_data || {};
+        const host = clean(window.location.hostname);
+        const knownHost = /(^|\.)(tribalwars|die-staemme|staemme|plemiona|divokekmeny|divoke-kmene|triburile|klanhaboru|fyletikesmaxes|guerrastribales|guerretribale|voyna-plemyon|tribalwars2)\./.test(host);
+        const hasGameBase = String(data.link_base_pure || '').indexOf('game.php') >= 0;
+        const hasGameLinks = $('a[href*="game.php?screen="], form[action*="game.php"]').length > 0;
+
+        return Boolean(
+            knownHost ||
+            hasGameBase ||
+            hasGameLinks ||
+            data.screen ||
+            data.player ||
+            data.village ||
+            window.TribalWars ||
+            window.TWMap
+        );
     }
 
     function runScreenEnhancements() {
@@ -368,26 +400,27 @@
                 .tpdef-config-wrap {
                     width: 820px;
                     max-width: calc(100vw - 48px);
-                    border: 2px solid #7e211c;
-                    border-radius: 4px;
-                    background: #f4e4b8;
-                    color: #3b2508;
-                    font-family: Arial, Verdana, sans-serif;
+                    border: 1px solid #804000;
+                    border-radius: 0;
+                    background: #f7e6bb;
+                    color: #000;
+                    font-family: Verdana, Arial, sans-serif;
                     box-sizing: border-box;
                     overflow: hidden;
                 }
 
                 .tpdef-config-header {
-                    padding: 12px 14px 9px;
-                    border-bottom: 1px solid #c98c48;
-                    background: linear-gradient(to bottom, #f7e8c1 0%, #edd49a 100%);
+                    padding: 4px 6px;
+                    border-bottom: 1px solid #804000;
+                    background: linear-gradient(to bottom, #d7bd74 0%, #b98b3a 100%);
                 }
 
                 .tpdef-config-title {
                     margin: 0;
-                    color: #8f2b25;
-                    font-size: 16px;
-                    line-height: 20px;
+                    color: #000;
+                    font-size: 13px;
+                    font-style: italic;
+                    line-height: 17px;
                     font-weight: bold;
                 }
 
@@ -399,16 +432,16 @@
                 }
 
                 .tpdef-config-body {
-                    padding: 10px 12px 14px;
+                    padding: 6px 8px 8px;
                 }
 
                 .tpdef-config-section {
                     display: grid;
                     grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
                     gap: 10px 18px;
-                    padding: 11px 0 12px 10px;
+                    padding: 7px 0 8px 7px;
                     border-top: 1px solid #d5b579;
-                    border-left: 4px solid var(--tpdef-section-color, #9a2e28);
+                    border-left: 0;
                 }
 
                 .tpdef-config-section:first-child {
@@ -420,11 +453,11 @@
                 }
 
                 .tpdef-config-section-title {
-                    color: #8f2b25;
+                    color: #000;
                     font-size: 13px;
                     line-height: 16px;
                     font-weight: bold;
-                    text-transform: uppercase;
+                    text-transform: none;
                 }
 
                 .tpdef-config-section-desc {
@@ -474,24 +507,24 @@
 
                 .tpdef-config-button {
                     width: 100%;
-                    min-height: 31px;
-                    border: 1px solid #5a1d18 !important;
+                    min-height: 22px;
+                    border: 1px solid #2d1606 !important;
                     border-radius: 3px;
-                    background: linear-gradient(to bottom, #a73a33 0%, #842821 100%) !important;
-                    color: #fff7dd !important;
+                    background: linear-gradient(to bottom, #8b5d2d 0%, #5b3417 100%) !important;
+                    color: #fff !important;
                     font-weight: bold;
-                    text-shadow: 1px 1px 1px #2b0e0b;
+                    text-shadow: 1px 1px 1px #000;
                     cursor: pointer;
                     box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
                 }
 
                 .tpdef-config-button:hover {
-                    background: linear-gradient(to bottom, #b8483f 0%, #932e27 100%) !important;
+                    background: linear-gradient(to bottom, #9a6a36 0%, #6a3d1c 100%) !important;
                 }
 
                 .tpdef-config-button-secondary {
                     grid-column: 1 / -1;
-                    background: linear-gradient(to bottom, #70402b 0%, #512c20 100%) !important;
+                    background: linear-gradient(to bottom, #6f4827 0%, #4a2a13 100%) !important;
                 }
 
                 .tpdef-config-note {
@@ -804,7 +837,7 @@
                     display: inline-flex;
                     align-items: center;
                     gap: 4px;
-                    color: #8f2b25;
+                    color: #3b2508;
                     font-size: 11px;
                     font-weight: bold;
                     white-space: nowrap;
@@ -1171,7 +1204,7 @@
                     align-items: center;
                     justify-content: center;
                     gap: 5px;
-                    color: #8f2b25;
+                    color: #3b2508;
                     font-weight: bold;
                 }
 
@@ -1412,7 +1445,7 @@
                     max-height: 18px;
                 }
 
-                /* ThePlaguePT shared red/cream theme */
+                /* Tribal Wars native visual alignment */
                 .tpdef-panel,
                 #tpdefMassSupport,
                 #tpdefMapPanel,
@@ -1420,12 +1453,12 @@
                 #tpdefWallResistance.tpdef-defense-widget,
                 .tpdef-model-wrap,
                 .tpdef-calculator-wrap {
-                    border: 2px solid #7e211c !important;
-                    border-radius: 4px;
-                    background: #f4e4b8 !important;
-                    color: #3b2508;
-                    font-family: Arial, Verdana, sans-serif;
-                    box-shadow: 0 1px 3px rgba(40, 15, 10, .25);
+                    border: 1px solid #804000 !important;
+                    border-radius: 0 !important;
+                    background: #f7e6bb !important;
+                    color: #000;
+                    font-family: Verdana, Arial, sans-serif;
+                    box-shadow: 1px 1px 2px rgba(60, 35, 8, .25);
                     overflow: hidden;
                 }
 
@@ -1439,8 +1472,8 @@
                     width: 100%;
                     border: 0 !important;
                     border-collapse: collapse;
-                    background: #f4e4b8 !important;
-                    color: #3b2508;
+                    background: #f7e6bb !important;
+                    color: #000;
                 }
 
                 .tpdef-panel th,
@@ -1448,13 +1481,14 @@
                 #tpdefMapDefenseInfo th,
                 .tpdef-model-table th,
                 #tpdefSupportPreview th {
-                    padding: 8px 10px !important;
+                    padding: 2px 4px !important;
                     border: 0 !important;
-                    border-bottom: 1px solid #c98c48 !important;
-                    background: linear-gradient(to bottom, #f7e8c1 0%, #edd49a 100%) !important;
-                    color: #8f2b25 !important;
+                    border-bottom: 1px solid #804000 !important;
+                    background: linear-gradient(to bottom, #d7bd74 0%, #b98b3a 100%) !important;
+                    color: #000 !important;
                     text-align: left !important;
-                    font-size: 14px;
+                    font-size: 13px;
+                    font-style: italic;
                     font-weight: bold;
                 }
 
@@ -1470,39 +1504,39 @@
                 }
 
                 #tpdefWallResistance .tpdef-defense-title {
-                    padding: 6px 9px;
-                    min-height: 20px;
-                    border-bottom: 1px solid #c98c48 !important;
-                    background: linear-gradient(to bottom, #f7e8c1 0%, #edd49a 100%) !important;
-                    color: #8f2b25 !important;
-                    font-size: 14px;
+                    padding: 2px 5px;
+                    min-height: 17px;
+                    border-bottom: 1px solid #804000 !important;
+                    background: linear-gradient(to bottom, #d7bd74 0%, #b98b3a 100%) !important;
+                    color: #000 !important;
+                    font-size: 13px;
                     font-style: italic;
                 }
 
                 #tpdefWallResistance .tpdef-defense-body {
-                    padding: 8px 10px;
-                    background: #f4e4b8 !important;
+                    padding: 4px 6px;
+                    background: #f7e6bb !important;
                 }
 
                 #tpdefWallResistance .tpdef-defense-table {
-                    border-left: 4px solid #e18b13 !important;
-                    background: #f4e4b8 !important;
+                    border: 1px solid #dfc27a !important;
+                    background: #fff3cf !important;
                 }
 
                 #tpdefWallResistance .tpdef-defense-table td {
-                    padding: 4px 6px;
+                    padding: 2px 4px;
                 }
 
                 #tpdefWallResistance .tpdef-defense-note,
                 .tpdef-calc-title,
                 .tpdef-defense-shortage-title {
-                    color: #8f2b25 !important;
+                    color: #b7332c !important;
                 }
 
                 .tpdef-wall-bar {
                     height: 9px;
-                    border: 1px solid #7e211c;
-                    background: #edd49a;
+                    border: 1px solid #7b4f13;
+                    background: #d7bd74;
                 }
 
                 .tpdef-fulls-highlight,
@@ -1518,8 +1552,7 @@
                 }
 
                 .tpdef-fulls-highlight {
-                    color: #8f2b25 !important;
-                    font-size: 16px;
+                    font-size: 15px;
                 }
 
                 .tpdef-defense-subnote,
@@ -1533,7 +1566,7 @@
                 #tpdefWallResistance .tpdef-defense-actions {
                     width: 100%;
                     grid-template-columns: repeat(2, minmax(0, 1fr));
-                    gap: 6px 8px;
+                    gap: 4px 6px;
                 }
 
                 #tpdefWallResistance .tpdef-defense-action,
@@ -1544,13 +1577,13 @@
                 #tpdefMapPanel .btn,
                 .tpdef-calc-sim-controls .btn,
                 .tpdef-config-button {
-                    min-height: 24px;
-                    border: 1px solid #5a1d18 !important;
+                    min-height: 20px;
+                    border: 1px solid #2d1606 !important;
                     border-radius: 3px;
-                    background: linear-gradient(to bottom, #a73a33 0%, #842821 100%) !important;
-                    color: #fff7dd !important;
+                    background: linear-gradient(to bottom, #8b5d2d 0%, #5b3417 100%) !important;
+                    color: #fff !important;
                     font-weight: bold;
-                    text-shadow: 1px 1px 1px #2b0e0b;
+                    text-shadow: 1px 1px 1px #000;
                     box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
                     text-decoration: none !important;
                 }
@@ -1563,20 +1596,20 @@
                 #tpdefMapPanel .btn:hover,
                 .tpdef-calc-sim-controls .btn:hover,
                 .tpdef-config-button:hover {
-                    background: linear-gradient(to bottom, #b8483f 0%, #932e27 100%) !important;
+                    background: linear-gradient(to bottom, #9a6a36 0%, #6a3d1c 100%) !important;
                 }
 
                 .tpdef-model-wrap,
                 .tpdef-calculator-wrap {
-                    background: #f4e4b8 !important;
+                    background: #f7e6bb !important;
                 }
 
                 .tpdef-model-table {
-                    border-left: 4px solid #c7362d !important;
+                    border: 1px solid #dfc27a !important;
                 }
 
                 .tpdef-model-table .tpdef-model-unit {
-                    color: #3b2508;
+                    color: #000;
                 }
 
                 .tpdef-model-table input[type="number"],
@@ -1586,9 +1619,9 @@
                 #tpdefMassSupport input[type="number"],
                 #tpdefMassSupport textarea,
                 #tpdefMapPanel textarea {
-                    border: 1px solid #b06b25 !important;
+                    border: 1px solid #7d510f !important;
                     border-radius: 2px;
-                    background: #fffaf0 !important;
+                    background: #fff9df !important;
                     color: #000;
                     box-shadow: inset 1px 1px 2px rgba(60, 35, 8, .14);
                 }
@@ -1601,14 +1634,15 @@
 
                 .tpdef-calc-sim-title {
                     border: 0 !important;
-                    border-left: 4px solid #1e87b8 !important;
-                    background: linear-gradient(to bottom, #f7e8c1 0%, #edd49a 100%) !important;
-                    color: #8f2b25 !important;
-                    padding: 5px 7px;
+                    border-bottom: 1px solid #804000 !important;
+                    background: linear-gradient(to bottom, #d7bd74 0%, #b98b3a 100%) !important;
+                    color: #000 !important;
+                    padding: 3px 5px;
+                    font-style: italic;
                 }
 
                 .tpdef-calc-sim {
-                    background: #f4e4b8 !important;
+                    background: #f7e6bb !important;
                 }
 
                 .tpdef-calc-sim th {
@@ -1626,21 +1660,20 @@
                 }
 
                 #tpdefMassSupport {
-                    border-left: 4px solid #1e87b8 !important;
-                    padding: 9px 10px !important;
+                    padding: 4px 6px !important;
                 }
 
                 #tpdefMassSupport strong {
-                    color: #8f2b25;
-                    text-transform: uppercase;
+                    color: #000;
+                    text-transform: none;
                 }
 
                 #tpdefMapPanel {
-                    border-left: 4px solid #1e87b8 !important;
+                    border-left: 1px solid #804000 !important;
                 }
 
                 #tpdefMapDefenseInfo {
-                    border-left: 4px solid #e18b13 !important;
+                    border-left: 1px solid #804000 !important;
                     box-sizing: border-box;
                     max-width: 100%;
                     table-layout: fixed;
@@ -2029,10 +2062,10 @@
         const indexOr = (value, fallback) => value >= 0 ? value : fallback;
 
         return {
-            target: indexOr(findHeader(table, ['destino', 'alvo', 'target', 'doel']), 1),
-            source: indexOr(findHeader(table, ['origem', 'source', 'herkomst']), 2),
-            arrival: indexOr(findHeader(table, ['chegada', 'arrival', 'aankomst']), 5),
-            timer: indexOr(findHeader(table, ['chega em', 'arrives in', 'komt aan']), 6)
+            target: indexOr(findHeader(table, APP.words.target), 1),
+            source: indexOr(findHeader(table, APP.words.source), 2),
+            arrival: indexOr(findHeader(table, APP.words.arrival), 5),
+            timer: indexOr(findHeader(table, APP.words.timer), 6)
         };
     }
 
@@ -2065,7 +2098,8 @@
             const isMedium = row.find('img[src*="attack_medium"]').length > 0;
             const isLarge = row.find('img[src*="attack_large"]').length > 0;
             const isGenericAttack = row.find('img[src*="command/attack"], img[src$="/attack.png"]').length > 0;
-            const isNoble = row.find('img[src*="snob"], img[src*="unit_snob"]').length || clean(row.text()).includes('nobre');
+            const isNoble = row.find('img[src*="snob"], img[src*="unit_snob"]').length ||
+                hasAnyWord(row.text(), ['nobre', 'noble', 'szlachcic', 'edelmann']);
 
             if (isSmall) data.small = data.small.add(row);
             if (isMedium) data.medium = data.medium.add(row);
@@ -2731,8 +2765,8 @@
         const text = clean(table.text());
         let score = Object.keys(troops || {}).length * 10;
 
-        if (/\b(apoio|suporte|support|tropas|unidades|units)\b/.test(text)) score += 30;
-        if (/\b(comando|command|chegada|chega em)\b/.test(text)) score += 10;
+        if (hasSupportWord(text) || hasAnyWord(text, ['tropas', 'unidades', 'units', 'troops', 'einheiten', 'unites'])) score += 30;
+        if (hasAnyWord(text, ['comando', 'command'].concat(APP.words.arrival, APP.words.timer))) score += 10;
         if (/\b(baixas|atacante|defensor|simulador|muralha|edificios|edificios|recursos|producao|custos|construcoes)\b/.test(text)) score -= 60;
         if (table.closest('#show_units, #unit_overview_table, #commands_incomings, #tpdefWallResistance').length) score -= 80;
 
@@ -2888,13 +2922,13 @@
             });
 
         const text = clean(popup.text());
-        const ariete = /\barietes?\b/.test(text) ? Math.max(1, count) : 0;
+        const ariete = hasRamWord(text) ? Math.max(1, count) : 0;
 
         if (count > 0) {
             return {count: ariete || count, total: Math.max(count, ariete), ariete, source: ariete ? 'popup_ariete' : 'popup_total'};
         }
 
-        const match = text.match(/ataques?\D+(\d+)/);
+        const match = text.match(/(?:ataques?|attacks?|angriffe?|attaques?|attacchi|aanvallen|ataki|atacuri)\D+(\d+)/);
         count = match ? parseAmount(match[1]) : 0;
 
         return {count: ariete || count, total: Math.max(count, ariete), ariete, source: ariete ? 'popup_ariete' : 'popup_total'};
@@ -3351,7 +3385,7 @@
                 const hasAttackIcon = row.find('img[src*="attack"]').length > 0;
                 const looksLikeCommand = row.find('.quickedit, .timer, span[data-endtime]').length > 0;
 
-                return looksLikeCommand && (hasAttackIcon || text.includes('ataque'));
+                return looksLikeCommand && (hasAttackIcon || hasAttackWord(text));
             });
     }
 
@@ -3366,7 +3400,7 @@
     }
 
     function isArieteNamedCommand(row) {
-        return /\barietes?\b/.test(clean(row.text()));
+        return hasRamWord(row.text());
     }
 
     function getIncomingFullCountWithNobleTrains(rows, onlyNamedRams) {
@@ -3667,7 +3701,7 @@
                 image.attr('class')
             ].filter(Boolean).join(' ').toLowerCase();
 
-            return /(?:command\/support|support\.png|\bsupport\b|\bapoio\b|\bsuporte\b)/i.test(value);
+            return /(?:command\/support|support\.png)/i.test(value) || hasSupportWord(value);
         }).length > 0;
     }
 
@@ -3683,7 +3717,7 @@
                 image.attr('class')
             ].filter(Boolean).join(' ').toLowerCase();
 
-            return /(?:command\/attack|attack\.png|attack_small|attack_medium|attack_large|\battack\b|\bataque\b)/i.test(value);
+            return /(?:command\/attack|attack\.png|attack_small|attack_medium|attack_large)/i.test(value) || hasAttackWord(value);
         }).length > 0;
     }
 
@@ -3847,7 +3881,7 @@
         if (root.closest('#show_units, #unit_overview_table, #commands_incomings').length) return false;
 
         const text = clean(root.text());
-        if (!text.includes('apoio') && !text.includes('suporte')) return false;
+        if (!hasSupportWord(text)) return false;
 
         const rect = root[0].getBoundingClientRect();
         return rect.width > 0 && rect.height > 0 && rect.width <= 520 && rect.height <= 420;
@@ -4193,7 +4227,7 @@
             const row = $(this);
             const table = row.closest('table');
             const headingText = clean(table.find('th').slice(0, 3).text());
-            const isReceivingSection = /\b(a receber|a chegar|receber|incoming|aldeia de origem|origem|source)\b/.test(headingText);
+            const isReceivingSection = hasAnyWord(headingText, APP.words.receiving);
 
             return isIncomingSupportCommandRow(row) &&
                 supportRowTargetsCurrentVillage(row) &&
@@ -4209,10 +4243,10 @@
         if (!isCommandLikeRow(row)) return false;
 
         const commandText = clean(getCommandNameCell(row).text());
-        const supportName = /(^|\s)(apoio|suporte|support)\s+(para|a|de|to|for)\b/.test(commandText);
+        const supportName = hasSupportWord(commandText);
         const supportIcon = hasSupportCommandIcon(row);
-        const attackName = /(^|\s)(ataque|attack)\s+(a|para|to)\b/.test(commandText) ||
-            /\b(arietes?|snipar|desviar)\b/.test(commandText);
+        const attackName = hasAttackWord(commandText) || hasRamWord(commandText) ||
+            /\b(snipar|desviar|snipe|fake)\b/.test(commandText);
         const attackIcon = hasAttackCommandIcon(row);
 
         if (!supportIcon && !supportName) return false;
@@ -6182,6 +6216,27 @@
 
     function escapeAttr(value) {
         return escapeHtml(value);
+    }
+
+    function hasAnyWord(value, words) {
+        const text = clean(value);
+        if (!text) return false;
+
+        return (words || []).some(function (word) {
+            return text.indexOf(clean(word)) >= 0;
+        });
+    }
+
+    function hasSupportWord(value) {
+        return hasAnyWord(value, APP.words.support);
+    }
+
+    function hasAttackWord(value) {
+        return hasAnyWord(value, APP.words.attack);
+    }
+
+    function hasRamWord(value) {
+        return hasAnyWord(value, APP.words.ram);
     }
 
     function clean(value) {
