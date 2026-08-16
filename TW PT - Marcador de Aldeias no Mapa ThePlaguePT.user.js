@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.9.0
+// @version      2.0.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.9.0",
+        version: "2.0.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -35,7 +35,7 @@
         coords: new Map(),
         color: APP.defaultColor,
         showLabels: true,
-        enabled: true,
+        coordinatesEnabled: true,
         distance: 20,
         zoneSize: 25,
         zones: [],
@@ -50,6 +50,7 @@
         panel: null,
         launcher: null,
         mapToggle: null,
+        bonusMapToggle: null,
         launcherPositionFrame: 0,
     };
 
@@ -67,7 +68,7 @@
             const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
             state.color = /^#[0-9a-f]{6}$/i.test(saved.color) ? saved.color : APP.defaultColor;
             state.showLabels = saved.showLabels !== false;
-            state.enabled = saved.enabled !== false;
+            state.coordinatesEnabled = saved.coordinatesEnabled !== undefined ? saved.coordinatesEnabled !== false : saved.enabled !== false;
             state.distance = Math.max(1, Math.min(200, Number(saved.distance) || 20));
             state.zoneSize = Number(saved.zoneSize) === 50 ? 50 : 25;
             state.bonusTypes = Array.isArray(saved.bonusTypes) ? saved.bonusTypes.map(String) : [];
@@ -86,7 +87,7 @@
             coords: [...state.coords.values()],
             color: state.color,
             showLabels: state.showLabels,
-            enabled: state.enabled,
+            coordinatesEnabled: state.coordinatesEnabled,
             distance: state.distance,
             zoneSize: state.zoneSize,
             zones: state.zones,
@@ -221,7 +222,7 @@
     }
 
     function activeCoordinates() {
-        const merged = new Map(state.coords);
+        const merged = state.coordinatesEnabled ? new Map(state.coords) : new Map();
         if (state.bonusEnabled) for (const [key, item] of state.bonusCoords) merged.set(key, item);
         return merged;
     }
@@ -304,6 +305,11 @@
             #${APP.id}-mapToggle .tp-togglePin{display:block!important;width:16px!important;height:16px!important;flex:0 0 16px!important;border:0!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;filter:none!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
             #${APP.id}-mapToggle.tp-off{border-color:#493b2b!important;background:linear-gradient(#80766a,#514940)!important;filter:saturate(.2)}
             #${APP.id}-mapToggle.tp-off::after{content:"";position:absolute;left:3px;top:15px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
+            #${APP.id}-bonusMapToggle{position:absolute!important;top:9px!important;right:80px!important;z-index:1200!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;padding:0 6px!important;display:flex!important;align-items:center!important;justify-content:center!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;cursor:pointer!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important}
+            #${APP.id}-bonusMapToggle:hover{background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
+            #${APP.id}-bonusMapToggle .tp-toggleBonus{display:grid!important;place-items:center!important;width:16px!important;height:16px!important;color:#f6d28b!important;font:bold 15px/16px Arial!important;text-shadow:0 1px 1px #000!important}
+            #${APP.id}-bonusMapToggle.tp-off{border-color:#493b2b!important;background:linear-gradient(#80766a,#514940)!important;filter:saturate(.2)}
+            #${APP.id}-bonusMapToggle.tp-off::after{content:"";position:absolute;left:3px;top:12px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
             #${APP.id}-panel{position:fixed;inset:0;z-index:60040;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
             #${APP.id}-panel.tp-hidden{display:none}
             #${APP.id}-panel .tp-card{width:min(620px,96vw);max-height:92vh;overflow:auto;padding:8px;border:2px solid #473019;border-radius:6px;background:linear-gradient(#d9c99e,#95805b);color:#32190d;box-shadow:0 0 0 1px #d8c99b,0 0 0 4px #5c4429,0 0 0 6px #dacba4e6,inset 0 0 0 2px #fff4cfcf,0 6px 18px #0000008c;font:13px Verdana}
@@ -392,18 +398,13 @@
         button.type = "button";
         button.innerHTML = `<span class="tp-togglePin" aria-hidden="true"></span>`;
         button.addEventListener("click", () => {
-            state.enabled = !state.enabled;
+            state.coordinatesEnabled = !state.coordinatesEnabled;
             save();
             updateMapToggle();
             const checkbox = state.panel?.querySelector(".tp-enabled");
-            if (checkbox) checkbox.checked = state.enabled;
-            if (state.enabled) {
-                refreshMarkers(true);
-                notify("Marcações ativadas no mapa e minimapa.");
-            } else {
-                removeMarkers(true);
-                notify("Marcações desativadas no mapa e minimapa.");
-            }
+            if (checkbox) checkbox.checked = state.coordinatesEnabled;
+            refreshMarkers(true);
+            notify(state.coordinatesEnabled ? "Marcações por coordenadas ativadas." : "Marcações por coordenadas desativadas.");
         });
         host.appendChild(button);
         state.mapToggle = button;
@@ -413,10 +414,50 @@
     function updateMapToggle() {
         const button = state.mapToggle || document.getElementById(`${APP.id}-mapToggle`);
         if (!button) return;
-        button.classList.toggle("tp-off", !state.enabled);
-        button.title = state.enabled ? "Desligar marcações no mapa e minimapa" : "Ligar marcações no mapa e minimapa";
+        button.classList.toggle("tp-off", !state.coordinatesEnabled);
+        button.title = state.coordinatesEnabled ? "Desligar marcações por coordenadas" : "Ligar marcações por coordenadas";
         button.setAttribute("aria-label", button.title);
-        button.setAttribute("aria-pressed", String(state.enabled));
+        button.setAttribute("aria-pressed", String(state.coordinatesEnabled));
+    }
+
+    function createBonusMapToggle() {
+        document.getElementById(`${APP.id}-bonusMapToggle`)?.remove();
+        const host = document.querySelector("#map_wrap") || document.querySelector("#map_container") || document.querySelector("#map")?.parentElement;
+        if (!host) return;
+        const button = document.createElement("button");
+        button.id = `${APP.id}-bonusMapToggle`;
+        button.type = "button";
+        button.innerHTML = `<span class="tp-toggleBonus" aria-hidden="true">★</span>`;
+        button.addEventListener("click", async () => {
+            state.bonusEnabled = !state.bonusEnabled;
+            if (state.bonusEnabled && !state.bonusTypes.length) {
+                state.bonusEnabled = false;
+                updateBonusMapToggle();
+                notify("Seleciona primeiro os tipos de aldeias bónus no painel.");
+                return;
+            }
+            const checkbox = state.panel?.querySelector(".tp-bonus-enabled");
+            if (checkbox) checkbox.checked = state.bonusEnabled;
+            if (state.bonusEnabled && state.bonusTypes.length) {
+                try { await loadBonusBarbarians(); } catch (error) { notify(`Não foi possível analisar os bónus: ${error.message}`); }
+            }
+            save();
+            updateBonusMapToggle();
+            refreshMarkers(true);
+            notify(state.bonusEnabled ? "Marcações de bárbaras bónus ativadas." : "Marcações de bárbaras bónus desativadas.");
+        });
+        host.appendChild(button);
+        state.bonusMapToggle = button;
+        updateBonusMapToggle();
+    }
+
+    function updateBonusMapToggle() {
+        const button = state.bonusMapToggle || document.getElementById(`${APP.id}-bonusMapToggle`);
+        if (!button) return;
+        button.classList.toggle("tp-off", !state.bonusEnabled);
+        button.title = state.bonusEnabled ? "Desligar marcações de bárbaras bónus" : "Ligar marcações de bárbaras bónus";
+        button.setAttribute("aria-label", button.title);
+        button.setAttribute("aria-pressed", String(state.bonusEnabled));
     }
 
     function setupLauncherPosition() {
@@ -463,7 +504,7 @@
                     </section>
                     <section class="${APP.id}-section ${APP.id}-settingsSection">
                         <div><h3>Configurações</h3><p>Define a apresentação das marcações no mapa.</p></div>
-                        <div class="tp-row"><label>Cor base <input class="tp-color" type="color" value="${state.color}"></label><label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label><label><input class="tp-enabled" type="checkbox" ${state.enabled ? "checked" : ""}> Marcações ativas</label><strong class="tp-count">${state.coords.size} aldeia(s)</strong></div>
+                        <div class="tp-row"><label>Cor base <input class="tp-color" type="color" value="${state.color}"></label><label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label><label><input class="tp-enabled" type="checkbox" ${state.coordinatesEnabled ? "checked" : ""}> Coordenadas ativas</label><strong class="tp-count">${state.coords.size} aldeia(s)</strong></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-actionsSection">
                         <div><h3>Ações</h3><p>Guarda as opções e atualiza as marcações.</p></div>
@@ -566,7 +607,7 @@
             setCoordinates(textarea.value);
             state.color = panel.querySelector(".tp-color").value;
             state.showLabels = panel.querySelector(".tp-labels").checked;
-            state.enabled = panel.querySelector(".tp-enabled").checked;
+            state.coordinatesEnabled = panel.querySelector(".tp-enabled").checked;
             state.distance = Math.max(1, Math.min(200, Number(panel.querySelector(".tp-distance").value) || 20));
             state.zoneSize = Number(panel.querySelector(".tp-zone-size").value) === 50 ? 50 : 25;
             state.bonusTypes = [...panel.querySelectorAll(`.${APP.id}-bonusOptions input:checked`)].map((input) => String(input.value));
@@ -574,6 +615,7 @@
             try { await loadBonusBarbarians(); } catch (error) { notify(`Não foi possível analisar os bónus: ${error.message}`); }
             save();
             updateMapToggle();
+            updateBonusMapToggle();
             refreshMarkers();
             closePanel();
             notify(`${state.coords.size} aldeia(s) guardada(s).`);
@@ -593,6 +635,7 @@
     function waitForMap(attempt = 0) {
         if (document.querySelector("#map, #map_wrap, #map_container") || attempt > 80) {
             createMapToggle();
+            createBonusMapToggle();
             observeMap();
             if (state.bonusEnabled && state.bonusTypes.length) {
                 loadBonusBarbarians().then(() => refreshMarkers(true)).catch((error) => console.warn(`[${APP.title}]`, error));
@@ -650,7 +693,7 @@
     function refreshMarkers(refreshMiniMap = true) {
         removeMarkers(refreshMiniMap);
         scanVisibleBonusBarbarians();
-        if (!state.enabled || !activeCoordinates().size) return;
+        if (!activeCoordinates().size) return;
         markMainMapAnchored();
         if (refreshMiniMap) markPoliticalMap();
     }
