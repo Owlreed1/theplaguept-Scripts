@@ -1,11 +1,11 @@
 // ==UserScript==
-// @name         TW PT - Conquistas do Mundo ThePlaguePT
+// @name         TW - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.47
+// @version      1.0.48
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
-// @match        https://*.tribalwars.com.pt/game.php*
-// @include      *://*.tribalwars.com.pt/game.php*
+// @match        *://*/game.php*
+// @include      *://*/game.php*
 // @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW_PT_Conquistas_Mundo_ThePlaguePT.user.js
@@ -19,11 +19,11 @@
     "use strict";
 
     if (window.top !== window.self) return;
-    if (!/\.tribalwars\.com\.pt$/i.test(window.location.hostname)) return;
+    if (!isTribalWarsGamePage()) return;
 
     const APP = {
         id: "tpconq",
-        version: "1.0.47",
+        version: "1.0.48",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -59,6 +59,36 @@
         launcherPositionFrame: 0,
         memoryCache: new Map(),
     };
+
+    function isTribalWarsGamePage() {
+        if (!/\/game\.php$/i.test(window.location.pathname)) return false;
+
+        const data = window.game_data;
+        if (data && typeof data === "object") {
+            const link = String(data.link_base_pure || data.link_base || "");
+            if (link.includes("game.php")) return true;
+            if (data.world || data.screen || data.player || data.village) return true;
+        }
+
+        if (window.TribalWars || window.TWMap) return true;
+
+        const host = window.location.hostname.toLowerCase();
+        return [
+            /(^|\.)tribalwars\.[a-z.]+$/,
+            /(^|\.)die-staemme\.de$/,
+            /(^|\.)staemme\.ch$/,
+            /(^|\.)plemiona\.pl$/,
+            /(^|\.)divokekmeny\.cz$/,
+            /(^|\.)tribals\.it$/,
+            /(^|\.)guerretribale\.fr$/,
+            /(^|\.)guerrastribales\.es$/,
+            /(^|\.)fyletikesmaxes\.gr$/,
+            /(^|\.)triburile\.ro$/,
+            /(^|\.)vojnaplemen\.si$/,
+            /(^|\.)klanhaboru\.hu$/,
+            /(^|\.)voyna-plemyon\.ru$/,
+        ].some((pattern) => pattern.test(host));
+    }
 
     function init() {
         injectStyle();
@@ -2744,8 +2774,11 @@
     }
 
     function worldKey() {
-        const match = window.location.hostname.match(/^([a-z]{2}\d+)/i);
-        return match ? match[1].toUpperCase() : window.location.hostname;
+        const dataWorld = window.game_data && window.game_data.world;
+        if (dataWorld) return String(dataWorld).toUpperCase();
+
+        const hostPart = window.location.hostname.split(".")[0];
+        return hostPart ? hostPart.toUpperCase() : window.location.hostname;
     }
 
     function debounce(fn, ms) {
