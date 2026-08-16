@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      1.8.2
+// @version      1.9.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "1.8.2",
+        version: "1.9.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -40,6 +40,10 @@
         zoneSize: 25,
         zones: [],
         ownVillages: null,
+        bonusTypes: [],
+        bonusEnabled: false,
+        bonusVillages: null,
+        bonusCoords: new Map(),
         observer: null,
         refreshTimer: 0,
         pendingMiniRefresh: false,
@@ -66,6 +70,8 @@
             state.enabled = saved.enabled !== false;
             state.distance = Math.max(1, Math.min(200, Number(saved.distance) || 20));
             state.zoneSize = Number(saved.zoneSize) === 50 ? 50 : 25;
+            state.bonusTypes = Array.isArray(saved.bonusTypes) ? saved.bonusTypes.map(String) : [];
+            state.bonusEnabled = saved.bonusEnabled === true;
             setCoordinates(Array.isArray(saved.coords) ? saved.coords.map((item) => `${item.x}|${item.y}`) : []);
             state.zones = Array.isArray(saved.zones) ? saved.zones.map((zone) =>
                 [...parseCoordinates((zone || []).map((item) => `${item.x}|${item.y}`)).values()]
@@ -84,6 +90,8 @@
             distance: state.distance,
             zoneSize: state.zoneSize,
             zones: state.zones,
+            bonusTypes: state.bonusTypes,
+            bonusEnabled: state.bonusEnabled,
         }));
     }
 
@@ -199,6 +207,90 @@
         return index >= 0 ? colors[index % colors.length] : state.color;
     }
 
+    function bonusData() {
+        return window.TWMap?.bonus_data || {};
+    }
+
+    function bonusOptionsHtml() {
+        const data = bonusData();
+        const entries = Object.entries(data).filter(([id]) => Number(id) > 0);
+        if (!entries.length) return `<span class="${APP.id}-bonusEmpty">Os tipos ficam disponíveis na página do mapa.</span>`;
+        return entries.map(([id, info]) => `
+            <label class="${APP.id}-bonusOption"><input type="checkbox" value="${escapeHtml(id)}" ${state.bonusTypes.includes(String(id)) ? "checked" : ""}><span>${escapeHtml(info?.text || `Bónus ${id}`)}</span></label>
+        `).join("");
+    }
+
+    function activeCoordinates() {
+        const merged = new Map(state.coords);
+        if (state.bonusEnabled) for (const [key, item] of state.bonusCoords) merged.set(key, item);
+        return merged;
+    }
+
+    function markerColorFor(x, y) {
+        const bonus = state.bonusCoords.get(`${x}|${y}`);
+        if (state.bonusEnabled && bonus) {
+            const palette = ["#ffb000", "#00a950", "#1473e6", "#e53935", "#8e35d1", "#00a6b8", "#f05a16", "#d4148e"];
+            return palette[Math.max(0, Number(bonus.bonus) - 1) % palette.length];
+        }
+        return zoneColor(zoneForCoordinate(x, y));
+    }
+
+    async function loadBonusBarbarians() {
+        const selected = new Set(state.bonusTypes.map(String));
+        state.bonusCoords.clear();
+        if (!state.bonusEnabled || !selected.size) return;
+        if (!state.bonusVillages) {
+            const cacheKey = `${APP.id}:bonus:${world}`;
+            try {
+                const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
+                if (cached?.time > Date.now() - 6 * 60 * 60 * 1000 && Array.isArray(cached.villages)) state.bonusVillages = cached.villages;
+            } catch (_) { /* cache inválida */ }
+            if (!state.bonusVillages) {
+                const response = await fetch(`${location.origin}/map/village.txt`, { credentials: "same-origin" });
+                if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
+                const text = await response.text();
+                state.bonusVillages = text.split("\n").reduce((items, line) => {
+                    const fields = line.trim().split(",");
+                    const bonus = Number(fields[6]);
+                    if (Number(fields[4]) === 0 && bonus > 0) items.push({ id: Number(fields[0]), x: Number(fields[2]), y: Number(fields[3]), bonus });
+                    return items;
+                }, []);
+                try { localStorage.setItem(cacheKey, JSON.stringify({ time: Date.now(), villages: state.bonusVillages })); } catch (_) { /* cache cheia */ }
+            }
+        }
+        for (const village of state.bonusVillages) {
+            if (selected.has(String(village.bonus))) state.bonusCoords.set(`${village.x}|${village.y}`, village);
+        }
+        scanVisibleBonusBarbarians();
+    }
+
+    function scanVisibleBonusBarbarians() {
+        if (!state.bonusEnabled || !state.bonusTypes.length || !window.TWMap?.villages) return;
+        const selected = new Set(state.bonusTypes.map(String));
+        for (const [key, village] of Object.entries(window.TWMap.villages)) {
+            const owner = Number(village?.owner ?? village?.player_id ?? village?.player ?? 0);
+            if (owner !== 0) continue;
+            let bonus = village?.bonus ?? village?.bonus_id ?? village?.bonusId;
+            const id = village?.id ?? village?.[0];
+            const image = id != null ? document.getElementById(`map_village_${id}`) : null;
+            if (bonus == null && image) {
+                const source = image.currentSrc || image.src || "";
+                for (const [bonusId, info] of Object.entries(bonusData())) {
+                    const token = String(info?.image || info?.img || info?.icon || "").split("/").pop();
+                    if (token && source.includes(token)) { bonus = bonusId; break; }
+                }
+            }
+            if (!selected.has(String(bonus))) continue;
+            let x = Number(village?.x);
+            let y = Number(village?.y);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                const match = String(key).match(/^(\d{3})(\d{3})$/);
+                if (match) { x = Number(match[1]); y = Number(match[2]); }
+            }
+            if (Number.isFinite(x) && Number.isFinite(y)) state.bonusCoords.set(`${x}|${y}`, { id, x, y, bonus: Number(bonus) });
+        }
+    }
+
     function injectStyles() {
         const style = document.createElement("style");
         style.textContent = `
@@ -250,6 +342,10 @@
             .${APP.id}-tool input[type="number"],.${APP.id}-tool select{height:25px;border:1px solid #80522d;background:#fffaf0}
             .${APP.id}-tool input[type="number"]{width:58px}
             .${APP.id}-tool button{height:26px;border:1px solid #603419;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer}
+            .${APP.id}-bonusTool{grid-column:1/-1}
+            .${APP.id}-bonusOptions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 10px;margin:6px 0}
+            .${APP.id}-bonusOption{display:flex;align-items:flex-start;gap:5px;min-width:0;color:#3b2508;font-size:11px}
+            .${APP.id}-bonusOption span{overflow-wrap:anywhere}.${APP.id}-bonusEmpty{color:#75583b;font-style:italic}
             .${APP.id}-zonesSection{display:none}.${APP.id}-zonesSection.tp-visible{display:grid}
             .${APP.id}-zonesOutput{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;max-height:270px;overflow:auto}
             .${APP.id}-zoneCard{min-width:0;border:2px solid var(--tp-zone-color);background:#f8eac4}
@@ -358,6 +454,7 @@
                         <div class="${APP.id}-tools">
                             <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Distância às minhas aldeias</span><div class="${APP.id}-toolLine"><span>Máximo</span><input class="tp-distance" type="number" min="1" max="200" step="1" value="${state.distance}"><span>campos</span><button class="tp-filter" type="button">Filtrar lista</button></div></div>
                             <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Zonas geográficas</span><div class="${APP.id}-toolLine"><span>Máximo</span><select class="tp-zone-size"><option value="25" ${state.zoneSize === 25 ? "selected" : ""}>25 aldeias</option><option value="50" ${state.zoneSize === 50 ? "selected" : ""}>50 aldeias</option></select><button class="tp-zones" type="button">Criar zonas</button></div></div>
+                            <div class="${APP.id}-tool ${APP.id}-bonusTool"><span class="${APP.id}-toolTitle">Aldeias bárbaras bónus por tipo</span><div class="${APP.id}-bonusOptions">${bonusOptionsHtml()}</div><div class="${APP.id}-toolLine"><label><input class="tp-bonus-enabled" type="checkbox" ${state.bonusEnabled ? "checked" : ""}> Marcação automática ativa</label><button class="tp-bonus-apply" type="button">Analisar mapa e marcar</button><strong class="tp-bonus-count">${state.bonusCoords.size ? `${state.bonusCoords.size} encontrada(s)` : ""}</strong></div></div>
                         </div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
@@ -444,13 +541,37 @@
                 button.textContent = "Criar zonas";
             }
         });
-        panel.querySelector(".tp-save").addEventListener("click", () => {
+        panel.querySelector(".tp-bonus-apply")?.addEventListener("click", async (event) => {
+            const button = event.currentTarget;
+            state.bonusTypes = [...panel.querySelectorAll(`.${APP.id}-bonusOptions input:checked`)].map((input) => String(input.value));
+            state.bonusEnabled = panel.querySelector(".tp-bonus-enabled").checked;
+            if (state.bonusEnabled && !state.bonusTypes.length) return notify("Seleciona pelo menos um tipo de aldeia bónus.");
+            button.disabled = true;
+            button.textContent = "A analisar…";
+            try {
+                await loadBonusBarbarians();
+                save();
+                refreshMarkers(true);
+                const count = panel.querySelector(".tp-bonus-count");
+                if (count) count.textContent = `${state.bonusCoords.size} encontrada(s)`;
+                notify(`${state.bonusCoords.size} aldeia(s) bárbara(s) bónus marcada(s).`);
+            } catch (error) {
+                notify(`Não foi possível analisar os bónus: ${error.message}`);
+            } finally {
+                button.disabled = false;
+                button.textContent = "Analisar mapa e marcar";
+            }
+        });
+        panel.querySelector(".tp-save").addEventListener("click", async () => {
             setCoordinates(textarea.value);
             state.color = panel.querySelector(".tp-color").value;
             state.showLabels = panel.querySelector(".tp-labels").checked;
             state.enabled = panel.querySelector(".tp-enabled").checked;
             state.distance = Math.max(1, Math.min(200, Number(panel.querySelector(".tp-distance").value) || 20));
             state.zoneSize = Number(panel.querySelector(".tp-zone-size").value) === 50 ? 50 : 25;
+            state.bonusTypes = [...panel.querySelectorAll(`.${APP.id}-bonusOptions input:checked`)].map((input) => String(input.value));
+            state.bonusEnabled = panel.querySelector(".tp-bonus-enabled")?.checked === true;
+            try { await loadBonusBarbarians(); } catch (error) { notify(`Não foi possível analisar os bónus: ${error.message}`); }
             save();
             updateMapToggle();
             refreshMarkers();
@@ -473,7 +594,11 @@
         if (document.querySelector("#map, #map_wrap, #map_container") || attempt > 80) {
             createMapToggle();
             observeMap();
-            refreshMarkers();
+            if (state.bonusEnabled && state.bonusTypes.length) {
+                loadBonusBarbarians().then(() => refreshMarkers(true)).catch((error) => console.warn(`[${APP.title}]`, error));
+            } else {
+                refreshMarkers();
+            }
             return;
         }
         setTimeout(() => waitForMap(attempt + 1), 250);
@@ -524,7 +649,8 @@
 
     function refreshMarkers(refreshMiniMap = true) {
         removeMarkers(refreshMiniMap);
-        if (!state.enabled || !state.coords.size) return;
+        scanVisibleBonusBarbarians();
+        if (!state.enabled || !activeCoordinates().size) return;
         markMainMapAnchored();
         if (refreshMiniMap) markPoliticalMap();
     }
@@ -532,7 +658,7 @@
     function markMainMapAnchored() {
         const twMap = window.TWMap;
         if (!twMap?.villages) return;
-        for (const { x, y } of state.coords.values()) {
+        for (const { x, y } of activeCoordinates().values()) {
             const village = twMap.villages[`${x}${y}`];
             const villageId = village?.id ?? village?.[0];
             if (villageId == null) continue;
@@ -545,8 +671,9 @@
             const top = imageRect.top - parentRect.top + imageRect.height / 2;
             const marker = document.createElement("span");
             marker.className = `${APP.id}-mapPin`;
-            marker.title = `${x}|${y}`;
-            marker.style.setProperty("--tp-marker-color", zoneColor(zoneForCoordinate(x, y)));
+            const bonus = state.bonusCoords.get(`${x}|${y}`);
+            marker.title = bonus ? `${x}|${y} — ${bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`}` : `${x}|${y}`;
+            marker.style.setProperty("--tp-marker-color", markerColorFor(x, y));
             marker.style.left = `${left}px`;
             marker.style.top = `${top}px`;
             marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels ? `<b class="${APP.id}-pinLabel">${x}|${y}</b>` : ""}`;
@@ -570,7 +697,7 @@
         for (let row = 0; row < rows; row++) {
             for (let col = 0; col < columns; col++) {
                 const coord = map.coordByPixel(map.pos[0] + tileX * col, map.pos[1] + tileY * row);
-                if (!coord || !state.coords.has(`${coord[0]}|${coord[1]}`)) continue;
+                if (!coord || !activeCoordinates().has(`${coord[0]}|${coord[1]}`)) continue;
                 const village = twMap.villages?.[`${coord[0]}${coord[1]}`];
                 if (!village) continue;
                 const marker = document.createElement("span");
@@ -605,7 +732,7 @@
                 if (!coordMatch) return;
                 x = Number(coordMatch[1]); y = Number(coordMatch[2]);
             }
-            if (!state.coords.has(`${x}|${y}`)) return;
+            if (!activeCoordinates().has(`${x}|${y}`)) return;
             element.classList.add(`${APP.id}-marked`);
             element.style.setProperty("--tp-marker-color", state.color);
             if (state.showLabels && element.parentElement) {
@@ -630,12 +757,12 @@
         const overlay = document.createElement("div");
         overlay.className = `${APP.id}-minimapOverlay`;
         overlay.style.setProperty("--tp-marker-color", state.color);
-        for (const { x, y } of state.coords.values()) {
+        for (const { x, y } of activeCoordinates().values()) {
             if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) continue;
             const dot = document.createElement("span");
             dot.className = `${APP.id}-miniDot`;
             dot.title = `${x}|${y}`;
-            dot.style.setProperty("--tp-marker-color", zoneColor(zoneForCoordinate(x, y)));
+            dot.style.setProperty("--tp-marker-color", markerColorFor(x, y));
             dot.style.left = `${((x - bounds.minX) / (bounds.maxX - bounds.minX)) * 100}%`;
             dot.style.top = `${((y - bounds.minY) / (bounds.maxY - bounds.minY)) * 100}%`;
             overlay.appendChild(dot);
@@ -657,6 +784,7 @@
 
     function markPoliticalMapByGrid(container) {
         const twMap = window.TWMap || {};
+        const targets = activeCoordinates();
         const candidates = [twMap.minimap, twMap.pmap, twMap.politicalMap, twMap.pmapHandler?.map].filter(Boolean);
         for (const map of candidates) {
             if (!Array.isArray(map.pos) || typeof map.coordByPixel !== "function") continue;
@@ -668,7 +796,7 @@
                 for (let px = 0; px <= width; px += 1) {
                     const coord = map.coordByPixel(map.pos[0] + px, map.pos[1] + py);
                     const key = coord && `${coord[0]}|${coord[1]}`;
-                    if (!key || !state.coords.has(key)) continue;
+                    if (!key || !targets.has(key)) continue;
                     const area = found.get(key);
                     if (area) {
                         area.maxX = px;
@@ -692,7 +820,7 @@
                 const centerY = (area.minY + area.maxY) / 2;
                 const [x, y] = key.split("|").map(Number);
                 const zoneIndex = zoneForCoordinate(x, y);
-                dot.style.setProperty("--tp-marker-color", zoneColor(zoneIndex));
+                dot.style.setProperty("--tp-marker-color", markerColorFor(x, y));
                 dot.style.left = `${centerX}px`;
                 dot.style.top = `${centerY}px`;
                 overlay.appendChild(dot);
