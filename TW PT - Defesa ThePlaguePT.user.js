@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.133
+// @version      0.1.134
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.133',
+        version: '0.1.134',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -5322,8 +5322,10 @@
                     <span class="tpdef-calc-sim-title-text">Simulação por Full de Ataque${basisText}</span>
                     ${hasMultiple ? `
                         <span class="tpdef-calc-sim-controls">
-                            <input type="button" class="btn tpdef-calc-sim-prev" value="<">
-                            <input type="button" class="btn tpdef-calc-sim-next" value="Seguinte">
+                            <input type="button" class="btn tpdef-calc-sim-first" value="|◀" title="Ir para o primeiro full">
+                            <input type="button" class="btn tpdef-calc-sim-prev" value="◀" title="Full anterior">
+                            <input type="button" class="btn tpdef-calc-sim-next" value="▶" title="Full seguinte">
+                            <input type="button" class="btn tpdef-calc-sim-last" value="▶|" title="Ir para o último full">
                         </span>
                     ` : ''}
                 </div>
@@ -5360,21 +5362,27 @@
     function bindCalculatorSimulationControls() {
         $('#tpdefDefenseCalculatorResult .tpdef-calc-sim-wrap').each(function () {
             const wrap = $(this);
+            const rounds = wrap.find('.tpdef-calc-sim-round');
 
-            wrap.find('.tpdef-calc-sim-prev, .tpdef-calc-sim-next').off('click.tpdef').on('click.tpdef', function () {
-                const rounds = wrap.find('.tpdef-calc-sim-round');
-                const current = parseAmount(wrap.attr('data-current'));
-                const direction = $(this).hasClass('tpdef-calc-sim-next') ? 1 : -1;
-                const next = clamp(current + direction, 0, rounds.length - 1);
-
+            function showRound(index) {
+                const next = clamp(index, 0, rounds.length - 1);
                 wrap.attr('data-current', next);
                 rounds.attr('hidden', true).eq(next).removeAttr('hidden');
-                wrap.find('.tpdef-calc-sim-prev').prop('disabled', next <= 0);
-                wrap.find('.tpdef-calc-sim-next').prop('disabled', next >= rounds.length - 1);
-            });
+                wrap.find('.tpdef-calc-sim-first, .tpdef-calc-sim-prev').prop('disabled', next <= 0);
+                wrap.find('.tpdef-calc-sim-next, .tpdef-calc-sim-last').prop('disabled', next >= rounds.length - 1);
+            }
 
-            wrap.find('.tpdef-calc-sim-prev').prop('disabled', true);
-            wrap.find('.tpdef-calc-sim-next').prop('disabled', wrap.find('.tpdef-calc-sim-round').length <= 1);
+            wrap.find('.tpdef-calc-sim-first, .tpdef-calc-sim-prev, .tpdef-calc-sim-next, .tpdef-calc-sim-last')
+                .off('click.tpdef')
+                .on('click.tpdef', function () {
+                const current = parseAmount(wrap.attr('data-current'));
+                if ($(this).hasClass('tpdef-calc-sim-first')) showRound(0);
+                else if ($(this).hasClass('tpdef-calc-sim-last')) showRound(rounds.length - 1);
+                else if ($(this).hasClass('tpdef-calc-sim-next')) showRound(current + 1);
+                else showRound(current - 1);
+                });
+
+            showRound(0);
         });
     }
 
