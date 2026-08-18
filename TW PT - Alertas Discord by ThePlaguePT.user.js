@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.30
+// @version      1.3.31
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.30 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.31 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -5625,6 +5625,14 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
         const launcherGap = 25;
 
         function positionLauncher() {
+            if (root.closest('#tp-theplaguept-script-bar')) {
+                root.style.setProperty('left', 'auto', 'important');
+                root.style.setProperty('right', 'auto', 'important');
+                root.style.setProperty('top', 'auto', 'important');
+                root.style.setProperty('bottom', 'auto', 'important');
+                return;
+            }
+
             const gameLayout =
                 uiDoc.querySelector('#main_layout td.maincell') ||
                 uiDoc.querySelector('td.maincell') ||
