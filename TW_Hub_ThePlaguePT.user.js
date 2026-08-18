@@ -1,13 +1,18 @@
 // ==UserScript==
 // @name         TW Hub ThePlaguePT
 // @namespace    theplaguept.tw.hub
-// @version      0.1.0
+// @version      0.2.6
 // @description  Hub flutuante para aceder rapidamente aos teus scripts e botoes no Tribal Wars.
 // @author       ThePlaguePT
+// @icon         https://i.imgur.com/JXzrSKy.jpeg
 // @include      *://*.tribalwars.*/game.php*
 // @include      *://*.tribalwars.com.pt/*
 // @include      *://*.tribalwars.co.uk/*
 // @include      *://*.tribalwars.com.br/*
+// @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
+// @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
+// @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW_Hub_ThePlaguePT.user.js
+// @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW_Hub_ThePlaguePT.user.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -48,7 +53,7 @@
 
     const APP = {
         id: "tpTwHub",
-        version: "0.1.0",
+        version: "0.2.3",
         settingsKey: "tpTwHub:settings:v1",
         customKey: "tpTwHub:custom:v1",
         hiddenDefaultsKey: "tpTwHub:hiddenDefaults:v1",
@@ -98,6 +103,25 @@
             params: {mode: "incomings"},
             description: "Abre o painel TI; se nao existir, vai para Incomings.",
             order: 40,
+        },
+        {
+            id: "renomeador-ataques",
+            label: "Renomeador",
+            group: "Paineis",
+            selector: "#renomear-ataques-cores-theplaguept-config-button",
+            screen: "overview_villages",
+            params: {mode: "incomings"},
+            description: "Abre as configuracoes do renomeador de ataques.",
+            order: 45,
+        },
+        {
+            id: "marcador-mapa",
+            label: "Marcador Mapa",
+            group: "Paineis",
+            selector: "#tpMapMarker-launcher",
+            screen: "map",
+            description: "Abre o marcador de aldeias no mapa.",
+            order: 48,
         },
         {
             id: "notas-relatorio",
@@ -175,6 +199,7 @@
         registerDefaults();
         registerCustomShortcuts();
         consumeQueue();
+        window.addEventListener("TPHub:Register", handleLegacyHubRegister);
         startDomObserver();
         render();
     }
@@ -235,6 +260,34 @@
             items.forEach((item) => pageWindow.TWHub.register(item));
             return queue.length;
         };
+    }
+
+    function handleLegacyHubRegister(event) {
+        const detail = event && event.detail ? event.detail : {};
+        if (!detail || !detail.id || !detail.title || typeof detail.open !== "function") return;
+
+        const normalizedId = cleanId(detail.id);
+        const knownDefaultIds = {
+            tpmapmarker: "marcador-mapa",
+        };
+        const existingDefaultId = knownDefaultIds[normalizedId];
+
+        if (existingDefaultId && state.entries.has(existingDefaultId)) {
+            const existing = state.entries.get(existingDefaultId);
+            existing.run = detail.open;
+            existing.selector = existing.selector || "";
+            scheduleRender();
+            return;
+        }
+
+        pageWindow.TWHub.register({
+            id: normalizedId,
+            label: cleanText(detail.title),
+            group: "Paineis",
+            description: `Abre ${cleanText(detail.title)}.`,
+            run: detail.open,
+            order: 80,
+        });
     }
 
     function registerDefaults() {
@@ -327,6 +380,85 @@
                 z-index: ${APP.zIndex};
                 color: #2f1d12;
                 font-size: 12px;
+            }
+
+            #${APP.id}-quickbar {
+                position: fixed;
+                top: 7px;
+                left: 116px;
+                z-index: ${APP.zIndex};
+                width: clamp(230px, 24vw, 430px);
+                height: 36px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 5px;
+                padding: 0 8px;
+                pointer-events: none;
+            }
+
+            #${APP.id}-quickbar button,
+            #${APP.id}-quickbar [role="button"] {
+                pointer-events: auto;
+            }
+
+            #${APP.id}-quickbar .${APP.id}-quick-button,
+            #${APP.id}-quickbar #${APP.id}-launcher {
+                position: relative !important;
+                top: auto !important;
+                left: auto !important;
+                right: auto !important;
+                bottom: auto !important;
+                transform: none !important;
+                z-index: ${APP.zIndex} !important;
+                width: 30px !important;
+                min-width: 30px !important;
+                max-width: 30px !important;
+                height: 28px !important;
+                min-height: 28px !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                flex: 0 0 30px !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                overflow: hidden !important;
+                border: 1px solid #4f120f !important;
+                border-radius: 2px !important;
+                background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611) !important;
+                color: #fff !important;
+                font-size: 13px !important;
+                font-weight: 700 !important;
+                line-height: 1 !important;
+                text-shadow: 1px 1px 1px #000 !important;
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.42) !important;
+                cursor: pointer !important;
+            }
+
+            #${APP.id}-quickbar .${APP.id}-quick-button:hover,
+            #${APP.id}-quickbar #${APP.id}-launcher:hover {
+                filter: brightness(1.12);
+            }
+
+            #${APP.id}-quickbar .${APP.id}-quick-button[data-missing="1"] {
+                opacity: .55;
+                filter: grayscale(.4);
+            }
+
+            .${APP.id}-managed-original {
+                position: absolute !important;
+                top: auto !important;
+                left: -10000px !important;
+                right: auto !important;
+                bottom: auto !important;
+                width: 1px !important;
+                min-width: 1px !important;
+                max-width: 1px !important;
+                height: 1px !important;
+                min-height: 1px !important;
+                overflow: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
             }
 
             #${APP.id}-launcher {
@@ -667,11 +799,156 @@
         document.head.appendChild(style);
     }
 
+    function ensureTpScriptBar(doc = document) {
+        if (!doc || !doc.body) return null;
+        if (!doc.getElementById("tp-theplaguept-script-bar-style")) {
+            const style = doc.createElement("style");
+            style.id = "tp-theplaguept-script-bar-style";
+            style.textContent = '#tp-theplaguept-script-bar{position: absolute !important;top:8px!important;left:414px!important;z-index:2147483647!important;width:350px!important;height:34px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:5px!important;padding:0 8px!important;box-sizing:border-box!important;pointer-events:none!important}#tp-theplaguept-script-bar>*{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;flex:0 0 30px!important;pointer-events:auto!important;overflow:visible!important}#tp-theplaguept-script-bar>button,#tp-theplaguept-script-bar>*>button{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;padding:0!important;flex:0 0 30px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:0!important;overflow:visible!important}#tp-theplaguept-script-bar>button:hover,#tp-theplaguept-script-bar>button:focus-visible,#tp-theplaguept-script-bar>*>button:hover,#tp-theplaguept-script-bar>*>button:focus-visible,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible{width:30px!important;min-width:30px!important;max-width:30px!important;padding:0!important;gap:0!important}#tp-theplaguept-script-bar .tpdef-launcher-text,#tp-theplaguept-script-bar .tw-alerts-toggle-label,#tp-theplaguept-script-bar .ti-toggle-label,#tp-theplaguept-script-bar .ra-tp-config-button-label,#tp-theplaguept-script-bar [class$="-launcherLabel"],#tp-theplaguept-script-bar [class$="-launcher-text"]{display:none!important;max-width:0!important;opacity:0!important}#tp-theplaguept-script-bar #twHubTp-launcher{order:10!important}#tp-theplaguept-script-bar #tw-discord-alerts-ui{order:20!important}#tp-theplaguept-script-bar #tpDefLauncher{order:30!important}#tp-theplaguept-script-bar #tag-incomings-pt-panel{order:40!important}#tp-theplaguept-script-bar #tpMapMarker-launcher{order:50!important}#tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button{order:60!important}#tp-theplaguept-script-bar #tpResumo24h-launcher{order:70!important}#tp-theplaguept-script-bar #tpconq-launcher{order:80!important}#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]::after{content:attr(data-tp-title);position:absolute!important;left:50%!important;top:33px!important;transform:translateX(-50%)!important;display:none!important;white-space:nowrap!important;max-width:360px!important;overflow:hidden!important;text-overflow:ellipsis!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;pointer-events:none!important;z-index:2147483647!important}#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]:hover::after,#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]:focus-within::after{display:block!important}';
+            (doc.head || doc.documentElement).appendChild(style);
+        }
+        let bar = doc.getElementById("tp-theplaguept-script-bar");
+        if (!bar) {
+            bar = doc.createElement("div");
+            bar.id = "tp-theplaguept-script-bar";
+            bar.setAttribute("aria-label", "Botoes ThePlaguePT");
+            (doc.body || doc.documentElement).appendChild(bar);
+        }
+        return bar;
+    }
+
+    function attachToTpScriptBar(element, doc = document) {
+        const bar = ensureTpScriptBar(doc);
+        if (!bar || !element) return;
+        element.classList.add("tp-theplaguept-script-bar-item");
+        const tooltipButton = element.querySelector && element.querySelector('button[title],button[aria-label]');
+        const tooltipSource =
+            element.getAttribute('data-tp-tooltip') ||
+            element.getAttribute('title') ||
+            element.getAttribute('aria-label') ||
+            (tooltipButton ? tooltipButton.getAttribute('title') || tooltipButton.getAttribute('aria-label') : '') ||
+            '';
+        if (tooltipSource) {
+            element.dataset.tpTooltip = tooltipSource;
+            element.setAttribute('aria-label', tooltipSource);
+            element.removeAttribute('title');
+
+            if (tooltipButton) {
+                tooltipButton.setAttribute('aria-label', tooltipSource);
+                tooltipButton.removeAttribute('title');
+            }
+        }
+
+        const getSharedTooltip = () => {
+            const tooltipDoc = element.ownerDocument || document;
+            let tooltip = tooltipDoc.getElementById('tp-theplaguept-script-bar-tooltip');
+
+            if (!tooltip) {
+                tooltip = tooltipDoc.createElement('div');
+                tooltip.id = 'tp-theplaguept-script-bar-tooltip';
+
+                const tooltipStyles = {
+                    position: 'fixed',
+                    display: 'none',
+                    'z-index': '2147483647',
+                    padding: '4px 8px',
+                    border: '1px solid #4f120f',
+                    'border-radius': '2px',
+                    background: 'linear-gradient(to bottom, #f6dfaa, #d2a05a)',
+                    color: '#2b1509',
+                    font: 'bold 11px Verdana, Arial, sans-serif',
+                    'text-shadow': '0 1px #fff',
+                    'box-shadow': '0 2px 6px rgba(0,0,0,.55)',
+                    'white-space': 'nowrap',
+                    'max-width': '360px',
+                    overflow: 'hidden',
+                    'text-overflow': 'ellipsis',
+                    'pointer-events': 'none'
+                };
+
+                Object.entries(tooltipStyles).forEach(([property, value]) => {
+                    tooltip.style.setProperty(property, value, 'important');
+                });
+
+                (tooltipDoc.body || tooltipDoc.documentElement).appendChild(tooltip);
+            }
+
+            return tooltip;
+        };
+        const hideSharedTooltip = () => {
+            const tooltipDoc = element.ownerDocument || document;
+            const tooltip = tooltipDoc.getElementById('tp-theplaguept-script-bar-tooltip');
+
+            if (tooltip) {
+                tooltip.style.setProperty('display', 'none', 'important');
+            }
+        };
+        const showSharedTooltip = () => {
+            const text = element.dataset.tpTooltip || '';
+            if (!text) return;
+
+            const tooltipDoc = element.ownerDocument || document;
+            const tooltipWin = tooltipDoc.defaultView || window;
+            const tooltip = getSharedTooltip();
+
+            tooltip.textContent = text;
+            tooltip.style.setProperty('display', 'block', 'important');
+
+            const rect = element.getBoundingClientRect();
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const viewportWidth = tooltipWin.innerWidth || tooltipDoc.documentElement.clientWidth || 1024;
+            const left = Math.max(6, Math.min(
+                rect.left + (rect.width / 2) - (tooltipRect.width / 2),
+                viewportWidth - tooltipRect.width - 6
+            ));
+
+            tooltip.style.setProperty('left', `${left}px`, 'important');
+            tooltip.style.setProperty('top', `${rect.bottom + 6}px`, 'important');
+        };
+
+        if (!element.dataset.tpTooltipReady) {
+            element.addEventListener('mouseenter', showSharedTooltip);
+            element.addEventListener('focusin', showSharedTooltip);
+            element.addEventListener('mouseleave', hideSharedTooltip);
+            element.addEventListener('focusout', hideSharedTooltip);
+            element.dataset.tpTooltipReady = '1';
+        }
+        const orders = {"twHubTp-launcher":10,"tw-discord-alerts-ui":20,tpDefLauncher:30,"tag-incomings-pt-panel":40,"tpMapMarker-launcher":50,"renomear-ataques-cores-theplaguept-config-button":60,"tpResumo24h-launcher":70,"tpconq-launcher":80};
+        const applyCompactButtonStyle = node => {
+            if (!node || !node.style) return;
+            node.style.setProperty("position", "relative", "important");
+            node.style.setProperty("top", "auto", "important");
+            node.style.setProperty("left", "auto", "important");
+            node.style.setProperty("right", "auto", "important");
+            node.style.setProperty("bottom", "auto", "important");
+            node.style.setProperty("transform", "none", "important");
+            node.style.setProperty("width", "30px", "important");
+            node.style.setProperty("min-width", "30px", "important");
+            node.style.setProperty("max-width", "30px", "important");
+            node.style.setProperty("height", "28px", "important");
+            node.style.setProperty("min-height", "28px", "important");
+            node.style.setProperty("margin", "0", "important");
+            node.style.setProperty("flex", "0 0 30px", "important");
+        };
+        applyCompactButtonStyle(element);
+        if (orders[element.id]) element.style.setProperty("order", String(orders[element.id]), "important");
+        Array.from(element.children || []).filter(child => child.matches && child.matches("button")).forEach(applyCompactButtonStyle);
+        element.querySelectorAll('.tpdef-launcher-text,.tw-alerts-toggle-label,.ti-toggle-label,.ra-tp-config-button-label,[class$="-launcherLabel"],[class$="-launcher-text"]').forEach(label => {
+            label.style.setProperty("display", "none", "important");
+            label.style.setProperty("max-width", "0", "important");
+            label.style.setProperty("opacity", "0", "important");
+        });
+        if (element.parentElement !== bar) bar.appendChild(element);
+    }
+
     function createUi() {
         if (document.getElementById(APP.id)) return;
 
         const root = document.createElement("div");
         root.id = APP.id;
+
+        const quickbar = ensureTpScriptBar();
+        quickbar.setAttribute("aria-label", "Botoes ThePlaguePT");
 
         const launcher = document.createElement("button");
         launcher.id = `${APP.id}-launcher`;
@@ -720,13 +997,14 @@
         const notice = document.createElement("div");
         notice.id = `${APP.id}-notice`;
 
-        root.appendChild(launcher);
         root.appendChild(panel);
         root.appendChild(notice);
         document.body.appendChild(root);
+        attachToTpScriptBar(launcher);
 
         state.dom = {
             root,
+            quickbar,
             launcher,
             panel,
             head: panel.querySelector(`.${APP.id}-head`),
@@ -741,6 +1019,7 @@
         state.dom.showUnavailable.checked = state.settings.showUnavailable !== false;
 
         panel.addEventListener("click", handlePanelClick);
+        quickbar.addEventListener("click", handleQuickbarClick);
         state.dom.filter.addEventListener("input", () => {
             state.settings.filter = state.dom.filter.value;
             saveSettings();
@@ -788,6 +1067,13 @@
         }
     }
 
+    function handleQuickbarClick(event) {
+        const button = event.target.closest("[data-quick-id]");
+        if (!button || !state.dom.quickbar || !state.dom.quickbar.contains(button)) return;
+
+        runEntry(button.getAttribute("data-quick-id"));
+    }
+
     function render() {
         if (!state.dom.list) return;
 
@@ -802,6 +1088,8 @@
                 return `${entry.label} ${entry.group} ${entry.description}`.toLowerCase().includes(filter);
             })
             .sort(compareEntries);
+
+        renderQuickbar();
 
         state.dom.count.textContent = `${entries.length} ${entries.length === 1 ? "atalho" : "atalhos"}`;
         state.dom.list.textContent = "";
@@ -831,6 +1119,82 @@
 
             groupEntries.forEach((entry) => group.appendChild(createEntryNode(entry)));
             state.dom.list.appendChild(group);
+        });
+    }
+
+    function renderQuickbar() {
+        if (!state.dom.quickbar || !state.dom.launcher) return;
+
+        Array.from(state.dom.quickbar.querySelectorAll(`.${APP.id}-quick-button,[data-quick-id]`)).forEach((node) => node.remove());
+        cleanupManagedOriginals(new Set());
+    }
+
+    function quickIcon(entry) {
+        const id = String(entry.id || "").toLowerCase();
+        const label = cleanText(entry.label);
+
+        if (id.includes("defesa")) return "D";
+        if (id.includes("conquistas")) return "C";
+        if (id.includes("alertas")) return "●";
+        if (id.includes("spy")) return "S";
+        if (id.includes("tag") || id.includes("incomings")) return "⚔";
+        if (id.includes("renomeador")) return "R";
+        if (id.includes("map") || id.includes("mapa") || id.includes("marcador")) return "⌖";
+
+        return label ? label.slice(0, 1).toUpperCase() : "?";
+    }
+
+    function hideOriginalLauncher(entry) {
+        if (!entry) return null;
+
+        const selector = entry.selector || inferredOriginalSelector(entry);
+        if (!selector) return null;
+
+        const target = safeQuery(selector);
+        if (!target || state.dom.root.contains(target)) return null;
+
+        if (!target.dataset.tpTwHubOriginalStyleSaved) {
+            target.dataset.tpTwHubOriginalStyleSaved = "1";
+            target.dataset.tpTwHubOriginalStyle = target.getAttribute("style") || "";
+            target.classList.add(`${APP.id}-managed-original`);
+            target.style.setProperty("display", "none", "important");
+            target.style.setProperty("visibility", "hidden", "important");
+            target.style.setProperty("pointer-events", "none", "important");
+            target.style.setProperty("position", "absolute", "important");
+            target.style.setProperty("left", "-10000px", "important");
+            target.style.setProperty("top", "auto", "important");
+            target.style.setProperty("right", "auto", "important");
+            target.style.setProperty("bottom", "auto", "important");
+        } else if (!target.classList.contains(`${APP.id}-managed-original`)) {
+            target.classList.add(`${APP.id}-managed-original`);
+        }
+
+        return target;
+    }
+
+    function inferredOriginalSelector(entry) {
+        const id = String(entry && entry.id || "").toLowerCase();
+
+        if (id === "informacao-jogador-tribo-theplaguept") return "#tpResumo24h-launcher";
+        if (id === "resumo-24h-tribo-theplaguept") return "#tpResumo24hTribo-launcher";
+
+        return "";
+    }
+
+    function cleanupManagedOriginals(activeTargets) {
+        document.querySelectorAll(`.${APP.id}-managed-original`).forEach((node) => {
+            if (!activeTargets.has(node) && (!state.dom.root || !state.dom.root.contains(node))) {
+                const originalStyle = node.dataset.tpTwHubOriginalStyle || "";
+                if (originalStyle) {
+                    node.setAttribute("style", originalStyle);
+                } else {
+                    node.removeAttribute("style");
+                }
+
+                delete node.dataset.tpTwHubOriginalStyleSaved;
+                delete node.dataset.tpTwHubOriginalStyle;
+                node.classList.remove(`${APP.id}-managed-original`);
+            }
         });
     }
 
@@ -1368,7 +1732,7 @@
         if (!state.dom.panel || !state.dom.launcher) return;
 
         state.dom.panel.classList.toggle(`${APP.id}-closed`, !state.settings.open);
-        state.dom.launcher.style.display = state.settings.open ? "none" : "flex";
+        state.dom.launcher.style.setProperty("display", state.settings.open ? "none" : "inline-flex", "important");
     }
 
     function startDomObserver() {
