@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.132
+// @version      0.1.133
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.132',
+        version: '0.1.133',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -5015,7 +5015,7 @@
                     </span>
                 </div>
                 <div class="tpdef-calc-meta">
-                    Valores arredondados para reforço prático e mais margem contra perdas.
+                    Elimina todos os fulls e conserva aproximadamente ${Math.round((ideal.survivorRatio || 0) * 1000) / 10}% da defesa (objetivo: 5–10%).
                 </div>
             </div>
         `;
@@ -5126,28 +5126,44 @@
 
     function calculateIdealDefenseForFulls(minimumResult, fulls, wall, minFinalWall, attackModel, defenseModel) {
         if (!minimumResult || !minimumResult.ok) return null;
+        const targetSurvivorRatio = 0.075;
+        let low = Math.max(0, Number(minimumResult.factor) || 0);
+        let high = Math.max(1, low * 1.1);
+        let highTroops = scaleDefenseModel(defenseModel, high);
+        let highEndurance = estimateDefenseEndurance(highTroops, wall, attackModel, fulls);
 
-        const targetWall = getIdealFinalWallTarget(minimumResult.endurance.finalWall, wall, minFinalWall, fulls);
-        let idealSource = null;
-
-        for (let target = targetWall; target > minimumResult.endurance.finalWall; target -= 1) {
-            const candidate = calculateRequiredDefenseForFulls(fulls, wall, target, attackModel, defenseModel, false, false);
-            if (candidate.ok) {
-                idealSource = candidate;
-                break;
-            }
+        while ((!meetsDefenseTarget(highEndurance, fulls, minFinalWall) || getDefenseSurvivorRatio(highEndurance, highTroops) < targetSurvivorRatio) && high < 1024) {
+            high *= 1.25;
+            highTroops = scaleDefenseModel(defenseModel, high);
+            highEndurance = estimateDefenseEndurance(highTroops, wall, attackModel, fulls);
         }
 
-        if (!idealSource) idealSource = minimumResult;
+        for (let i = 0; i < 30; i += 1) {
+            const mid = (low + high) / 2;
+            const midTroops = scaleDefenseModel(defenseModel, mid);
+            const midEndurance = estimateDefenseEndurance(midTroops, wall, attackModel, fulls);
+            const valid = meetsDefenseTarget(midEndurance, fulls, minFinalWall)
+                && getDefenseSurvivorRatio(midEndurance, midTroops) >= targetSurvivorRatio;
 
-        const troops = roundDefenseTroopsForPlanning(idealSource.troops);
+            if (valid) high = mid;
+            else low = mid;
+        }
+
+        const troops = roundDefenseTroopsForPlanning(scaleDefenseModel(defenseModel, high));
         const endurance = estimateDefenseEndurance(troops, wall, attackModel, fulls);
 
         return {
             troops,
             endurance,
-            targetWall: idealSource.endurance.finalWall
+            survivorRatio: getDefenseSurvivorRatio(endurance, troops),
+            targetSurvivorRatio
         };
+    }
+
+    function getDefenseSurvivorRatio(endurance, initialTroops) {
+        const initialPop = calculateTroopPopulation(initialTroops);
+        if (initialPop <= 0) return 0;
+        return calculateTroopPopulation(endurance && endurance.remainingTroops) / initialPop;
     }
 
     function getIdealFinalWallTarget(minimumFinalWall, wall, minFinalWall, fulls) {
@@ -5743,7 +5759,8 @@
                 safeAttacks: 0,
                 finalWall: Math.round(currentWall),
                 wallAfterSafeAttacks,
-                initialDefenseRatio: 0
+                initialDefenseRatio: 0,
+                remainingTroops: cloneTroops(currentTroops)
             };
         }
 
@@ -5786,7 +5803,8 @@
             safeAttacks,
             finalWall: Math.round(currentWall),
             wallAfterSafeAttacks,
-            initialDefenseRatio
+            initialDefenseRatio,
+            remainingTroops: cloneTroops(currentTroops)
         };
     }
 
