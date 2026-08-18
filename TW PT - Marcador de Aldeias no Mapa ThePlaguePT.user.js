@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.2.0
+// @version      2.2.1
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "2.2.0",
+        version: "2.2.1",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -331,22 +331,15 @@
         if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
         const doc = new DOMParser().parseFromString(await response.text(), "text/html");
         const owners = state.attackExcludeBarbarians ? await loadVillageOwners() : null;
-        const rows = [...doc.querySelectorAll("#commands_outgoings tr, #commands_table tr, table.vis tr")];
+        const rows = [...doc.querySelectorAll("#commands_table tr.row_a, #commands_table tr.row_ax, #commands_table tr.row_b, #commands_table tr.row_bx")];
         const found = new Map();
 
         for (const row of rows) {
-            if (!row.querySelector('a[href*="info_command"][href*="id="]') && !/command-row/.test(row.className || "")) continue;
-            const villageLinks = [...row.querySelectorAll('a[href*="info_village"]')];
-            let targetLink = null;
-            let match = null;
-            for (const link of villageLinks) {
-                const coord = (link.textContent || "").match(/(\d{1,3})\s*\|\s*(\d{1,3})/);
-                if (coord) { targetLink = link; match = coord; }
-            }
-            if (!match) {
-                const matches = [...(row.textContent || "").matchAll(/(\d{1,3})\s*\|\s*(\d{1,3})/g)];
-                match = matches[matches.length - 1] || null;
-            }
+            // Nesta vista, quickedit-label é o destino do comando. Outros links
+            // presentes na linha podem apontar para a aldeia própria de origem.
+            const targetLabel = row.querySelector(".quickedit-label");
+            const targetLink = targetLabel?.closest("a") || targetLabel?.querySelector('a[href*="info_village"]') || null;
+            const match = (targetLabel?.textContent || "").match(/(\d{1,3})\s*\|\s*(\d{1,3})/);
             if (!match) continue;
             const x = Number(match[1]);
             const y = Number(match[2]);
@@ -482,6 +475,10 @@
             .${APP.id}-tool{border:1px solid #9a744b;background:#ead9b3;padding:7px}
             .${APP.id}-toolTitle{display:block;margin-bottom:6px;color:#4b2411;font:bold 12px Verdana}
             .${APP.id}-toolLine{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+            .${APP.id}-enableRow{display:flex;align-items:center;margin:-7px -7px 9px;padding:7px 9px;border-bottom:1px solid #b58a52;background:#ddc48c}
+            .${APP.id}-enableLabel{display:flex;align-items:center;gap:7px;color:#742019;font:bold 12px Verdana}
+            .${APP.id}-enableLabel input{width:15px;height:15px;margin:0;accent-color:#a82822}
+            .${APP.id}-optionsRow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:7px 0;color:#4b3218}
             .${APP.id}-tool input[type="number"],.${APP.id}-tool select{height:25px;border:1px solid #80522d;background:#fffaf0}
             .${APP.id}-tool input[type="number"]{width:58px}
             .${APP.id}-tool button{height:26px;border:1px solid #603419;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer}
@@ -704,15 +701,15 @@
                     </section>
                     <section class="${APP.id}-section ${APP.id}-bonusSection">
                         <div><h3>Bárbaras bónus</h3><p>Analisa automaticamente as aldeias bárbaras e marca apenas os tipos de bónus selecionados.</p></div>
-                        <div class="${APP.id}-tool ${APP.id}-bonusTool"><span class="${APP.id}-toolTitle">Tipos de aldeia bónus</span><div class="${APP.id}-bonusOptions">${bonusOptionsHtml()}</div><div class="${APP.id}-toolLine"><label><input class="tp-bonus-enabled" type="checkbox" ${state.bonusEnabled ? "checked" : ""}> Marcação de bárbaras bónus ativa</label><button class="tp-bonus-apply" type="button">Analisar mapa e marcar</button><strong class="tp-bonus-count">${state.bonusCoords.size ? `${state.bonusCoords.size} encontrada(s)` : ""}</strong></div></div>
+                        <div class="${APP.id}-tool ${APP.id}-bonusTool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-bonus-enabled" type="checkbox" ${state.bonusEnabled ? "checked" : ""}> Ativar marcação de bárbaras bónus</label></div><span class="${APP.id}-toolTitle">Tipos de aldeia bónus</span><div class="${APP.id}-bonusOptions">${bonusOptionsHtml()}</div><div class="${APP.id}-toolLine"><button class="tp-bonus-apply" type="button">Analisar mapa e marcar</button><strong class="tp-bonus-count">${state.bonusCoords.size ? `${state.bonusCoords.size} encontrada(s)` : ""}</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-supportSection">
                         <div><h3>Tropas em apoio</h3><p>Marca as aldeias onde tens tropas próprias estacionadas em apoio.</p></div>
-                        <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Destinos a apresentar</span><div class="${APP.id}-toolLine"><select class="tp-support-mode"><option value="own" ${state.supportMode === "own" ? "selected" : ""}>Apenas minhas aldeias</option><option value="others" ${state.supportMode === "others" ? "selected" : ""}>Apenas aldeias de outros jogadores</option><option value="both" ${state.supportMode === "both" ? "selected" : ""}>Minhas e de outros jogadores</option></select><label><input class="tp-support-enabled" type="checkbox" ${state.supportEnabled ? "checked" : ""}> Marcação de apoios ativa</label><button class="tp-support-apply" type="button">Carregar apoios e marcar</button><strong class="tp-support-count">${state.supportCoords.size ? `${state.supportCoords.size} encontrada(s)` : ""}</strong></div></div>
+                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-support-enabled" type="checkbox" ${state.supportEnabled ? "checked" : ""}> Ativar marcação de tropas em apoio</label></div><span class="${APP.id}-toolTitle">Destinos a apresentar</span><div class="${APP.id}-optionsRow"><select class="tp-support-mode"><option value="own" ${state.supportMode === "own" ? "selected" : ""}>Apenas minhas aldeias</option><option value="others" ${state.supportMode === "others" ? "selected" : ""}>Apenas aldeias de outros jogadores</option><option value="both" ${state.supportMode === "both" ? "selected" : ""}>Minhas e de outros jogadores</option></select></div><div class="${APP.id}-toolLine"><button class="tp-support-apply" type="button">Carregar apoios e marcar</button><strong class="tp-support-count">${state.supportCoords.size ? `${state.supportCoords.size} encontrada(s)` : ""}</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-attackSection">
                         <div><h3>Aldeias atacadas</h3><p>Marca os destinos dos teus ataques em curso e apresenta as coordenadas no mapa.</p></div>
-                        <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Ataques a apresentar</span><div class="${APP.id}-toolLine"><label><input class="tp-attack-exclude-barb" type="checkbox" ${state.attackExcludeBarbarians ? "checked" : ""}> Excluir aldeias bárbaras</label><label><input class="tp-attack-exclude-farm" type="checkbox" ${state.attackExcludeFarm ? "checked" : ""}> Excluir Assistente de Farm</label><label><input class="tp-attack-enabled" type="checkbox" ${state.attackEnabled ? "checked" : ""}> Marcação de ataques ativa</label><button class="tp-attack-apply" type="button">Carregar ataques e marcar</button><strong class="tp-attack-count">${state.attackCoords.size ? `${state.attackCoords.size} encontrada(s)` : ""}</strong></div></div>
+                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-attack-enabled" type="checkbox" ${state.attackEnabled ? "checked" : ""}> Ativar marcação de aldeias atacadas</label></div><span class="${APP.id}-toolTitle">Filtros dos ataques</span><div class="${APP.id}-optionsRow"><label><input class="tp-attack-exclude-barb" type="checkbox" ${state.attackExcludeBarbarians ? "checked" : ""}> Excluir aldeias bárbaras</label><label><input class="tp-attack-exclude-farm" type="checkbox" ${state.attackExcludeFarm ? "checked" : ""}> Excluir Assistente de Farm</label></div><div class="${APP.id}-toolLine"><button class="tp-attack-apply" type="button">Carregar ataques e marcar</button><strong class="tp-attack-count">${state.attackCoords.size ? `${state.attackCoords.size} encontrada(s)` : ""}</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
                         <div><h3>Zonas</h3><p>Uma caixa independente por zona, ordenada da mais próxima para a mais distante.</p></div>
@@ -720,7 +717,7 @@
                     </section>
                     <section class="${APP.id}-section ${APP.id}-settingsSection">
                         <div><h3>Configurações</h3><p>Define a apresentação das marcações no mapa.</p></div>
-                        <div class="tp-row"><label>Cor base <input class="tp-color" type="color" value="${state.color}"></label><label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label><label><input class="tp-enabled" type="checkbox" ${state.coordinatesEnabled ? "checked" : ""}> Coordenadas ativas</label><strong class="tp-count">${state.coords.size} aldeia(s)</strong></div>
+                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-enabled" type="checkbox" ${state.coordinatesEnabled ? "checked" : ""}> Ativar marcação da lista de coordenadas</label></div><div class="${APP.id}-optionsRow"><label>Cor base <input class="tp-color" type="color" value="${state.color}"></label><label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label><strong class="tp-count">${state.coords.size} aldeia(s)</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-actionsSection">
                         <div><h3>Ações</h3><p>Guarda as opções e atualiza as marcações.</p></div>
