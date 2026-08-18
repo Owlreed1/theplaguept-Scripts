@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.130
+// @version      0.1.132
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.130',
+        version: '0.1.132',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -4988,7 +4988,8 @@
                 ${formatFactor(result.factor)}x modelo defesa.
             </div>
             ${renderNightBonusCalculatorNote()}
-            ${renderCalculatorSimulation(result.simulations)}
+            ${renderCalculatorSimulation(result.simulations, 'minimum')}
+            ${renderCalculatorSimulation(result.ideal && result.ideal.simulations, 'ideal')}
         `;
     }
 
@@ -5105,11 +5106,19 @@
             factor: high,
             troops,
             endurance,
-            simulations: includeSimulations === false ? [] : buildCalculatorSimulations(troops, wall, attackModel, fulls)
+            simulations: []
         };
 
         if (includeIdeal !== false) {
             result.ideal = calculateIdealDefenseForFulls(result, fulls, wall, minFinalWall, attackModel, defenseModel);
+        }
+
+        if (includeSimulations !== false) {
+            result.simulations = buildCalculatorSimulations(troops, wall, attackModel, fulls);
+
+            if (result.ideal && hasTroops(result.ideal.troops)) {
+                result.ideal.simulations = buildCalculatorSimulations(result.ideal.troops, wall, attackModel, fulls);
+            }
         }
 
         return result;
@@ -5285,15 +5294,16 @@
         };
     }
 
-    function renderCalculatorSimulation(simulations) {
+    function renderCalculatorSimulation(simulations, basis) {
         if (!simulations || !simulations.length) return '';
         const hasMultiple = simulations.length > 1;
+        const basisText = basis === 'ideal' ? ' - Tropas ideais' : ' - Tropas mínimas';
 
         return `
             <div class="tpdef-calc-sim-wrap" data-current="0">
                 <div class="tpdef-calc-sim-title">
                     <img src="/graphic/buildings/place.png" alt="" style="width:16px;height:16px;">
-                    <span class="tpdef-calc-sim-title-text">Simulação por Full de Ataque</span>
+                    <span class="tpdef-calc-sim-title-text">Simulação por Full de Ataque${basisText}</span>
                     ${hasMultiple ? `
                         <span class="tpdef-calc-sim-controls">
                             <input type="button" class="btn tpdef-calc-sim-prev" value="<">
@@ -5332,23 +5342,24 @@
     }
 
     function bindCalculatorSimulationControls() {
-        const wrap = $('#tpdefDefenseCalculatorResult .tpdef-calc-sim-wrap');
-        if (!wrap.length) return;
+        $('#tpdefDefenseCalculatorResult .tpdef-calc-sim-wrap').each(function () {
+            const wrap = $(this);
 
-        wrap.find('.tpdef-calc-sim-prev, .tpdef-calc-sim-next').off('click.tpdef').on('click.tpdef', function () {
-            const rounds = wrap.find('.tpdef-calc-sim-round');
-            const current = parseAmount(wrap.attr('data-current'));
-            const direction = $(this).hasClass('tpdef-calc-sim-next') ? 1 : -1;
-            const next = clamp(current + direction, 0, rounds.length - 1);
+            wrap.find('.tpdef-calc-sim-prev, .tpdef-calc-sim-next').off('click.tpdef').on('click.tpdef', function () {
+                const rounds = wrap.find('.tpdef-calc-sim-round');
+                const current = parseAmount(wrap.attr('data-current'));
+                const direction = $(this).hasClass('tpdef-calc-sim-next') ? 1 : -1;
+                const next = clamp(current + direction, 0, rounds.length - 1);
 
-            wrap.attr('data-current', next);
-            rounds.attr('hidden', true).eq(next).removeAttr('hidden');
-            wrap.find('.tpdef-calc-sim-prev').prop('disabled', next <= 0);
-            wrap.find('.tpdef-calc-sim-next').prop('disabled', next >= rounds.length - 1);
+                wrap.attr('data-current', next);
+                rounds.attr('hidden', true).eq(next).removeAttr('hidden');
+                wrap.find('.tpdef-calc-sim-prev').prop('disabled', next <= 0);
+                wrap.find('.tpdef-calc-sim-next').prop('disabled', next >= rounds.length - 1);
+            });
+
+            wrap.find('.tpdef-calc-sim-prev').prop('disabled', true);
+            wrap.find('.tpdef-calc-sim-next').prop('disabled', wrap.find('.tpdef-calc-sim-round').length <= 1);
         });
-
-        wrap.find('.tpdef-calc-sim-prev').prop('disabled', true);
-        wrap.find('.tpdef-calc-sim-next').prop('disabled', wrap.find('.tpdef-calc-sim-round').length <= 1);
     }
 
     function renderSimulationSideRows(label, side, units) {

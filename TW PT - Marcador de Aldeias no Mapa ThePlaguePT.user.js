@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.1.0
+// @version      2.1.1
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -260,22 +260,27 @@
         const doc = new DOMParser().parseFromString(html, "text/html");
         const own = await loadOwnVillages();
         const ownKeys = new Set(own.map(({ x, y }) => `${x}|${y}`));
-        const rows = [...doc.querySelectorAll("#units_table tr.units_away, #units_table tr.row_a, #units_table tr.row_b")];
         const found = new Map();
-        for (const row of rows) {
-            const links = [...row.querySelectorAll('a[href*="screen=info_village"],a[href*="info_village"]')];
-            const targetLink = links[links.length - 1];
-            const text = targetLink?.textContent || row.cells?.[0]?.textContent || "";
-            const match = text.match(/(\d{1,3})\s*\|\s*(\d{1,3})/);
-            if (!match) continue;
-            const x = Number(match[1]);
-            const y = Number(match[2]);
-            const key = `${x}|${y}`;
-            const isOwn = ownKeys.has(key);
-            if (state.supportMode === "own" && !isOwn) continue;
-            if (state.supportMode === "others" && isOwn) continue;
-            const idMatch = String(targetLink?.href || "").match(/[?&]id=(\d+)/);
-            found.set(key, { x, y, id: idMatch ? Number(idMatch[1]) : null, support: true, isOwn });
+        const originRows = [...doc.querySelectorAll("#units_table tr.units_away")];
+        for (const originRow of originRows) {
+            // A linha units_away identifica a aldeia de partida. Os destinos onde
+            // os apoios estão estacionados surgem nas linhas row_a/row_b seguintes.
+            for (let row = originRow.nextElementSibling; row && !row.classList.contains("units_away"); row = row.nextElementSibling) {
+                if (!row.matches("tr.row_a, tr.row_b")) continue;
+                const targetCell = row.cells?.[0];
+                if (!targetCell) continue;
+                const targetLink = targetCell.querySelector('a[href*="screen=info_village"],a[href*="info_village"]');
+                const match = targetCell.textContent.match(/(\d{1,3})\s*\|\s*(\d{1,3})/);
+                if (!match) continue;
+                const x = Number(match[1]);
+                const y = Number(match[2]);
+                const key = `${x}|${y}`;
+                const isOwn = ownKeys.has(key);
+                if (state.supportMode === "own" && !isOwn) continue;
+                if (state.supportMode === "others" && isOwn) continue;
+                const idMatch = String(targetLink?.href || "").match(/[?&]id=(\d+)/);
+                found.set(key, { x, y, id: idMatch ? Number(idMatch[1]) : null, support: true, isOwn });
+            }
         }
         state.supportCoords = found;
         state.supportLastUpdate = Date.now();
