@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.36
+// @version      1.0.37
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -28,6 +28,13 @@
         mostrarResumo: true,
         recarregarAoTerminar: false,
         destacarLinhas: true,
+        funcoes: {
+            ignorarProprios: true,
+            renomearComandos: true,
+            aplicarEtiquetaJogo: true,
+            agruparPorAldeia: true,
+            detetarNobres: true,
+        },
         sons: {
             ataque: true,
             nobre: true,
@@ -400,6 +407,14 @@
         }
 
         return resultado;
+    }
+
+    function funcaoAtiva(chave) {
+        return config.funcoes?.[chave] !== false;
+    }
+
+    function podeAlterarEtiquetas() {
+        return funcaoAtiva("renomearComandos") || funcaoAtiva("aplicarEtiquetaJogo");
     }
 
     function normalizar(texto) {
@@ -853,7 +868,12 @@
     }
 
     function obterLinhasValidas() {
-        return obterLinhasTabela().filter((linha) => !linhaDoProprioJogador(linha));
+        const linhas = obterLinhasTabela();
+        if (!funcaoAtiva("ignorarProprios")) {
+            return linhas;
+        }
+
+        return linhas.filter((linha) => !linhaDoProprioJogador(linha));
     }
 
     function obterIdComando(linha) {
@@ -1065,6 +1085,10 @@
         estado.comandosAvisadosAtaque = [...avisadosAtaque];
         guardarEstado();
 
+        if (!funcaoAtiva("detetarNobres")) {
+            return;
+        }
+
         porTratar.forEach((linha) => {
             if (detectarUnidadeMaisLenta(linha)?.id === "snob") {
                 avisarNobreConfirmado(linha, novos.length > 0 ? 650 : 0);
@@ -1073,6 +1097,10 @@
     }
 
     function avisarNobreConfirmado(linha, atrasoMs = 0) {
+        if (!funcaoAtiva("detetarNobres")) {
+            return false;
+        }
+
         const chave = obterIdComando(linha);
         if (!chave) {
             return false;
@@ -1403,7 +1431,7 @@
         const unidade = detectarUnidadeMaisLenta(linha);
         if (unidade) {
             if (unidade.id === "snob") {
-                return config.etiquetas.nobre;
+                return funcaoAtiva("detetarNobres") ? config.etiquetas.nobre : "";
             }
 
             return unidade.etiqueta;
@@ -1641,6 +1669,10 @@
     }
 
     function selecionarLinhasParaEtiquetar(linhas, etiquetas) {
+        if (!funcaoAtiva("aplicarEtiquetaJogo")) {
+            return 0;
+        }
+
         let selecionados = 0;
 
         for (const linha of linhas) {
@@ -1903,6 +1935,11 @@
     }
 
     function clicarBotaoEtiquetar(selecionados) {
+        if (!funcaoAtiva("aplicarEtiquetaJogo")) {
+            log("Etiqueta nativa do jogo desativada nas configuracoes.");
+            return false;
+        }
+
         if (selecionados <= 0) {
             log("Sem comandos selecionados para etiquetar.");
             return false;
@@ -2003,66 +2040,87 @@
             }
 
             const etiquetas = obterEtiquetasNormalizadas();
-            obterLinhasTabela()
-                .filter(linhaDoProprioJogador)
-                .forEach(desmarcarParaNaoEtiquetar);
+            if (funcaoAtiva("ignorarProprios")) {
+                obterLinhasTabela()
+                    .filter(linhaDoProprioJogador)
+                    .forEach(desmarcarParaNaoEtiquetar);
+            }
             const linhas = obterLinhasValidas().filter(linhaAindaPorChegar);
             sincronizarComandosConhecidos(linhas);
             avisarNovosAtaques(linhas);
-            const gruposRepetidos = criarGruposPorAldeia(linhas);
-            const fullsNobre = contarFullsPorComboioDeNobres(gruposRepetidos.grupos);
+            const gruposRepetidos = funcaoAtiva("agruparPorAldeia")
+                ? criarGruposPorAldeia(linhas)
+                : { grupos: [], porLinha: new Map() };
+            const fullsNobre = funcaoAtiva("detetarNobres")
+                ? contarFullsPorComboioDeNobres(gruposRepetidos.grupos)
+                : 0;
             let renomeados = 0;
             let selecionados = selecionarLinhasParaEtiquetar(linhas, etiquetas);
             let edicoesServidor = 0;
 
-            for (const linha of linhas) {
-                const nomeAtual = obterNome(linha);
-                const infoGrupo = gruposRepetidos.porLinha.get(linha);
+            if (funcaoAtiva("renomearComandos")) {
+                for (const linha of linhas) {
+                    const nomeAtual = obterNome(linha);
+                    const infoGrupo = gruposRepetidos.porLinha.get(linha);
 
-                if (infoGrupo) {
-                    destacarGrupo(linha, infoGrupo);
-                }
-
-                if (linhaJaEstaEtiquetada(linha)) {
-                    const nomeNobre = contemEtiqueta(
-                        normalizar(nomeAtual),
-                        normalizar(config.etiquetas.nobre),
-                    );
-                    if (nomeNobre || detectarUnidadeMaisLenta(linha)?.id === "snob") {
-                        avisarNobreConfirmado(linha);
-                    }
-                    desmarcarParaNaoEtiquetar(linha);
-                    continue;
-                }
-
-                const etiquetaBase = obterEtiquetaBaseDaLinha(linha);
-                if (!etiquetaBase) {
-                    desmarcarParaNaoEtiquetar(linha);
-                    continue;
-                }
-
-                if (normalizar(etiquetaBase) === normalizar(config.etiquetas.nobre)) {
-                    avisarNobreConfirmado(linha);
-                }
-
-                const novoNome = infoGrupo
-                    ? criarNomeComContagem(nomeAtual, infoGrupo, etiquetaBase)
-                    : criarNomeBasePorUnidade(nomeAtual, etiquetaBase);
-
-                if (normalizar(nomeAtual) === normalizar(novoNome)) {
-                    continue;
-                }
-
-                const tipoDestaque = normalizar(etiquetaBase) === normalizar(config.etiquetas.nobre)
-                    ? "nobre"
-                    : "contagem";
-                if (await renomearComando(linha, novoNome, tipoDestaque)) {
-                    renomeados += 1;
-                    edicoesServidor += 1;
                     if (infoGrupo) {
                         destacarGrupo(linha, infoGrupo);
                     }
-                    await talvezPausarLote(edicoesServidor);
+
+                    if (linhaJaEstaEtiquetada(linha)) {
+                        const nomeNobre = contemEtiqueta(
+                            normalizar(nomeAtual),
+                            normalizar(config.etiquetas.nobre),
+                        );
+                        if (
+                            funcaoAtiva("detetarNobres")
+                            && (nomeNobre || detectarUnidadeMaisLenta(linha)?.id === "snob")
+                        ) {
+                            avisarNobreConfirmado(linha);
+                        }
+                        desmarcarParaNaoEtiquetar(linha);
+                        continue;
+                    }
+
+                    const etiquetaBase = obterEtiquetaBaseDaLinha(linha);
+                    if (!etiquetaBase) {
+                        desmarcarParaNaoEtiquetar(linha);
+                        continue;
+                    }
+
+                    if (
+                        funcaoAtiva("detetarNobres")
+                        && normalizar(etiquetaBase) === normalizar(config.etiquetas.nobre)
+                    ) {
+                        avisarNobreConfirmado(linha);
+                    }
+
+                    const novoNome = infoGrupo
+                        ? criarNomeComContagem(nomeAtual, infoGrupo, etiquetaBase)
+                        : criarNomeBasePorUnidade(nomeAtual, etiquetaBase);
+
+                    if (normalizar(nomeAtual) === normalizar(novoNome)) {
+                        continue;
+                    }
+
+                    const tipoDestaque = normalizar(etiquetaBase) === normalizar(config.etiquetas.nobre)
+                        ? "nobre"
+                        : "contagem";
+                    if (await renomearComando(linha, novoNome, tipoDestaque)) {
+                        renomeados += 1;
+                        edicoesServidor += 1;
+                        if (infoGrupo) {
+                            destacarGrupo(linha, infoGrupo);
+                        }
+                        await talvezPausarLote(edicoesServidor);
+                    }
+                }
+            } else {
+                for (const linha of linhas) {
+                    const infoGrupo = gruposRepetidos.porLinha.get(linha);
+                    if (infoGrupo) {
+                        destacarGrupo(linha, infoGrupo);
+                    }
                 }
             }
 
@@ -2142,7 +2200,7 @@
     }
 
     function agendarEtiquetagemEmLote(motivo = "novo ataque") {
-        if (!config.ativo || estaEmFrame()) {
+        if (!config.ativo || estaEmFrame() || !podeAlterarEtiquetas()) {
             return;
         }
 
@@ -2374,7 +2432,11 @@
                 atualizarContadorBotao();
                 ultimoContadorObservado = Number(evento.data.total) || ultimoContadorObservado;
 
-                if ((Number(evento.data.novos) || 0) > 0 && (Number(evento.data.porTratar) || 0) > 0) {
+                if (
+                    podeAlterarEtiquetas()
+                    && (Number(evento.data.novos) || 0) > 0
+                    && (Number(evento.data.porTratar) || 0) > 0
+                ) {
                     agendarEtiquetagemEmLote(`${evento.data.novos} novo(s) ataque(s) detetado(s)`);
                 }
                 return;
@@ -2405,8 +2467,9 @@
         removerFramesFundo();
     }
 
-    function lerBooleanoPainel(nome, raiz = document) {
-        return Boolean(raiz.querySelector(`[data-ti-bool="${nome}"]`)?.checked);
+    function lerBooleanoPainel(nome, raiz = document, fallback = false) {
+        const campo = raiz.querySelector(`[data-ti-bool="${nome}"]`);
+        return campo ? Boolean(campo.checked) : Boolean(fallback);
     }
 
     function lerTextoPainel(nome, raiz = document) {
@@ -2470,16 +2533,16 @@
     function criarCheckbox(rotulo, chave, valor, descricao) {
         return `
             <label class="ti-setting ti-setting-toggle">
-                <span class="ti-setting-copy">
-                    <strong>${escaparHtml(rotulo)}</strong>
-                    <small>${escaparHtml(descricao)}</small>
-                </span>
                 <input
                     data-ti-bool="${chave}"
                     type="checkbox"
                     ${valor ? "checked" : ""}
                     aria-label="${escaparHtml(rotulo)}"
                 >
+                <span class="ti-setting-copy">
+                    <strong>${escaparHtml(rotulo)}</strong>
+                    <small>${escaparHtml(descricao)}</small>
+                </span>
             </label>
         `;
     }
@@ -2529,20 +2592,49 @@
     }
 
     function guardarPainel(raiz = document) {
-        config.ativo = lerBooleanoPainel("ativo", raiz);
-        config.modoTeste = lerBooleanoPainel("modoTeste", raiz);
+        config.ativo = lerBooleanoPainel("ativo", raiz, config.ativo);
+        config.modoTeste = lerBooleanoPainel("modoTeste", raiz, config.modoTeste);
         config.recarregarAoTerminar = false;
-        config.destacarLinhas = lerBooleanoPainel("destacarLinhas", raiz);
-        config.sons.ataque = lerBooleanoPainel("somAtaque", raiz);
-        config.sons.nobre = lerBooleanoPainel("somNobre", raiz);
-        config.sons.cancelado = lerBooleanoPainel("somCancelado", raiz);
+        config.mostrarResumo = lerBooleanoPainel("mostrarResumo", raiz, config.mostrarResumo);
+        config.destacarLinhas = lerBooleanoPainel("destacarLinhas", raiz, config.destacarLinhas);
+        config.funcoes.ignorarProprios = lerBooleanoPainel(
+            "ignorarProprios",
+            raiz,
+            config.funcoes.ignorarProprios,
+        );
+        config.funcoes.renomearComandos = lerBooleanoPainel(
+            "renomearComandos",
+            raiz,
+            config.funcoes.renomearComandos,
+        );
+        config.funcoes.aplicarEtiquetaJogo = lerBooleanoPainel(
+            "aplicarEtiquetaJogo",
+            raiz,
+            config.funcoes.aplicarEtiquetaJogo,
+        );
+        config.funcoes.agruparPorAldeia = lerBooleanoPainel(
+            "agruparPorAldeia",
+            raiz,
+            config.funcoes.agruparPorAldeia,
+        );
+        config.funcoes.detetarNobres = lerBooleanoPainel(
+            "detetarNobres",
+            raiz,
+            config.funcoes.detetarNobres,
+        );
+        config.sons.ataque = lerBooleanoPainel("somAtaque", raiz, config.sons.ataque);
+        config.sons.nobre = lerBooleanoPainel("somNobre", raiz, config.sons.nobre);
+        config.sons.cancelado = lerBooleanoPainel("somCancelado", raiz, config.sons.cancelado);
         config.ganhoSons = limitarGanhoSons(
             lerSliderPainel("ganhoSons", config.ganhoSons, raiz),
         );
         aplicarGanhoSonsAtual();
 
         guardarConfig();
-        if (!config.sons.nobre) {
+        if (!config.sons.nobre || !funcaoAtiva("detetarNobres")) {
+            if (!funcaoAtiva("detetarNobres")) {
+                definirAlertaNobreAtivo(false);
+            }
             pararSomNobre();
         } else if (estado.alertaNobreAtivo) {
             reproduzirSomLocal("nobre", 0, false, true);
@@ -2605,7 +2697,7 @@
                     #tag-incomings-pt-dialog .ti-config {
                         position: static !important;
                         display: block !important;
-                        width: min(820px, calc(100vw - 70px)) !important;
+                        width: min(980px, calc(100vw - 70px)) !important;
                         max-width: none !important;
                         max-height: calc(100vh - 90px) !important;
                         overflow: visible !important;
@@ -2937,7 +3029,7 @@
                     z-index: 4 !important;
                     display: none;
                     box-sizing: border-box !important;
-                    width: min(860px, calc(100vw - 54px));
+                    width: min(980px, calc(100vw - 54px));
                     max-height: calc(100vh - 54px);
                     overflow: visible;
                     padding: 12px;
@@ -3012,8 +3104,8 @@
                 }
                 #tag-incomings-pt-panel .ti-section {
                     display: grid;
-                    grid-template-columns: 155px minmax(0, 1fr);
-                    gap: 18px;
+                    grid-template-columns: 210px minmax(0, 1fr);
+                    gap: 22px;
                     padding: 14px;
                     border-bottom: 1px solid #d1ad65;
                     border-left: 4px solid var(--ti-section-color, #a52a22);
@@ -3038,7 +3130,7 @@
                 #tag-incomings-pt-panel .ti-fields {
                     display: grid;
                     grid-template-columns: repeat(2, minmax(0, 1fr));
-                    column-gap: 22px;
+                    gap: 0 28px;
                 }
                 #tag-incomings-pt-panel .ti-setting {
                     display: grid;
@@ -3068,6 +3160,14 @@
                     font-size: 10px;
                     font-weight: normal;
                     line-height: 13px;
+                }
+                #tag-incomings-pt-panel .ti-setting-toggle {
+                    grid-template-columns: 16px minmax(0, 1fr);
+                    align-items: start;
+                    gap: 10px;
+                }
+                #tag-incomings-pt-panel .ti-setting-toggle input[type="checkbox"] {
+                    margin-top: 2px;
                 }
                 #tag-incomings-pt-panel input[type="text"],
                 #tag-incomings-pt-panel input[type="number"],
@@ -3196,7 +3296,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.36</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.37</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -3206,7 +3306,7 @@
                         </div>
                         <div class="ti-fields">
                             ${criarCheckbox(
-                                "Ativo",
+                                "Monitor ativo",
                                 "ativo",
                                 config.ativo,
                                 "Mantém a procura automática e etiqueta novos ataques em segundo plano.",
@@ -3216,6 +3316,50 @@
                                 "modoTeste",
                                 config.modoTeste,
                                 "Simula a análise sem renomear comandos, submeter etiquetas ou tocar alertas.",
+                            )}
+                            ${criarCheckbox(
+                                "Mostrar resumo",
+                                "mostrarResumo",
+                                config.mostrarResumo,
+                                "Mostra a mensagem final com renomeados, selecionados e grupos encontrados.",
+                            )}
+                        </div>
+                    </section>
+                    <section class="ti-section" style="--ti-section-color:#25a8d0">
+                        <div class="ti-section-heading">
+                            <strong>Funções</strong>
+                            <small>Liga ou desliga cada ação do etiquetador.</small>
+                        </div>
+                        <div class="ti-fields">
+                            ${criarCheckbox(
+                                "Renomear comandos",
+                                "renomearComandos",
+                                config.funcoes.renomearComandos,
+                                "Altera o nome do comando para a unidade mais lenta detetada.",
+                            )}
+                            ${criarCheckbox(
+                                "Aplicar etiqueta do jogo",
+                                "aplicarEtiquetaJogo",
+                                config.funcoes.aplicarEtiquetaJogo,
+                                "Marca as checkboxes e carrega em Etiqueta quando houver comandos por tratar.",
+                            )}
+                            ${criarCheckbox(
+                                "Agrupar por aldeia",
+                                "agruparPorAldeia",
+                                config.funcoes.agruparPorAldeia,
+                                "Adiciona grupo e posição aos ataques repetidos da mesma origem.",
+                            )}
+                            ${criarCheckbox(
+                                "Detetar nobres e comboios",
+                                "detetarNobres",
+                                config.funcoes.detetarNobres,
+                                "Identifica nobres pela unidade mais lenta e mantém o alarme até desligar.",
+                            )}
+                            ${criarCheckbox(
+                                "Ignorar ataques próprios",
+                                "ignorarProprios",
+                                config.funcoes.ignorarProprios,
+                                "Não etiqueta nem contabiliza comandos enviados pelo teu jogador.",
                             )}
                             ${criarCheckbox(
                                 "Destacar linhas",
