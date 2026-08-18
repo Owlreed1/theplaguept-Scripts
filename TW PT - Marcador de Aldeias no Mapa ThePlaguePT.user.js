@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.0.1
+// @version      2.1.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "2.0.1",
+        version: "2.1.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -44,6 +44,10 @@
         bonusEnabled: false,
         bonusVillages: null,
         bonusCoords: new Map(),
+        supportEnabled: false,
+        supportMode: "both",
+        supportCoords: new Map(),
+        supportLastUpdate: 0,
         observer: null,
         refreshTimer: 0,
         pendingMiniRefresh: false,
@@ -51,6 +55,7 @@
         launcher: null,
         mapToggle: null,
         bonusMapToggle: null,
+        supportMapToggle: null,
         launcherPositionFrame: 0,
     };
 
@@ -73,6 +78,8 @@
             state.zoneSize = Number(saved.zoneSize) === 50 ? 50 : 25;
             state.bonusTypes = Array.isArray(saved.bonusTypes) ? saved.bonusTypes.map(String) : [];
             state.bonusEnabled = saved.bonusEnabled === true;
+            state.supportEnabled = saved.supportEnabled === true;
+            state.supportMode = ["own", "others", "both"].includes(saved.supportMode) ? saved.supportMode : "both";
             setCoordinates(Array.isArray(saved.coords) ? saved.coords.map((item) => `${item.x}|${item.y}`) : []);
             state.zones = Array.isArray(saved.zones) ? saved.zones.map((zone) =>
                 [...parseCoordinates((zone || []).map((item) => `${item.x}|${item.y}`)).values()]
@@ -93,6 +100,8 @@
             zones: state.zones,
             bonusTypes: state.bonusTypes,
             bonusEnabled: state.bonusEnabled,
+            supportEnabled: state.supportEnabled,
+            supportMode: state.supportMode,
         }));
     }
 
@@ -224,16 +233,52 @@
     function activeCoordinates() {
         const merged = state.coordinatesEnabled ? new Map(state.coords) : new Map();
         if (state.bonusEnabled) for (const [key, item] of state.bonusCoords) merged.set(key, item);
+        if (state.supportEnabled) for (const [key, item] of state.supportCoords) merged.set(key, item);
         return merged;
     }
 
     function markerColorFor(x, y) {
+        if (state.supportEnabled && state.supportCoords.has(`${x}|${y}`)) return "#00a9d6";
         const bonus = state.bonusCoords.get(`${x}|${y}`);
         if (state.bonusEnabled && bonus) {
             const palette = ["#ffb000", "#00a950", "#1473e6", "#e53935", "#8e35d1", "#00a6b8", "#f05a16", "#d4148e"];
             return palette[Math.max(0, Number(bonus.bonus) - 1) % palette.length];
         }
         return zoneColor(zoneForCoordinate(x, y));
+    }
+
+    async function loadSupportedVillages(force = false) {
+        if (!state.supportEnabled) {
+            state.supportCoords.clear();
+            return;
+        }
+        if (!force && state.supportCoords.size && Date.now() - state.supportLastUpdate < 2 * 60 * 1000) return;
+        const url = `${gd.link_base_pure || `${location.origin}/game.php?village=${gd.village?.id}&screen=`}overview_villages&mode=units&type=away_detail&units_type=away_detail&group=0&page=-1`;
+        const response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const own = await loadOwnVillages();
+        const ownKeys = new Set(own.map(({ x, y }) => `${x}|${y}`));
+        const rows = [...doc.querySelectorAll("#units_table tr.units_away, #units_table tr.row_a, #units_table tr.row_b")];
+        const found = new Map();
+        for (const row of rows) {
+            const links = [...row.querySelectorAll('a[href*="screen=info_village"],a[href*="info_village"]')];
+            const targetLink = links[links.length - 1];
+            const text = targetLink?.textContent || row.cells?.[0]?.textContent || "";
+            const match = text.match(/(\d{1,3})\s*\|\s*(\d{1,3})/);
+            if (!match) continue;
+            const x = Number(match[1]);
+            const y = Number(match[2]);
+            const key = `${x}|${y}`;
+            const isOwn = ownKeys.has(key);
+            if (state.supportMode === "own" && !isOwn) continue;
+            if (state.supportMode === "others" && isOwn) continue;
+            const idMatch = String(targetLink?.href || "").match(/[?&]id=(\d+)/);
+            found.set(key, { x, y, id: idMatch ? Number(idMatch[1]) : null, support: true, isOwn });
+        }
+        state.supportCoords = found;
+        state.supportLastUpdate = Date.now();
     }
 
     async function loadBonusBarbarians() {
@@ -310,6 +355,11 @@
             #${APP.id}-bonusMapToggle .tp-toggleBonus{display:grid!important;place-items:center!important;width:16px!important;height:16px!important;color:#f6d28b!important;font:bold 15px/16px Arial!important;text-shadow:0 1px 1px #000!important}
             #${APP.id}-bonusMapToggle.tp-off{border-color:#493b2b!important;background:linear-gradient(#80766a,#514940)!important;filter:saturate(.2)}
             #${APP.id}-bonusMapToggle.tp-off::after{content:"";position:absolute;left:3px;top:12px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
+            #${APP.id}-supportMapToggle{position:absolute!important;top:9px!important;right:113px!important;z-index:1200!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;padding:0 6px!important;display:flex!important;align-items:center!important;justify-content:center!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;cursor:pointer!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important}
+            #${APP.id}-supportMapToggle:hover{background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
+            #${APP.id}-supportMapToggle .tp-toggleSupport{display:grid!important;place-items:center!important;width:16px!important;height:16px!important;color:#9de8ff!important;font:bold 15px/16px Arial!important;text-shadow:0 1px 1px #000!important}
+            #${APP.id}-supportMapToggle.tp-off{border-color:#493b2b!important;background:linear-gradient(#80766a,#514940)!important;filter:saturate(.2)}
+            #${APP.id}-supportMapToggle.tp-off::after{content:"";position:absolute;left:3px;top:12px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
             #${APP.id}-panel{position:fixed;inset:0;z-index:60040;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
             #${APP.id}-panel.tp-hidden{display:none}
             #${APP.id}-panel .tp-card{width:min(620px,96vw);max-height:92vh;overflow:auto;padding:8px;border:2px solid #473019;border-radius:6px;background:linear-gradient(#d9c99e,#95805b);color:#32190d;box-shadow:0 0 0 1px #d8c99b,0 0 0 4px #5c4429,0 0 0 6px #dacba4e6,inset 0 0 0 2px #fff4cfcf,0 6px 18px #0000008c;font:13px Verdana}
@@ -334,7 +384,7 @@
             .${APP.id}-section:first-child{border-top:0}.${APP.id}-section>div{min-width:0}
             .${APP.id}-section h3{margin:0 0 3px;color:#8f2b25;font-size:13px;line-height:16px;text-transform:uppercase}
             .${APP.id}-section p{margin:2px 0;color:#5e3b16;font-size:11px;line-height:14px}
-            .${APP.id}-coordsSection{border-left-color:#c72d2d}.${APP.id}-toolsSection{border-left-color:#8b48c8}.${APP.id}-bonusSection{border-left-color:#18874a}.${APP.id}-zonesSection{border-left-color:#1f9ac5}.${APP.id}-settingsSection{border-left-color:#e0a51d}.${APP.id}-actionsSection{border-left-color:#8a6424}
+            .${APP.id}-coordsSection{border-left-color:#c72d2d}.${APP.id}-toolsSection{border-left-color:#8b48c8}.${APP.id}-bonusSection{border-left-color:#18874a}.${APP.id}-supportSection{border-left-color:#00a9d6}.${APP.id}-zonesSection{border-left-color:#1f9ac5}.${APP.id}-settingsSection{border-left-color:#e0a51d}.${APP.id}-actionsSection{border-left-color:#8a6424}
             .${APP.id}-native textarea{width:100%;height:210px;resize:vertical;box-sizing:border-box;padding:8px;border:1px solid #804000;background:#fffdf6;font:13px Consolas,monospace}
             .${APP.id}-native .tp-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0}
             .${APP.id}-native .tp-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
@@ -460,6 +510,40 @@
         button.setAttribute("aria-pressed", String(state.bonusEnabled));
     }
 
+    function createSupportMapToggle() {
+        document.getElementById(`${APP.id}-supportMapToggle`)?.remove();
+        const host = document.querySelector("#map_wrap") || document.querySelector("#map_container") || document.querySelector("#map")?.parentElement;
+        if (!host) return;
+        const button = document.createElement("button");
+        button.id = `${APP.id}-supportMapToggle`;
+        button.type = "button";
+        button.innerHTML = `<span class="tp-toggleSupport" aria-hidden="true">◆</span>`;
+        button.addEventListener("click", async () => {
+            state.supportEnabled = !state.supportEnabled;
+            const checkbox = state.panel?.querySelector(".tp-support-enabled");
+            if (checkbox) checkbox.checked = state.supportEnabled;
+            if (state.supportEnabled) {
+                try { await loadSupportedVillages(true); } catch (error) { notify(`Não foi possível carregar os apoios: ${error.message}`); }
+            }
+            save();
+            updateSupportMapToggle();
+            refreshMarkers(true);
+            notify(state.supportEnabled ? "Marcações de tropas em apoio ativadas." : "Marcações de tropas em apoio desativadas.");
+        });
+        host.appendChild(button);
+        state.supportMapToggle = button;
+        updateSupportMapToggle();
+    }
+
+    function updateSupportMapToggle() {
+        const button = state.supportMapToggle || document.getElementById(`${APP.id}-supportMapToggle`);
+        if (!button) return;
+        button.classList.toggle("tp-off", !state.supportEnabled);
+        button.title = state.supportEnabled ? "Desligar marcações de tropas em apoio" : "Ligar marcações de tropas em apoio";
+        button.setAttribute("aria-label", button.title);
+        button.setAttribute("aria-pressed", String(state.supportEnabled));
+    }
+
     function setupLauncherPosition() {
         const schedule = () => {
             cancelAnimationFrame(state.launcherPositionFrame);
@@ -500,6 +584,10 @@
                     <section class="${APP.id}-section ${APP.id}-bonusSection">
                         <div><h3>Bárbaras bónus</h3><p>Analisa automaticamente as aldeias bárbaras e marca apenas os tipos de bónus selecionados.</p></div>
                         <div class="${APP.id}-tool ${APP.id}-bonusTool"><span class="${APP.id}-toolTitle">Tipos de aldeia bónus</span><div class="${APP.id}-bonusOptions">${bonusOptionsHtml()}</div><div class="${APP.id}-toolLine"><label><input class="tp-bonus-enabled" type="checkbox" ${state.bonusEnabled ? "checked" : ""}> Marcação de bárbaras bónus ativa</label><button class="tp-bonus-apply" type="button">Analisar mapa e marcar</button><strong class="tp-bonus-count">${state.bonusCoords.size ? `${state.bonusCoords.size} encontrada(s)` : ""}</strong></div></div>
+                    </section>
+                    <section class="${APP.id}-section ${APP.id}-supportSection">
+                        <div><h3>Tropas em apoio</h3><p>Marca as aldeias onde tens tropas próprias estacionadas em apoio.</p></div>
+                        <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Destinos a apresentar</span><div class="${APP.id}-toolLine"><select class="tp-support-mode"><option value="own" ${state.supportMode === "own" ? "selected" : ""}>Apenas minhas aldeias</option><option value="others" ${state.supportMode === "others" ? "selected" : ""}>Apenas aldeias de outros jogadores</option><option value="both" ${state.supportMode === "both" ? "selected" : ""}>Minhas e de outros jogadores</option></select><label><input class="tp-support-enabled" type="checkbox" ${state.supportEnabled ? "checked" : ""}> Marcação de apoios ativa</label><button class="tp-support-apply" type="button">Carregar apoios e marcar</button><strong class="tp-support-count">${state.supportCoords.size ? `${state.supportCoords.size} encontrada(s)` : ""}</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
                         <div><h3>Zonas</h3><p>Uma caixa independente por zona, ordenada da mais próxima para a mais distante.</p></div>
@@ -606,6 +694,27 @@
                 button.textContent = "Analisar mapa e marcar";
             }
         });
+        panel.querySelector(".tp-support-apply")?.addEventListener("click", async (event) => {
+            const button = event.currentTarget;
+            state.supportMode = panel.querySelector(".tp-support-mode").value;
+            state.supportEnabled = panel.querySelector(".tp-support-enabled").checked;
+            button.disabled = true;
+            button.textContent = "A carregar…";
+            try {
+                await loadSupportedVillages(true);
+                save();
+                updateSupportMapToggle();
+                refreshMarkers(true);
+                const count = panel.querySelector(".tp-support-count");
+                if (count) count.textContent = `${state.supportCoords.size} encontrada(s)`;
+                notify(`${state.supportCoords.size} aldeia(s) com tropas em apoio marcada(s).`);
+            } catch (error) {
+                notify(`Não foi possível carregar os apoios: ${error.message}`);
+            } finally {
+                button.disabled = false;
+                button.textContent = "Carregar apoios e marcar";
+            }
+        });
         panel.querySelector(".tp-save").addEventListener("click", async () => {
             setCoordinates(textarea.value);
             state.color = panel.querySelector(".tp-color").value;
@@ -615,10 +724,14 @@
             state.zoneSize = Number(panel.querySelector(".tp-zone-size").value) === 50 ? 50 : 25;
             state.bonusTypes = [...panel.querySelectorAll(`.${APP.id}-bonusOptions input:checked`)].map((input) => String(input.value));
             state.bonusEnabled = panel.querySelector(".tp-bonus-enabled")?.checked === true;
+            state.supportMode = panel.querySelector(".tp-support-mode")?.value || "both";
+            state.supportEnabled = panel.querySelector(".tp-support-enabled")?.checked === true;
             try { await loadBonusBarbarians(); } catch (error) { notify(`Não foi possível analisar os bónus: ${error.message}`); }
+            try { await loadSupportedVillages(true); } catch (error) { notify(`Não foi possível carregar os apoios: ${error.message}`); }
             save();
             updateMapToggle();
             updateBonusMapToggle();
+            updateSupportMapToggle();
             refreshMarkers();
             closePanel();
             notify(`${state.coords.size} aldeia(s) guardada(s).`);
@@ -639,12 +752,12 @@
         if (document.querySelector("#map, #map_wrap, #map_container") || attempt > 80) {
             createMapToggle();
             createBonusMapToggle();
+            createSupportMapToggle();
             observeMap();
-            if (state.bonusEnabled && state.bonusTypes.length) {
-                loadBonusBarbarians().then(() => refreshMarkers(true)).catch((error) => console.warn(`[${APP.title}]`, error));
-            } else {
-                refreshMarkers();
-            }
+            const loaders = [];
+            if (state.bonusEnabled && state.bonusTypes.length) loaders.push(loadBonusBarbarians());
+            if (state.supportEnabled) loaders.push(loadSupportedVillages());
+            Promise.allSettled(loaders).then(() => refreshMarkers(true));
             return;
         }
         setTimeout(() => waitForMap(attempt + 1), 250);
@@ -718,7 +831,8 @@
             const marker = document.createElement("span");
             marker.className = `${APP.id}-mapPin`;
             const bonus = state.bonusCoords.get(`${x}|${y}`);
-            marker.title = bonus ? `${x}|${y} — ${bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`}` : `${x}|${y}`;
+            const support = state.supportCoords.get(`${x}|${y}`);
+            marker.title = support ? `${x}|${y} — tropas em apoio (${support.isOwn ? "aldeia própria" : "outro jogador"})` : bonus ? `${x}|${y} — ${bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`}` : `${x}|${y}`;
             marker.style.setProperty("--tp-marker-color", markerColorFor(x, y));
             marker.style.left = `${left}px`;
             marker.style.top = `${top}px`;
