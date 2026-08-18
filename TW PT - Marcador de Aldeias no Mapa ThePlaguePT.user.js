@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.1.1
+// @version      2.2.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "2.1.0",
+        version: "2.2.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -48,6 +48,12 @@
         supportMode: "both",
         supportCoords: new Map(),
         supportLastUpdate: 0,
+        attackEnabled: false,
+        attackExcludeBarbarians: false,
+        attackExcludeFarm: false,
+        attackCoords: new Map(),
+        attackLastUpdate: 0,
+        villageOwners: null,
         observer: null,
         refreshTimer: 0,
         pendingMiniRefresh: false,
@@ -56,6 +62,7 @@
         mapToggle: null,
         bonusMapToggle: null,
         supportMapToggle: null,
+        attackMapToggle: null,
         launcherPositionFrame: 0,
     };
 
@@ -80,6 +87,9 @@
             state.bonusEnabled = saved.bonusEnabled === true;
             state.supportEnabled = saved.supportEnabled === true;
             state.supportMode = ["own", "others", "both"].includes(saved.supportMode) ? saved.supportMode : "both";
+            state.attackEnabled = saved.attackEnabled === true;
+            state.attackExcludeBarbarians = saved.attackExcludeBarbarians === true;
+            state.attackExcludeFarm = saved.attackExcludeFarm === true;
             setCoordinates(Array.isArray(saved.coords) ? saved.coords.map((item) => `${item.x}|${item.y}`) : []);
             state.zones = Array.isArray(saved.zones) ? saved.zones.map((zone) =>
                 [...parseCoordinates((zone || []).map((item) => `${item.x}|${item.y}`)).values()]
@@ -102,6 +112,9 @@
             bonusEnabled: state.bonusEnabled,
             supportEnabled: state.supportEnabled,
             supportMode: state.supportMode,
+            attackEnabled: state.attackEnabled,
+            attackExcludeBarbarians: state.attackExcludeBarbarians,
+            attackExcludeFarm: state.attackExcludeFarm,
         }));
     }
 
@@ -234,10 +247,12 @@
         const merged = state.coordinatesEnabled ? new Map(state.coords) : new Map();
         if (state.bonusEnabled) for (const [key, item] of state.bonusCoords) merged.set(key, item);
         if (state.supportEnabled) for (const [key, item] of state.supportCoords) merged.set(key, item);
+        if (state.attackEnabled) for (const [key, item] of state.attackCoords) merged.set(key, item);
         return merged;
     }
 
     function markerColorFor(x, y) {
+        if (state.attackEnabled && state.attackCoords.has(`${x}|${y}`)) return "#d71920";
         if (state.supportEnabled && state.supportCoords.has(`${x}|${y}`)) return "#00a9d6";
         const bonus = state.bonusCoords.get(`${x}|${y}`);
         if (state.bonusEnabled && bonus) {
@@ -284,6 +299,68 @@
         }
         state.supportCoords = found;
         state.supportLastUpdate = Date.now();
+    }
+
+    async function loadVillageOwners() {
+        if (state.villageOwners) return state.villageOwners;
+        const response = await fetch(`${location.origin}/map/village.txt`, { credentials: "same-origin" });
+        if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
+        const owners = new Map();
+        (await response.text()).split("\n").forEach((line) => {
+            const fields = line.trim().split(",");
+            if (fields.length < 5) return;
+            owners.set(`${Number(fields[2])}|${Number(fields[3])}`, Number(fields[4]));
+        });
+        state.villageOwners = owners;
+        return owners;
+    }
+
+    function isFarmAssistantAttackRow(row) {
+        const signature = `${row.textContent || ""} ${row.innerHTML || ""}`.toLowerCase();
+        return /am_farm|farm_icon|\/farm\.png|command[_-]?farm|farm assistant|assistente de farm|assistente de saque|farmar/.test(signature);
+    }
+
+    async function loadAttackedVillages(force = false) {
+        if (!state.attackEnabled) {
+            state.attackCoords.clear();
+            return;
+        }
+        if (!force && state.attackCoords.size && Date.now() - state.attackLastUpdate < 60 * 1000) return;
+        const url = `${gd.link_base_pure || `${location.origin}/game.php?village=${gd.village?.id}&screen=`}overview_villages&mode=commands&type=attack&group=0&page=-1`;
+        const response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
+        const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+        const owners = state.attackExcludeBarbarians ? await loadVillageOwners() : null;
+        const rows = [...doc.querySelectorAll("#commands_outgoings tr, #commands_table tr, table.vis tr")];
+        const found = new Map();
+
+        for (const row of rows) {
+            if (!row.querySelector('a[href*="info_command"][href*="id="]') && !/command-row/.test(row.className || "")) continue;
+            const villageLinks = [...row.querySelectorAll('a[href*="info_village"]')];
+            let targetLink = null;
+            let match = null;
+            for (const link of villageLinks) {
+                const coord = (link.textContent || "").match(/(\d{1,3})\s*\|\s*(\d{1,3})/);
+                if (coord) { targetLink = link; match = coord; }
+            }
+            if (!match) {
+                const matches = [...(row.textContent || "").matchAll(/(\d{1,3})\s*\|\s*(\d{1,3})/g)];
+                match = matches[matches.length - 1] || null;
+            }
+            if (!match) continue;
+            const x = Number(match[1]);
+            const y = Number(match[2]);
+            const key = `${x}|${y}`;
+            const isBarbarian = owners ? owners.get(key) === 0 : false;
+            const isFarm = isFarmAssistantAttackRow(row);
+            if (state.attackExcludeBarbarians && isBarbarian) continue;
+            if (state.attackExcludeFarm && isFarm) continue;
+            const idMatch = String(targetLink?.href || "").match(/[?&]id=(\d+)/);
+            const previous = found.get(key);
+            found.set(key, { x, y, id: idMatch ? Number(idMatch[1]) : null, attack: true, isBarbarian, isFarm, count: (previous?.count || 0) + 1 });
+        }
+        state.attackCoords = found;
+        state.attackLastUpdate = Date.now();
     }
 
     async function loadBonusBarbarians() {
@@ -365,6 +442,11 @@
             #${APP.id}-supportMapToggle .tp-toggleSupport{display:grid!important;place-items:center!important;width:16px!important;height:16px!important;color:#9de8ff!important;font:bold 15px/16px Arial!important;text-shadow:0 1px 1px #000!important}
             #${APP.id}-supportMapToggle.tp-off{border-color:#493b2b!important;background:linear-gradient(#80766a,#514940)!important;filter:saturate(.2)}
             #${APP.id}-supportMapToggle.tp-off::after{content:"";position:absolute;left:3px;top:12px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
+            #${APP.id}-attackMapToggle{position:absolute!important;top:9px!important;right:146px!important;z-index:1200!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;padding:0 6px!important;display:flex!important;align-items:center!important;justify-content:center!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;cursor:pointer!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important}
+            #${APP.id}-attackMapToggle:hover{background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
+            #${APP.id}-attackMapToggle .tp-toggleAttack{display:grid!important;place-items:center!important;width:16px!important;height:16px!important;color:#fff!important;font:bold 16px/16px Arial!important;text-shadow:0 1px 1px #000!important}
+            #${APP.id}-attackMapToggle.tp-off{border-color:#493b2b!important;background:linear-gradient(#80766a,#514940)!important;filter:saturate(.2)}
+            #${APP.id}-attackMapToggle.tp-off::after{content:"";position:absolute;left:3px;top:12px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
             #${APP.id}-panel{position:fixed;inset:0;z-index:60040;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
             #${APP.id}-panel.tp-hidden{display:none}
             #${APP.id}-panel .tp-card{width:min(620px,96vw);max-height:92vh;overflow:auto;padding:8px;border:2px solid #473019;border-radius:6px;background:linear-gradient(#d9c99e,#95805b);color:#32190d;box-shadow:0 0 0 1px #d8c99b,0 0 0 4px #5c4429,0 0 0 6px #dacba4e6,inset 0 0 0 2px #fff4cfcf,0 6px 18px #0000008c;font:13px Verdana}
@@ -389,7 +471,7 @@
             .${APP.id}-section:first-child{border-top:0}.${APP.id}-section>div{min-width:0}
             .${APP.id}-section h3{margin:0 0 3px;color:#8f2b25;font-size:13px;line-height:16px;text-transform:uppercase}
             .${APP.id}-section p{margin:2px 0;color:#5e3b16;font-size:11px;line-height:14px}
-            .${APP.id}-coordsSection{border-left-color:#c72d2d}.${APP.id}-toolsSection{border-left-color:#8b48c8}.${APP.id}-bonusSection{border-left-color:#18874a}.${APP.id}-supportSection{border-left-color:#00a9d6}.${APP.id}-zonesSection{border-left-color:#1f9ac5}.${APP.id}-settingsSection{border-left-color:#e0a51d}.${APP.id}-actionsSection{border-left-color:#8a6424}
+            .${APP.id}-coordsSection{border-left-color:#c72d2d}.${APP.id}-toolsSection{border-left-color:#8b48c8}.${APP.id}-bonusSection{border-left-color:#18874a}.${APP.id}-supportSection{border-left-color:#00a9d6}.${APP.id}-attackSection{border-left-color:#d71920}.${APP.id}-zonesSection{border-left-color:#1f9ac5}.${APP.id}-settingsSection{border-left-color:#e0a51d}.${APP.id}-actionsSection{border-left-color:#8a6424}
             .${APP.id}-native textarea{width:100%;height:210px;resize:vertical;box-sizing:border-box;padding:8px;border:1px solid #804000;background:#fffdf6;font:13px Consolas,monospace}
             .${APP.id}-native .tp-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0}
             .${APP.id}-native .tp-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
@@ -549,6 +631,40 @@
         button.setAttribute("aria-pressed", String(state.supportEnabled));
     }
 
+    function createAttackMapToggle() {
+        document.getElementById(`${APP.id}-attackMapToggle`)?.remove();
+        const host = document.querySelector("#map_wrap") || document.querySelector("#map_container") || document.querySelector("#map")?.parentElement;
+        if (!host) return;
+        const button = document.createElement("button");
+        button.id = `${APP.id}-attackMapToggle`;
+        button.type = "button";
+        button.innerHTML = `<span class="tp-toggleAttack" aria-hidden="true">⚔</span>`;
+        button.addEventListener("click", async () => {
+            state.attackEnabled = !state.attackEnabled;
+            const checkbox = state.panel?.querySelector(".tp-attack-enabled");
+            if (checkbox) checkbox.checked = state.attackEnabled;
+            if (state.attackEnabled) {
+                try { await loadAttackedVillages(true); } catch (error) { notify(`Não foi possível carregar os ataques: ${error.message}`); }
+            }
+            save();
+            updateAttackMapToggle();
+            refreshMarkers(true);
+            notify(state.attackEnabled ? "Marcações de aldeias atacadas ativadas." : "Marcações de aldeias atacadas desativadas.");
+        });
+        host.appendChild(button);
+        state.attackMapToggle = button;
+        updateAttackMapToggle();
+    }
+
+    function updateAttackMapToggle() {
+        const button = state.attackMapToggle || document.getElementById(`${APP.id}-attackMapToggle`);
+        if (!button) return;
+        button.classList.toggle("tp-off", !state.attackEnabled);
+        button.title = state.attackEnabled ? "Desligar marcações de aldeias atacadas" : "Ligar marcações de aldeias atacadas";
+        button.setAttribute("aria-label", button.title);
+        button.setAttribute("aria-pressed", String(state.attackEnabled));
+    }
+
     function setupLauncherPosition() {
         const schedule = () => {
             cancelAnimationFrame(state.launcherPositionFrame);
@@ -593,6 +709,10 @@
                     <section class="${APP.id}-section ${APP.id}-supportSection">
                         <div><h3>Tropas em apoio</h3><p>Marca as aldeias onde tens tropas próprias estacionadas em apoio.</p></div>
                         <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Destinos a apresentar</span><div class="${APP.id}-toolLine"><select class="tp-support-mode"><option value="own" ${state.supportMode === "own" ? "selected" : ""}>Apenas minhas aldeias</option><option value="others" ${state.supportMode === "others" ? "selected" : ""}>Apenas aldeias de outros jogadores</option><option value="both" ${state.supportMode === "both" ? "selected" : ""}>Minhas e de outros jogadores</option></select><label><input class="tp-support-enabled" type="checkbox" ${state.supportEnabled ? "checked" : ""}> Marcação de apoios ativa</label><button class="tp-support-apply" type="button">Carregar apoios e marcar</button><strong class="tp-support-count">${state.supportCoords.size ? `${state.supportCoords.size} encontrada(s)` : ""}</strong></div></div>
+                    </section>
+                    <section class="${APP.id}-section ${APP.id}-attackSection">
+                        <div><h3>Aldeias atacadas</h3><p>Marca os destinos dos teus ataques em curso e apresenta as coordenadas no mapa.</p></div>
+                        <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Ataques a apresentar</span><div class="${APP.id}-toolLine"><label><input class="tp-attack-exclude-barb" type="checkbox" ${state.attackExcludeBarbarians ? "checked" : ""}> Excluir aldeias bárbaras</label><label><input class="tp-attack-exclude-farm" type="checkbox" ${state.attackExcludeFarm ? "checked" : ""}> Excluir Assistente de Farm</label><label><input class="tp-attack-enabled" type="checkbox" ${state.attackEnabled ? "checked" : ""}> Marcação de ataques ativa</label><button class="tp-attack-apply" type="button">Carregar ataques e marcar</button><strong class="tp-attack-count">${state.attackCoords.size ? `${state.attackCoords.size} encontrada(s)` : ""}</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
                         <div><h3>Zonas</h3><p>Uma caixa independente por zona, ordenada da mais próxima para a mais distante.</p></div>
@@ -720,6 +840,28 @@
                 button.textContent = "Carregar apoios e marcar";
             }
         });
+        panel.querySelector(".tp-attack-apply")?.addEventListener("click", async (event) => {
+            const button = event.currentTarget;
+            state.attackExcludeBarbarians = panel.querySelector(".tp-attack-exclude-barb").checked;
+            state.attackExcludeFarm = panel.querySelector(".tp-attack-exclude-farm").checked;
+            state.attackEnabled = panel.querySelector(".tp-attack-enabled").checked;
+            button.disabled = true;
+            button.textContent = "A carregar…";
+            try {
+                await loadAttackedVillages(true);
+                save();
+                updateAttackMapToggle();
+                refreshMarkers(true);
+                const count = panel.querySelector(".tp-attack-count");
+                if (count) count.textContent = `${state.attackCoords.size} encontrada(s)`;
+                notify(`${state.attackCoords.size} aldeia(s) atacada(s) marcada(s).`);
+            } catch (error) {
+                notify(`Não foi possível carregar os ataques: ${error.message}`);
+            } finally {
+                button.disabled = false;
+                button.textContent = "Carregar ataques e marcar";
+            }
+        });
         panel.querySelector(".tp-save").addEventListener("click", async () => {
             setCoordinates(textarea.value);
             state.color = panel.querySelector(".tp-color").value;
@@ -731,12 +873,17 @@
             state.bonusEnabled = panel.querySelector(".tp-bonus-enabled")?.checked === true;
             state.supportMode = panel.querySelector(".tp-support-mode")?.value || "both";
             state.supportEnabled = panel.querySelector(".tp-support-enabled")?.checked === true;
+            state.attackExcludeBarbarians = panel.querySelector(".tp-attack-exclude-barb")?.checked === true;
+            state.attackExcludeFarm = panel.querySelector(".tp-attack-exclude-farm")?.checked === true;
+            state.attackEnabled = panel.querySelector(".tp-attack-enabled")?.checked === true;
             try { await loadBonusBarbarians(); } catch (error) { notify(`Não foi possível analisar os bónus: ${error.message}`); }
             try { await loadSupportedVillages(true); } catch (error) { notify(`Não foi possível carregar os apoios: ${error.message}`); }
+            try { await loadAttackedVillages(true); } catch (error) { notify(`Não foi possível carregar os ataques: ${error.message}`); }
             save();
             updateMapToggle();
             updateBonusMapToggle();
             updateSupportMapToggle();
+            updateAttackMapToggle();
             refreshMarkers();
             closePanel();
             notify(`${state.coords.size} aldeia(s) guardada(s).`);
@@ -758,10 +905,12 @@
             createMapToggle();
             createBonusMapToggle();
             createSupportMapToggle();
+            createAttackMapToggle();
             observeMap();
             const loaders = [];
             if (state.bonusEnabled && state.bonusTypes.length) loaders.push(loadBonusBarbarians());
             if (state.supportEnabled) loaders.push(loadSupportedVillages());
+            if (state.attackEnabled) loaders.push(loadAttackedVillages());
             Promise.allSettled(loaders).then(() => refreshMarkers(true));
             return;
         }
@@ -837,11 +986,12 @@
             marker.className = `${APP.id}-mapPin`;
             const bonus = state.bonusCoords.get(`${x}|${y}`);
             const support = state.supportCoords.get(`${x}|${y}`);
-            marker.title = support ? `${x}|${y} — tropas em apoio (${support.isOwn ? "aldeia própria" : "outro jogador"})` : bonus ? `${x}|${y} — ${bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`}` : `${x}|${y}`;
+            const attack = state.attackCoords.get(`${x}|${y}`);
+            marker.title = attack ? `${x}|${y} — ${attack.count} ataque(s) em curso${attack.isBarbarian ? " — aldeia bárbara" : ""}${attack.isFarm ? " — Assistente de Farm" : ""}` : support ? `${x}|${y} — tropas em apoio (${support.isOwn ? "aldeia própria" : "outro jogador"})` : bonus ? `${x}|${y} — ${bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`}` : `${x}|${y}`;
             marker.style.setProperty("--tp-marker-color", markerColorFor(x, y));
             marker.style.left = `${left}px`;
             marker.style.top = `${top}px`;
-            marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels ? `<b class="${APP.id}-pinLabel">${x}|${y}</b>` : ""}`;
+            marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels || attack ? `<b class="${APP.id}-pinLabel">${x}|${y}</b>` : ""}`;
             image.parentElement.appendChild(marker);
         }
     }
