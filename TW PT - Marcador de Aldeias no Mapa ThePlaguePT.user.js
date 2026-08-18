@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.2.1
+// @version      2.2.3
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "2.2.1",
+        version: "2.2.3",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -456,41 +456,46 @@
             #popup_box_${APP.id}Dialog .popup_box_content{padding:8px!important;background:#d9c99e!important}
             .${APP.id}-native{box-sizing:border-box;width:100%;max-width:100%;padding:0;color:#3b2508;font:12px Arial,Verdana,sans-serif}
             .${APP.id}-frame{display:flex;flex-direction:column;max-height:calc(100vh - 62px);overflow:hidden;border:2px solid #7e211c;border-radius:4px;background:#f4e4b8}
-            .${APP.id}-head{padding:9px 14px 8px;border-bottom:1px solid #c98c48;background:linear-gradient(#f7e8c1,#edd49a)}
+            .${APP.id}-head{padding:6px 12px;border-bottom:1px solid #c98c48;background:linear-gradient(#f7e8c1,#edd49a)}
             .${APP.id}-head strong{display:block;color:#8f2b25;font-size:16px;line-height:20px}
             .${APP.id}-head span{color:#5b350f;font-size:11px}
-            .${APP.id}-content{overflow:auto;padding:6px 12px}
-            .${APP.id}-section{display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);gap:8px 18px;padding:8px 0 9px 12px;border-top:1px solid #d5b579;border-left:4px solid #9b6a2f}
+            .${APP.id}-content{overflow:auto;padding:3px 9px}
+            .${APP.id}-section{display:grid;grid-template-columns:minmax(185px,235px) minmax(0,1fr);gap:5px 12px;padding:5px 0 6px 9px;border-top:1px solid #d5b579;border-left:4px solid #9b6a2f}
             .${APP.id}-section:first-child{border-top:0}.${APP.id}-section>div{min-width:0}
-            .${APP.id}-section h3{margin:0 0 3px;color:#8f2b25;font-size:13px;line-height:16px;text-transform:uppercase}
-            .${APP.id}-section p{margin:2px 0;color:#5e3b16;font-size:11px;line-height:14px}
+            .${APP.id}-section h3{margin:0 0 2px;color:#8f2b25;font-size:12px;line-height:14px;text-transform:uppercase}
+            .${APP.id}-section p{margin:1px 0;color:#5e3b16;font-size:10px;line-height:12px}
             .${APP.id}-coordsSection{border-left-color:#c72d2d}.${APP.id}-toolsSection{border-left-color:#8b48c8}.${APP.id}-bonusSection{border-left-color:#18874a}.${APP.id}-supportSection{border-left-color:#00a9d6}.${APP.id}-attackSection{border-left-color:#d71920}.${APP.id}-zonesSection{border-left-color:#1f9ac5}.${APP.id}-settingsSection{border-left-color:#e0a51d}.${APP.id}-actionsSection{border-left-color:#8a6424}
-            .${APP.id}-native textarea{width:100%;height:210px;resize:vertical;box-sizing:border-box;padding:8px;border:1px solid #804000;background:#fffdf6;font:13px Consolas,monospace}
+            .${APP.id}-native textarea{width:100%;height:140px;resize:vertical;box-sizing:border-box;padding:5px;border:1px solid #804000;background:#fffdf6;font:12px Consolas,monospace}
             .${APP.id}-native .tp-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0}
             .${APP.id}-native .tp-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
             .${APP.id}-native button.tp-action{border:1px solid #653417;border-radius:3px;padding:6px 12px;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer;text-shadow:1px 1px #000}
             .${APP.id}-native button.tp-secondary{background:linear-gradient(#fff6dd,#dfc99d);color:#43230f;text-shadow:none}
             .${APP.id}-native .tp-help{margin-bottom:5px;color:#67472f;font-size:11px;line-height:1.5}
-            .${APP.id}-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
-            .${APP.id}-tool{border:1px solid #9a744b;background:#ead9b3;padding:7px}
-            .${APP.id}-toolTitle{display:block;margin-bottom:6px;color:#4b2411;font:bold 12px Verdana}
-            .${APP.id}-toolLine{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-            .${APP.id}-enableRow{display:flex;align-items:center;margin:-7px -7px 9px;padding:7px 9px;border-bottom:1px solid #b58a52;background:#ddc48c}
+            .${APP.id}-tools{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:3px 0}
+            .${APP.id}-tool{border:1px solid #9a744b;background:#ead9b3;padding:5px}
+            .${APP.id}-toolTitle{display:block;margin-bottom:4px;color:#4b2411;font:bold 11px Verdana}
+            .${APP.id}-toolLine{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+            .${APP.id}-enableRow{display:flex;align-items:center;margin:-5px -5px 5px;padding:5px 7px;border-bottom:1px solid #b58a52;background:#ddc48c}
             .${APP.id}-enableLabel{display:flex;align-items:center;gap:7px;color:#742019;font:bold 12px Verdana}
             .${APP.id}-enableLabel input{width:15px;height:15px;margin:0;accent-color:#a82822}
-            .${APP.id}-optionsRow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:7px 0;color:#4b3218}
+            .${APP.id}-optionsRow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0;color:#4b3218}
             .${APP.id}-tool input[type="number"],.${APP.id}-tool select{height:25px;border:1px solid #80522d;background:#fffaf0}
             .${APP.id}-tool input[type="number"]{width:58px}
             .${APP.id}-tool button{height:26px;border:1px solid #603419;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer}
             .${APP.id}-bonusTool{grid-column:1/-1;background:#efe0ba}
-            .${APP.id}-bonusOptions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 10px;margin:6px 0}
+            .${APP.id}-bonusOptions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px 8px;margin:3px 0}
             .${APP.id}-bonusOption{display:flex;align-items:flex-start;gap:5px;min-width:0;color:#3b2508;font-size:11px}
             .${APP.id}-bonusOption span{overflow-wrap:anywhere}.${APP.id}-bonusEmpty{color:#75583b;font-style:italic}
             .${APP.id}-zonesSection{display:none}.${APP.id}-zonesSection.tp-visible{display:grid}
-            .${APP.id}-zonesOutput{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;max-height:270px;overflow:auto}
+            .${APP.id}-zonesOutput{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;max-height:165px;overflow:auto}
             .${APP.id}-zoneCard{min-width:0;border:2px solid var(--tp-zone-color);background:#f8eac4}
             .${APP.id}-zoneHead{display:flex;justify-content:space-between;padding:4px 7px;background:var(--tp-zone-color);color:#fff;text-shadow:1px 1px #000}
-            .${APP.id}-zoneCard textarea{display:block;width:100%;height:68px!important;margin:0;border:0!important;background:#fff8e7!important;font:12px Consolas,monospace!important}
+            .${APP.id}-zoneCard textarea{display:block;width:100%;height:48px!important;margin:0;border:0!important;background:#fff8e7!important;font:11px Consolas,monospace!important}
+            .${APP.id}-supportSection .${APP.id}-tool,.${APP.id}-attackSection .${APP.id}-tool{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+            .${APP.id}-supportSection .${APP.id}-enableRow,.${APP.id}-attackSection .${APP.id}-enableRow{grid-column:1/-1;margin-bottom:1px}
+            .${APP.id}-supportSection .${APP.id}-toolTitle,.${APP.id}-attackSection .${APP.id}-toolTitle{margin:0}
+            .${APP.id}-supportSection .${APP.id}-optionsRow,.${APP.id}-attackSection .${APP.id}-optionsRow{margin:0}
+            .${APP.id}-supportSection .${APP.id}-toolLine,.${APP.id}-attackSection .${APP.id}-toolLine{justify-self:end}
             @media(max-width:850px){.${APP.id}-section{grid-template-columns:1fr}.${APP.id}-zonesOutput{grid-template-columns:1fr}}
             .${APP.id}-marked{overflow:visible!important;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 4px var(--tp-marker-color))!important;outline:3px solid var(--tp-marker-color)!important;outline-offset:1px!important;border-radius:50%!important;z-index:20!important}
             .${APP.id}-badge{position:absolute;z-index:1000;pointer-events:none;transform:translate(-50%,-115%);padding:1px 3px;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:0 1px #000;font:bold 9px Arial;white-space:nowrap;box-shadow:0 1px 2px #0008}
@@ -690,7 +695,7 @@
                 <div class="${APP.id}-content">
                     <section class="${APP.id}-section ${APP.id}-coordsSection">
                         <div><h3>Coordenadas</h3><p>Cola coordenadas em qualquer texto. Repetidas são removidas automaticamente.</p></div>
-                        <div><textarea class="${APP.id}-coordsInput" spellcheck="false" placeholder="500|500\n501|502\n498|507">${escapeHtml(coordinates)}</textarea></div>
+                        <div><div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-enabled" type="checkbox" ${state.coordinatesEnabled ? "checked" : ""}> Ativar marcação da lista de coordenadas</label></div><div class="${APP.id}-optionsRow"><label>Cor base <input class="tp-color" type="color" value="${state.color}"></label><label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label><strong class="tp-count">${state.coords.size} aldeia(s)</strong></div></div><textarea class="${APP.id}-coordsInput" spellcheck="false" placeholder="500|500\n501|502\n498|507">${escapeHtml(coordinates)}</textarea></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-toolsSection">
                         <div><h3>Filtros e zonas</h3><p>Reduz a lista por distância e cria grupos geográficos limitados.</p></div>
@@ -699,9 +704,9 @@
                             <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Zonas geográficas</span><div class="${APP.id}-toolLine"><span>Máximo</span><select class="tp-zone-size"><option value="25" ${state.zoneSize === 25 ? "selected" : ""}>25 aldeias</option><option value="50" ${state.zoneSize === 50 ? "selected" : ""}>50 aldeias</option></select><button class="tp-zones" type="button">Criar zonas</button></div></div>
                         </div>
                     </section>
-                    <section class="${APP.id}-section ${APP.id}-bonusSection">
-                        <div><h3>Bárbaras bónus</h3><p>Analisa automaticamente as aldeias bárbaras e marca apenas os tipos de bónus selecionados.</p></div>
-                        <div class="${APP.id}-tool ${APP.id}-bonusTool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-bonus-enabled" type="checkbox" ${state.bonusEnabled ? "checked" : ""}> Ativar marcação de bárbaras bónus</label></div><span class="${APP.id}-toolTitle">Tipos de aldeia bónus</span><div class="${APP.id}-bonusOptions">${bonusOptionsHtml()}</div><div class="${APP.id}-toolLine"><button class="tp-bonus-apply" type="button">Analisar mapa e marcar</button><strong class="tp-bonus-count">${state.bonusCoords.size ? `${state.bonusCoords.size} encontrada(s)` : ""}</strong></div></div>
+                    <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
+                        <div><h3>Zonas</h3><p>Uma caixa independente por zona, ordenada da mais próxima para a mais distante.</p></div>
+                        <div class="${APP.id}-zonesOutput">${zonesCardsHtml(state.zones)}</div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-supportSection">
                         <div><h3>Tropas em apoio</h3><p>Marca as aldeias onde tens tropas próprias estacionadas em apoio.</p></div>
@@ -711,13 +716,9 @@
                         <div><h3>Aldeias atacadas</h3><p>Marca os destinos dos teus ataques em curso e apresenta as coordenadas no mapa.</p></div>
                         <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-attack-enabled" type="checkbox" ${state.attackEnabled ? "checked" : ""}> Ativar marcação de aldeias atacadas</label></div><span class="${APP.id}-toolTitle">Filtros dos ataques</span><div class="${APP.id}-optionsRow"><label><input class="tp-attack-exclude-barb" type="checkbox" ${state.attackExcludeBarbarians ? "checked" : ""}> Excluir aldeias bárbaras</label><label><input class="tp-attack-exclude-farm" type="checkbox" ${state.attackExcludeFarm ? "checked" : ""}> Excluir Assistente de Farm</label></div><div class="${APP.id}-toolLine"><button class="tp-attack-apply" type="button">Carregar ataques e marcar</button><strong class="tp-attack-count">${state.attackCoords.size ? `${state.attackCoords.size} encontrada(s)` : ""}</strong></div></div>
                     </section>
-                    <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
-                        <div><h3>Zonas</h3><p>Uma caixa independente por zona, ordenada da mais próxima para a mais distante.</p></div>
-                        <div class="${APP.id}-zonesOutput">${zonesCardsHtml(state.zones)}</div>
-                    </section>
-                    <section class="${APP.id}-section ${APP.id}-settingsSection">
-                        <div><h3>Configurações</h3><p>Define a apresentação das marcações no mapa.</p></div>
-                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-enabled" type="checkbox" ${state.coordinatesEnabled ? "checked" : ""}> Ativar marcação da lista de coordenadas</label></div><div class="${APP.id}-optionsRow"><label>Cor base <input class="tp-color" type="color" value="${state.color}"></label><label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label><strong class="tp-count">${state.coords.size} aldeia(s)</strong></div></div>
+                    <section class="${APP.id}-section ${APP.id}-bonusSection">
+                        <div><h3>Bárbaras bónus</h3><p>Analisa automaticamente as aldeias bárbaras e marca apenas os tipos de bónus selecionados.</p></div>
+                        <div class="${APP.id}-tool ${APP.id}-bonusTool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-bonus-enabled" type="checkbox" ${state.bonusEnabled ? "checked" : ""}> Ativar marcação de bárbaras bónus</label></div><span class="${APP.id}-toolTitle">Tipos de aldeia bónus</span><div class="${APP.id}-bonusOptions">${bonusOptionsHtml()}</div><div class="${APP.id}-toolLine"><button class="tp-bonus-apply" type="button">Analisar mapa e marcar</button><strong class="tp-bonus-count">${state.bonusCoords.size ? `${state.bonusCoords.size} encontrada(s)` : ""}</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-actionsSection">
                         <div><h3>Ações</h3><p>Guarda as opções e atualiza as marcações.</p></div>
