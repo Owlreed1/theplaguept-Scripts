@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.31
+// @version      1.3.33
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.31 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.33 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -3997,9 +3997,9 @@
 #tp-theplaguept-script-bar {
     position: fixed !important;
     top: 8px !important;
-    left: 258px !important;
+    left: 414px !important;
     z-index: 2147483647 !important;
-    width: 510px !important;
+    width: 350px !important;
     height: 34px !important;
     display: flex !important;
     align-items: center !important;
@@ -4083,6 +4083,33 @@
 #tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button { order: 60 !important; }
 #tp-theplaguept-script-bar #tpResumo24h-launcher { order: 70 !important; }
 #tp-theplaguept-script-bar #tpconq-launcher { order: 80 !important; }
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]::after {
+    content: attr(data-tp-title) !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 33px !important;
+    transform: translateX(-50%) !important;
+    display: none !important;
+    white-space: nowrap !important;
+    max-width: 360px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    padding: 4px 8px !important;
+    border: 1px solid #4f120f !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #f6dfaa, #d2a05a) !important;
+    color: #2b1509 !important;
+    font: bold 11px Verdana, Arial, sans-serif !important;
+    text-shadow: 0 1px #fff !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,.55) !important;
+    pointer-events: none !important;
+    z-index: 2147483647 !important;
+}
+
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:hover::after,
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:focus-within::after {
+    display: block !important;
+}
 `;
             (uiDoc.head || uiDoc.documentElement).appendChild(style);
         }
@@ -4103,7 +4130,15 @@
         if (!bar || !element) return;
 
         element.classList.add('tp-theplaguept-script-bar-item');
-        const orders = {
+        const tooltipButton = element.querySelector && element.querySelector('button[title],button[aria-label]');
+        const tooltipSource =
+            element.getAttribute('title') ||
+            element.getAttribute('aria-label') ||
+            (tooltipButton ? tooltipButton.getAttribute('title') || tooltipButton.getAttribute('aria-label') : '') ||
+            '';
+        if (tooltipSource) {
+            element.dataset.tpTitle = tooltipSource;
+        }        const orders = {
             'twHubTp-launcher': 10,
             'tw-discord-alerts-ui': 20,
             tpDefLauncher: 30,

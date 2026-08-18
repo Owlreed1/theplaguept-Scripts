@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.136
+// @version      0.1.140
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.136',
+        version: '0.1.139',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -1532,7 +1532,7 @@
 
                 #tpdefWallResistance .tpdef-defense-title {
                     padding: 2px 5px;
-                    min-height: 17px;
+                    min-height: 16px;
                     border-bottom: 1px solid #804000 !important;
                     background: linear-gradient(to bottom, #d7bd74 0%, #b98b3a 100%) !important;
                     color: #000 !important;
@@ -1541,7 +1541,7 @@
                 }
 
                 #tpdefWallResistance .tpdef-defense-body {
-                    padding: 4px 6px;
+                    padding: 2px 4px;
                     background: #f7e6bb !important;
                 }
 
@@ -1551,7 +1551,21 @@
                 }
 
                 #tpdefWallResistance .tpdef-defense-table td {
-                    padding: 2px 4px;
+                    padding: 1px 3px;
+                }
+
+                #tpdefWallResistance .tpdef-defense-icon {
+                    width: 24px;
+                }
+
+                #tpdefWallResistance .tpdef-defense-icon img {
+                    max-width: 17px;
+                    max-height: 17px;
+                }
+
+                #tpdefWallResistance .tpdef-defense-line {
+                    font-size: 13px;
+                    line-height: 13px;
                 }
 
                 #tpdefWallResistance .tpdef-defense-note,
@@ -1561,7 +1575,7 @@
                 }
 
                 .tpdef-wall-bar {
-                    height: 9px;
+                    height: 7px;
                     border: 1px solid #7b4f13;
                     background: #d7bd74;
                 }
@@ -1582,6 +1596,98 @@
                     font-size: 15px;
                 }
 
+                #tpdefWallResistance .tpdef-defense-summary {
+                    grid-template-columns: minmax(0, 1fr);
+                    gap: 2px;
+                }
+
+                #tpdefWallResistance .tpdef-defense-metrics {
+                    align-items: stretch;
+                    gap: 3px;
+                }
+
+                #tpdefWallResistance .tpdef-fulls-counters {
+                    flex: 0 1 230px;
+                    gap: 3px;
+                }
+
+                #tpdefWallResistance .tpdef-fulls-counters .tpdef-fulls-highlight {
+                    flex: 1 1 0;
+                    min-width: 0;
+                    min-height: 34px;
+                    padding: 1px 3px;
+                }
+
+                #tpdefWallResistance .tpdef-counter-label {
+                    font-size: 9.5px;
+                    line-height: 10px;
+                }
+
+                #tpdefWallResistance .tpdef-counter-value {
+                    font-size: 16px;
+                    line-height: 16px;
+                }
+
+                #tpdefWallResistance .tpdef-defense-shortage {
+                    flex: 1 1 260px;
+                    display: grid;
+                    grid-template-columns: minmax(0, 1fr);
+                    gap: 1px;
+                    padding: 1px 4px;
+                    font-size: 11px;
+                    line-height: 12px;
+                }
+
+                #tpdefWallResistance .tpdef-shortage-row {
+                    display: grid;
+                    grid-template-columns: max-content minmax(0, 1fr) max-content;
+                    gap: 3px 5px;
+                    align-items: center;
+                    min-width: 0;
+                }
+
+                #tpdefWallResistance .tpdef-defense-shortage-title {
+                    display: inline-flex;
+                    align-items: center;
+                    margin: 0;
+                    font-size: 10.5px;
+                    line-height: 12px;
+                    white-space: nowrap;
+                }
+
+                #tpdefWallResistance .tpdef-shortage-units {
+                    display: inline-flex;
+                    flex-wrap: nowrap;
+                    gap: 0 4px;
+                    min-width: 0;
+                    overflow: hidden;
+                }
+
+                #tpdefWallResistance .tpdef-shortage-unit,
+                #tpdefWallResistance .tpdef-shortage-wall {
+                    line-height: 12px;
+                }
+
+                #tpdefWallResistance .tpdef-shortage-wall {
+                    display: inline-flex;
+                    margin: 0;
+                    white-space: nowrap;
+                }
+
+                #tpdefWallResistance .tpdef-shortage-ideal {
+                    display: grid;
+                    grid-template-columns: max-content minmax(0, 1fr) max-content;
+                    gap: 3px 5px;
+                    align-items: center;
+                    margin-top: 1px;
+                    padding-top: 1px;
+                    line-height: 12px;
+                }
+
+                #tpdefWallResistance .tpdef-shortage-ideal-label {
+                    white-space: nowrap;
+                }
+
                 .tpdef-defense-subnote,
                 .tpdef-defense-extra,
                 .tpdef-calc-meta,
@@ -1592,8 +1698,19 @@
 
                 #tpdefWallResistance .tpdef-defense-actions {
                     width: 100%;
-                    grid-template-columns: repeat(2, minmax(0, 1fr));
-                    gap: 4px 6px;
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                    gap: 2px 4px;
+                }
+
+                #tpdefWallResistance .tpdef-defense-action {
+                    min-height: 18px;
+                    padding: 1px 4px !important;
+                    line-height: 15px !important;
+                }
+
+                #tpdefWallResistance .tpdef-defense-action img {
+                    width: 14px !important;
+                    height: 14px !important;
                 }
 
                 #tpdefWallResistance .tpdef-defense-action,
@@ -1624,6 +1741,17 @@
                 .tpdef-calc-sim-controls .btn:hover,
                 .tpdef-config-button:hover {
                     background: linear-gradient(to bottom, #9a6a36 0%, #6a3d1c 100%) !important;
+                }
+
+                #tpdefWallResistance .tpdef-defense-action {
+                    min-height: 18px;
+                    padding: 1px 4px !important;
+                    line-height: 15px !important;
+                }
+
+                #tpdefWallResistance .tpdef-defense-action img {
+                    width: 14px !important;
+                    height: 14px !important;
                 }
 
                 .tpdef-model-wrap,
@@ -1793,9 +1921,33 @@
                     font-style: normal;
                 }
 
+                @container (max-width: 560px) {
+                    #tpdefWallResistance .tpdef-defense-actions {
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                    }
+
+                    #tpdefWallResistance .tpdef-shortage-row,
+                    #tpdefWallResistance .tpdef-shortage-ideal {
+                        grid-template-columns: max-content minmax(0, 1fr);
+                    }
+
+                    #tpdefWallResistance .tpdef-shortage-wall {
+                        grid-column: 2;
+                    }
+                }
+
                 @container (max-width: 460px) {
                     #tpdefWallResistance .tpdef-defense-actions {
                         grid-template-columns: 1fr;
+                    }
+
+                    #tpdefWallResistance .tpdef-shortage-row,
+                    #tpdefWallResistance .tpdef-shortage-ideal {
+                        grid-template-columns: 1fr;
+                    }
+
+                    #tpdefWallResistance .tpdef-shortage-wall {
+                        grid-column: auto;
                     }
                 }
             </style>
@@ -1807,7 +1959,7 @@
         if (!doc.getElementById('tp-theplaguept-script-bar-style')) {
             const style = doc.createElement('style');
             style.id = 'tp-theplaguept-script-bar-style';
-            style.textContent = '#tp-theplaguept-script-bar{position:fixed!important;top:8px!important;left:258px!important;z-index:2147483647!important;width:510px!important;height:34px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:5px!important;padding:0 8px!important;box-sizing:border-box!important;pointer-events:none!important}#tp-theplaguept-script-bar>*{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;flex:0 0 30px!important;pointer-events:auto!important;overflow:visible!important}#tp-theplaguept-script-bar>button,#tp-theplaguept-script-bar>*>button{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;padding:0!important;flex:0 0 30px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:0!important;overflow:hidden!important}#tp-theplaguept-script-bar>button:hover,#tp-theplaguept-script-bar>button:focus-visible,#tp-theplaguept-script-bar>*>button:hover,#tp-theplaguept-script-bar>*>button:focus-visible,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible{width:30px!important;min-width:30px!important;max-width:30px!important;padding:0!important;gap:0!important}#tp-theplaguept-script-bar .tpdef-launcher-text,#tp-theplaguept-script-bar .tw-alerts-toggle-label,#tp-theplaguept-script-bar .ti-toggle-label,#tp-theplaguept-script-bar .ra-tp-config-button-label,#tp-theplaguept-script-bar [class$="-launcherLabel"],#tp-theplaguept-script-bar [class$="-launcher-text"]{display:none!important;max-width:0!important;opacity:0!important}#tp-theplaguept-script-bar #twHubTp-launcher{order:10!important}#tp-theplaguept-script-bar #tw-discord-alerts-ui{order:20!important}#tp-theplaguept-script-bar #tpDefLauncher{order:30!important}#tp-theplaguept-script-bar #tag-incomings-pt-panel{order:40!important}#tp-theplaguept-script-bar #tpMapMarker-launcher{order:50!important}#tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button{order:60!important}#tp-theplaguept-script-bar #tpResumo24h-launcher{order:70!important}#tp-theplaguept-script-bar #tpconq-launcher{order:80!important}';
+            style.textContent = '#tp-theplaguept-script-bar{position:fixed!important;top:8px!important;left:414px!important;z-index:2147483647!important;width:350px!important;height:34px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:5px!important;padding:0 8px!important;box-sizing:border-box!important;pointer-events:none!important}#tp-theplaguept-script-bar>*{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;flex:0 0 30px!important;pointer-events:auto!important;overflow:visible!important}#tp-theplaguept-script-bar>button,#tp-theplaguept-script-bar>*>button{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;padding:0!important;flex:0 0 30px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:0!important;overflow:visible!important}#tp-theplaguept-script-bar>button:hover,#tp-theplaguept-script-bar>button:focus-visible,#tp-theplaguept-script-bar>*>button:hover,#tp-theplaguept-script-bar>*>button:focus-visible,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible{width:30px!important;min-width:30px!important;max-width:30px!important;padding:0!important;gap:0!important}#tp-theplaguept-script-bar .tpdef-launcher-text,#tp-theplaguept-script-bar .tw-alerts-toggle-label,#tp-theplaguept-script-bar .ti-toggle-label,#tp-theplaguept-script-bar .ra-tp-config-button-label,#tp-theplaguept-script-bar [class$="-launcherLabel"],#tp-theplaguept-script-bar [class$="-launcher-text"]{display:none!important;max-width:0!important;opacity:0!important}#tp-theplaguept-script-bar #twHubTp-launcher{order:10!important}#tp-theplaguept-script-bar #tw-discord-alerts-ui{order:20!important}#tp-theplaguept-script-bar #tpDefLauncher{order:30!important}#tp-theplaguept-script-bar #tag-incomings-pt-panel{order:40!important}#tp-theplaguept-script-bar #tpMapMarker-launcher{order:50!important}#tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button{order:60!important}#tp-theplaguept-script-bar #tpResumo24h-launcher{order:70!important}#tp-theplaguept-script-bar #tpconq-launcher{order:80!important}#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]::after{content:attr(data-tp-title);position:absolute!important;left:50%!important;top:33px!important;transform:translateX(-50%)!important;display:none!important;white-space:nowrap!important;max-width:360px!important;overflow:hidden!important;text-overflow:ellipsis!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;pointer-events:none!important;z-index:2147483647!important}#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]:hover::after,#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]:focus-within::after{display:block!important}';
             (doc.head || doc.documentElement).appendChild(style);
         }
         let bar = doc.getElementById('tp-theplaguept-script-bar');
@@ -1824,7 +1976,15 @@
         const bar = ensureTpScriptBar(doc);
         if (!bar || !element) return;
         element.classList.add('tp-theplaguept-script-bar-item');
-        const orders = {'twHubTp-launcher':10,'tw-discord-alerts-ui':20,tpDefLauncher:30,'tag-incomings-pt-panel':40,'tpMapMarker-launcher':50,'renomear-ataques-cores-theplaguept-config-button':60,'tpResumo24h-launcher':70,'tpconq-launcher':80};
+        const tooltipButton = element.querySelector && element.querySelector('button[title],button[aria-label]');
+        const tooltipSource =
+            element.getAttribute('title') ||
+            element.getAttribute('aria-label') ||
+            (tooltipButton ? tooltipButton.getAttribute('title') || tooltipButton.getAttribute('aria-label') : '') ||
+            '';
+        if (tooltipSource) {
+            element.dataset.tpTitle = tooltipSource;
+        }        const orders = {'twHubTp-launcher':10,'tw-discord-alerts-ui':20,tpDefLauncher:30,'tag-incomings-pt-panel':40,'tpMapMarker-launcher':50,'renomear-ataques-cores-theplaguept-config-button':60,'tpResumo24h-launcher':70,'tpconq-launcher':80};
         const applyCompactButtonStyle = node => {
             if (!node || !node.style) return;
             node.style.setProperty('position', 'relative', 'important');
@@ -5968,10 +6128,12 @@
 
     function renderDefenseRequirementSuggestion(fulls, result) {
         return `
-            <span class="tpdef-defense-shortage-title">Necessário p/ ${formatFullTargetShort(fulls)}:</span>
-            <span class="tpdef-shortage-units">${renderDefenseRequirementUnits(result.troops)}</span>
-            <span class="tpdef-shortage-wall">
-                <img src="/graphic/buildings/wall.png" title="Muralha restante" alt="">Muralha restante ${result.endurance.finalWall}/20
+            <span class="tpdef-shortage-row">
+                <span class="tpdef-defense-shortage-title">Necessário p/ ${formatFullTargetShort(fulls)}:</span>
+                <span class="tpdef-shortage-units">${renderDefenseRequirementUnits(result.troops)}</span>
+                <span class="tpdef-shortage-wall">
+                    <img src="/graphic/buildings/wall.png" title="Muralha restante" alt="">Muralha ${result.endurance.finalWall}/20
+                </span>
             </span>
             ${renderIdealDefenseRequirementSuggestion(result.ideal)}
         `;
