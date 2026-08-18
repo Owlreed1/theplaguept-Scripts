@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.37
+// @version      1.0.38
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -2690,6 +2690,16 @@
             <div id="tag-incomings-pt-dialog">
                 <style>
                     ${cssDialogo}
+                    #popup_box_${dialogId},
+                    #popup_box_${dialogId} .popup_box_content {
+                        width: min(1280px, calc(100vw - 24px)) !important;
+                        max-width: calc(100vw - 24px) !important;
+                    }
+                    #popup_box_${dialogId} .popup_box_content {
+                        box-sizing: border-box !important;
+                        padding: 8px !important;
+                        overflow-x: hidden !important;
+                    }
                     #tag-incomings-pt-dialog {
                         position: static !important;
                         font: 12px Arial, Verdana, sans-serif !important;
@@ -2697,8 +2707,8 @@
                     #tag-incomings-pt-dialog .ti-config {
                         position: static !important;
                         display: block !important;
-                        width: min(980px, calc(100vw - 70px)) !important;
-                        max-width: none !important;
+                        width: 1260px !important;
+                        max-width: calc(100vw - 48px) !important;
                         max-height: calc(100vh - 90px) !important;
                         overflow: visible !important;
                         padding: 0 !important;
@@ -3029,7 +3039,7 @@
                     z-index: 4 !important;
                     display: none;
                     box-sizing: border-box !important;
-                    width: min(980px, calc(100vw - 54px));
+                    width: min(1260px, calc(100vw - 54px));
                     max-height: calc(100vh - 54px);
                     overflow: visible;
                     padding: 12px;
@@ -3296,7 +3306,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.37</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.38</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
