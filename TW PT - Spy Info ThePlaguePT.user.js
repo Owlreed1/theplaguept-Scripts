@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         TW PT - Spy Info ThePlaguePT
+// @name         Spy/Info - ThePlaguePT
 // @namespace    theplaguept.tw.spy-info
-// @version      1.0.19
+// @version      1.0.20
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,9 +41,9 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.17",
-        title: "Spy Info",
-        displayTitle: "TW PT - Spy Info ThePlaguePT",
+        version: "1.0.20",
+        title: "Spy/Info",
+        displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='9' width='2' height='5' fill='%23f6d28b'/%3E%3Crect x='6' y='5' width='2' height='9' fill='%23f6d28b'/%3E%3Crect x='10' y='2' width='2' height='12' fill='%23f6d28b'/%3E%3Cpath d='M1 14.5h14' stroke='%2340140d'/%3E%3C/svg%3E",
@@ -351,7 +351,7 @@
     function registerHubShortcut() {
         const item = {
             id: "informacao-jogador-tribo-theplaguept",
-            label: "Spy Info",
+            label: "Spy/Info",
             group: "Paineis",
             description: "Abre o resumo de pontos, aldeias, conquistas e OD de jogador ou tribo.",
             order: 35,
@@ -4676,9 +4676,9 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.17",
-        title: "Spy Info",
-        displayTitle: "TW PT - Spy Info ThePlaguePT",
+        version: "1.0.20",
+        title: "Spy/Info",
+        displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
         launcherIcon: "https://dspt.innogamescdn.com/asset/f441272cc5/graphic/welcome/player_points.webp",

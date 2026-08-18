@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.2.8
+// @version      2.2.9
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -22,8 +22,8 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        displayTitle: "TW PT - Marcador de Aldeias ThePlaguePT",
-        version: "2.2.6",
+        displayTitle: "Marcador - ThePlaguePT",
+        version: "2.2.9",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",

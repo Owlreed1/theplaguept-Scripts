@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.43
+// @version      1.0.44
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -19,6 +19,8 @@
     const STATE_KEY = "tag_incomings_pt_melhorado_state_v1";
     const ALERTA_NOBRE_KEY = "tag_incomings_pt_alerta_nobre_v1";
     const ALERTA_NOBRE_STATE_VERSION = 2;
+    const VERSAO_SCRIPT = "1.0.44";
+    const NOME_LANCADOR = "Etiquetador - TheplaguePT";
 
     const CONFIG_PADRAO = {
         ativo: true,
@@ -2866,9 +2868,14 @@
         const bar = ensureTpScriptBar(doc);
         if (!bar || !element) return;
         element.classList.add("tp-theplaguept-script-bar-item");
-        const tooltipButton = element.querySelector && element.querySelector('button[title],button[aria-label]');
+        const tooltipButtonPreferido = element.id === "tag-incomings-pt-panel"
+            ? element.querySelector(".ti-toggle")
+            : null;
+        const tooltipButton = tooltipButtonPreferido
+            || (element.querySelector && element.querySelector('button[title],button[aria-label]'));
         const tooltipSource =
             element.getAttribute('data-tp-tooltip') ||
+            (element.id === "tag-incomings-pt-panel" ? NOME_LANCADOR : '') ||
             element.getAttribute('title') ||
             element.getAttribute('aria-label') ||
             (tooltipButton ? tooltipButton.getAttribute('title') || tooltipButton.getAttribute('aria-label') : '') ||
@@ -2994,6 +3001,7 @@
         const painel = document.createElement("div");
         painel.id = "tag-incomings-pt-panel";
         painel.className = "";
+        painel.dataset.tpTooltip = NOME_LANCADOR;
         painel.innerHTML = `
             <style>
                 #tag-incomings-pt-panel {
@@ -3451,7 +3459,7 @@
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
                     <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
-                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v1.0.38</div>
+                    <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v${VERSAO_SCRIPT}</div>
                 </div>
                 <div class="ti-content">
                     <section class="ti-section" style="--ti-section-color:#c92f2f">
@@ -3585,12 +3593,12 @@
                     </section>
                 </div>
             </div>
-            <button class="ti-toggle" type="button" data-ti-action="toggle" title="TW PT - Etiquetador de Ataques ThePlaguePT" aria-label="TW PT - Etiquetador de Ataques ThePlaguePT" aria-expanded="${config.painelAberto ? "true" : "false"}">
+            <button class="ti-toggle" type="button" data-ti-action="toggle" title="${NOME_LANCADOR}" aria-label="${NOME_LANCADOR}" aria-expanded="${config.painelAberto ? "true" : "false"}">
                 <span class="ti-toggle-icon" aria-hidden="true">
                     <span class="ti-attack-symbol">&#9876;</span>
                     <span class="ti-counter-value" hidden></span>
                 </span>
-                <span class="ti-toggle-label">TW PT - Etiquetador de Ataques ThePlaguePT</span>
+                <span class="ti-toggle-label">${NOME_LANCADOR}</span>
             </button>
             <div class="ti-noble-alert" hidden role="alert" aria-live="assertive">
                 <span>
@@ -3612,7 +3620,8 @@
                 config.painelAberto = !config.painelAberto;
                 painel.classList.toggle("ti-open", config.painelAberto);
                 controlo.setAttribute("aria-expanded", config.painelAberto ? "true" : "false");
-                controlo.setAttribute("title", "TW PT - Etiquetador de Ataques ThePlaguePT");
+                controlo.setAttribute("title", NOME_LANCADOR);
+                controlo.setAttribute("aria-label", NOME_LANCADOR);
                 guardarConfig();
                 return;
             }
@@ -3622,7 +3631,8 @@
                 painel.classList.remove("ti-open");
                 const toggle = painel.querySelector('[data-ti-action="toggle"]');
                 toggle?.setAttribute("aria-expanded", "false");
-                toggle?.setAttribute("title", "TW PT - Etiquetador de Ataques ThePlaguePT");
+                toggle?.setAttribute("title", NOME_LANCADOR);
+                toggle?.setAttribute("aria-label", NOME_LANCADOR);
                 guardarConfig();
                 return;
             }
