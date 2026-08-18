@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.33
+// @version      1.3.34
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.33 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.34 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -4132,13 +4132,97 @@
         element.classList.add('tp-theplaguept-script-bar-item');
         const tooltipButton = element.querySelector && element.querySelector('button[title],button[aria-label]');
         const tooltipSource =
+            element.getAttribute('data-tp-tooltip') ||
             element.getAttribute('title') ||
             element.getAttribute('aria-label') ||
             (tooltipButton ? tooltipButton.getAttribute('title') || tooltipButton.getAttribute('aria-label') : '') ||
             '';
         if (tooltipSource) {
-            element.dataset.tpTitle = tooltipSource;
-        }        const orders = {
+            element.dataset.tpTooltip = tooltipSource;
+            element.setAttribute('aria-label', tooltipSource);
+            element.removeAttribute('title');
+
+            if (tooltipButton) {
+                tooltipButton.setAttribute('aria-label', tooltipSource);
+                tooltipButton.removeAttribute('title');
+            }
+        }
+
+        const getSharedTooltip = () => {
+            const tooltipDoc = element.ownerDocument || document;
+            let tooltip = tooltipDoc.getElementById('tp-theplaguept-script-bar-tooltip');
+
+            if (!tooltip) {
+                tooltip = tooltipDoc.createElement('div');
+                tooltip.id = 'tp-theplaguept-script-bar-tooltip';
+
+                const tooltipStyles = {
+                    position: 'fixed',
+                    display: 'none',
+                    'z-index': '2147483647',
+                    padding: '4px 8px',
+                    border: '1px solid #4f120f',
+                    'border-radius': '2px',
+                    background: 'linear-gradient(to bottom, #f6dfaa, #d2a05a)',
+                    color: '#2b1509',
+                    font: 'bold 11px Verdana, Arial, sans-serif',
+                    'text-shadow': '0 1px #fff',
+                    'box-shadow': '0 2px 6px rgba(0,0,0,.55)',
+                    'white-space': 'nowrap',
+                    'max-width': '360px',
+                    overflow: 'hidden',
+                    'text-overflow': 'ellipsis',
+                    'pointer-events': 'none'
+                };
+
+                Object.entries(tooltipStyles).forEach(([property, value]) => {
+                    tooltip.style.setProperty(property, value, 'important');
+                });
+
+                (tooltipDoc.body || tooltipDoc.documentElement).appendChild(tooltip);
+            }
+
+            return tooltip;
+        };
+        const hideSharedTooltip = () => {
+            const tooltipDoc = element.ownerDocument || document;
+            const tooltip = tooltipDoc.getElementById('tp-theplaguept-script-bar-tooltip');
+
+            if (tooltip) {
+                tooltip.style.setProperty('display', 'none', 'important');
+            }
+        };
+        const showSharedTooltip = () => {
+            const text = element.dataset.tpTooltip || '';
+            if (!text) return;
+
+            const tooltipDoc = element.ownerDocument || document;
+            const tooltipWin = tooltipDoc.defaultView || window;
+            const tooltip = getSharedTooltip();
+
+            tooltip.textContent = text;
+            tooltip.style.setProperty('display', 'block', 'important');
+
+            const rect = element.getBoundingClientRect();
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const viewportWidth = tooltipWin.innerWidth || tooltipDoc.documentElement.clientWidth || 1024;
+            const left = Math.max(6, Math.min(
+                rect.left + (rect.width / 2) - (tooltipRect.width / 2),
+                viewportWidth - tooltipRect.width - 6
+            ));
+
+            tooltip.style.setProperty('left', `${left}px`, 'important');
+            tooltip.style.setProperty('top', `${rect.bottom + 6}px`, 'important');
+        };
+
+        if (!element.dataset.tpTooltipReady) {
+            element.addEventListener('mouseenter', showSharedTooltip);
+            element.addEventListener('focusin', showSharedTooltip);
+            element.addEventListener('mouseleave', hideSharedTooltip);
+            element.addEventListener('focusout', hideSharedTooltip);
+            element.dataset.tpTooltipReady = '1';
+        }
+        const orders = {
             'twHubTp-launcher': 10,
             'tw-discord-alerts-ui': 20,
             tpDefLauncher: 30,
