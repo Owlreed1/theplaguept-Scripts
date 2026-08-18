@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.134
+// @version      0.1.135
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.134',
+        version: '0.1.135',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -1802,6 +1802,56 @@
         `);
     }
 
+    function ensureTpScriptBar(doc = document) {
+        if (!doc || !doc.body) return null;
+        if (!doc.getElementById('tp-theplaguept-script-bar-style')) {
+            const style = doc.createElement('style');
+            style.id = 'tp-theplaguept-script-bar-style';
+            style.textContent = '#tp-theplaguept-script-bar{position:fixed!important;top:6px!important;left:103px!important;z-index:2147483647!important;width:448px!important;height:38px!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:5px!important;padding:0 8px!important;box-sizing:border-box!important;pointer-events:none!important}#tp-theplaguept-script-bar>*{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;flex:0 0 30px!important;pointer-events:auto!important;overflow:visible!important}#tp-theplaguept-script-bar>button,#tp-theplaguept-script-bar>*>button{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;padding:0!important;flex:0 0 30px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:0!important;overflow:hidden!important}#tp-theplaguept-script-bar>button:hover,#tp-theplaguept-script-bar>button:focus-visible,#tp-theplaguept-script-bar>*>button:hover,#tp-theplaguept-script-bar>*>button:focus-visible,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible{width:30px!important;min-width:30px!important;max-width:30px!important;padding:0!important;gap:0!important}#tp-theplaguept-script-bar .tpdef-launcher-text,#tp-theplaguept-script-bar .tw-alerts-toggle-label,#tp-theplaguept-script-bar .ti-toggle-label,#tp-theplaguept-script-bar .ra-tp-config-button-label,#tp-theplaguept-script-bar [class$="-launcherLabel"],#tp-theplaguept-script-bar [class$="-launcher-text"]{display:none!important;max-width:0!important;opacity:0!important}#tp-theplaguept-script-bar #twHubTp-launcher{order:10!important}#tp-theplaguept-script-bar #tw-discord-alerts-ui{order:20!important}#tp-theplaguept-script-bar #tpDefLauncher{order:30!important}#tp-theplaguept-script-bar #tag-incomings-pt-panel{order:40!important}#tp-theplaguept-script-bar #tpMapMarker-launcher{order:50!important}#tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button{order:60!important}#tp-theplaguept-script-bar #tpResumo24h-launcher{order:70!important}#tp-theplaguept-script-bar #tpconq-launcher{order:80!important}';
+            (doc.head || doc.documentElement).appendChild(style);
+        }
+        let bar = doc.getElementById('tp-theplaguept-script-bar');
+        if (!bar) {
+            bar = doc.createElement('div');
+            bar.id = 'tp-theplaguept-script-bar';
+            bar.setAttribute('aria-label', 'Botoes ThePlaguePT');
+            (doc.body || doc.documentElement).appendChild(bar);
+        }
+        return bar;
+    }
+
+    function attachToTpScriptBar(element, doc = document) {
+        const bar = ensureTpScriptBar(doc);
+        if (!bar || !element) return;
+        element.classList.add('tp-theplaguept-script-bar-item');
+        const orders = {'twHubTp-launcher':10,'tw-discord-alerts-ui':20,tpDefLauncher:30,'tag-incomings-pt-panel':40,'tpMapMarker-launcher':50,'renomear-ataques-cores-theplaguept-config-button':60,'tpResumo24h-launcher':70,'tpconq-launcher':80};
+        const applyCompactButtonStyle = node => {
+            if (!node || !node.style) return;
+            node.style.setProperty('position', 'relative', 'important');
+            node.style.setProperty('top', 'auto', 'important');
+            node.style.setProperty('left', 'auto', 'important');
+            node.style.setProperty('right', 'auto', 'important');
+            node.style.setProperty('bottom', 'auto', 'important');
+            node.style.setProperty('transform', 'none', 'important');
+            node.style.setProperty('width', '30px', 'important');
+            node.style.setProperty('min-width', '30px', 'important');
+            node.style.setProperty('max-width', '30px', 'important');
+            node.style.setProperty('height', '28px', 'important');
+            node.style.setProperty('min-height', '28px', 'important');
+            node.style.setProperty('margin', '0', 'important');
+            node.style.setProperty('flex', '0 0 30px', 'important');
+        };
+        applyCompactButtonStyle(element);
+        if (orders[element.id]) element.style.setProperty('order', String(orders[element.id]), 'important');
+        Array.from(element.children || []).filter(child => child.matches && child.matches('button')).forEach(applyCompactButtonStyle);
+        element.querySelectorAll('.tpdef-launcher-text,.tw-alerts-toggle-label,.ti-toggle-label,.ra-tp-config-button-label,[class$="-launcherLabel"],[class$="-launcher-text"]').forEach(label => {
+            label.style.setProperty('display', 'none', 'important');
+            label.style.setProperty('max-width', '0', 'important');
+            label.style.setProperty('opacity', '0', 'important');
+        });
+        if (element.parentElement !== bar) bar.appendChild(element);
+    }
+
     function addLauncher() {
         if ($('#tpDefLauncher').length) return;
 
@@ -1812,6 +1862,7 @@
             </button>
         `);
         $('#tpDefLauncher').off('click.tpdef').on('click.tpdef', openSettings);
+        attachToTpScriptBar(document.getElementById('tpDefLauncher'));
 
         scheduleLauncherPosition();
         setTimeout(scheduleLauncherPosition, 250);
@@ -1836,6 +1887,7 @@
     function positionLauncher() {
         const button = document.getElementById('tpDefLauncher');
         if (!button) return;
+        if (button.closest('#tp-theplaguept-script-bar')) return;
 
         const gameLayout =
             document.querySelector('#main_layout td.maincell') ||
