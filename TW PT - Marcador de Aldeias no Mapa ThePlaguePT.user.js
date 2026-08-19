@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.2.11
+// @version      2.3.0
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "Marcador - ThePlaguePT",
-        version: "2.2.11",
+        version: "2.3.0",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -48,6 +48,9 @@
         supportMode: "both",
         supportCoords: new Map(),
         supportLastUpdate: 0,
+        supportTravelEnabled: false,
+        supportTravelCoords: new Map(),
+        supportTravelLastUpdate: 0,
         attackEnabled: false,
         attackExcludeBarbarians: false,
         attackExcludeFarm: false,
@@ -63,6 +66,7 @@
         mapToggle: null,
         bonusMapToggle: null,
         supportMapToggle: null,
+        supportTravelMapToggle: null,
         attackMapToggle: null,
         launcherPositionFrame: 0,
     };
@@ -87,6 +91,7 @@
             state.bonusTypes = Array.isArray(saved.bonusTypes) ? saved.bonusTypes.map(String) : [];
             state.bonusEnabled = saved.bonusEnabled === true;
             state.supportEnabled = saved.supportEnabled === true;
+            state.supportTravelEnabled = saved.supportTravelEnabled === true;
             state.supportMode = ["own", "others", "both"].includes(saved.supportMode) ? saved.supportMode : "both";
             state.attackEnabled = saved.attackEnabled === true;
             state.attackExcludeBarbarians = saved.attackExcludeBarbarians === true;
@@ -112,6 +117,7 @@
             bonusTypes: state.bonusTypes,
             bonusEnabled: state.bonusEnabled,
             supportEnabled: state.supportEnabled,
+            supportTravelEnabled: state.supportTravelEnabled,
             supportMode: state.supportMode,
             attackEnabled: state.attackEnabled,
             attackExcludeBarbarians: state.attackExcludeBarbarians,
@@ -248,12 +254,14 @@
         const merged = state.coordinatesEnabled ? new Map(state.coords) : new Map();
         if (state.bonusEnabled) for (const [key, item] of state.bonusCoords) merged.set(key, item);
         if (state.supportEnabled) for (const [key, item] of state.supportCoords) merged.set(key, item);
+        if (state.supportTravelEnabled) for (const [key, item] of state.supportTravelCoords) merged.set(key, item);
         if (state.attackEnabled) for (const [key, item] of state.attackCoords) merged.set(key, item);
         return merged;
     }
 
     function markerColorFor(x, y) {
         if (state.attackEnabled && state.attackCoords.has(`${x}|${y}`)) return "#d71920";
+        if (state.supportTravelEnabled && state.supportTravelCoords.has(`${x}|${y}`)) return "#f08a00";
         if (state.supportEnabled && state.supportCoords.has(`${x}|${y}`)) return "#00a9d6";
         const bonus = state.bonusCoords.get(`${x}|${y}`);
         if (state.bonusEnabled && bonus) {
@@ -300,6 +308,42 @@
         }
         state.supportCoords = found;
         state.supportLastUpdate = Date.now();
+    }
+
+    async function loadTravelingSupportVillages(force = false) {
+        if (!state.supportTravelEnabled) {
+            state.supportTravelCoords.clear();
+            return;
+        }
+        if (!force && state.supportTravelCoords.size && Date.now() - state.supportTravelLastUpdate < 60 * 1000) return;
+        const url = `${gd.link_base_pure || `${location.origin}/game.php?village=${gd.village?.id}&screen=`}overview_villages&mode=commands&type=support&group=0&page=-1`;
+        const response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
+        const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+        const own = await loadOwnVillages();
+        const ownKeys = new Set(own.map(({ x, y }) => `${x}|${y}`));
+        const rows = [...doc.querySelectorAll("#commands_table tr.row_a, #commands_table tr.row_ax, #commands_table tr.row_b, #commands_table tr.row_bx")];
+        const found = new Map();
+
+        for (const row of rows) {
+            const signature = `${row.className || ""} ${row.innerHTML || ""}`.toLowerCase();
+            if (/return_|return\.png|back\.png|command[_-]?return/.test(signature)) continue;
+            const targetLabel = row.querySelector(".quickedit-label");
+            const targetLink = targetLabel?.closest("a") || targetLabel?.querySelector('a[href*="info_village"]') || null;
+            const match = (targetLabel?.textContent || "").match(/(\d{1,3})\s*\|\s*(\d{1,3})/);
+            if (!match) continue;
+            const x = Number(match[1]);
+            const y = Number(match[2]);
+            const key = `${x}|${y}`;
+            const isOwn = ownKeys.has(key);
+            if (state.supportMode === "own" && !isOwn) continue;
+            if (state.supportMode === "others" && isOwn) continue;
+            const idMatch = String(targetLink?.href || "").match(/[?&]id=(\d+)/);
+            const previous = found.get(key);
+            found.set(key, { x, y, id: idMatch ? Number(idMatch[1]) : null, supportTravel: true, isOwn, count: (previous?.count || 0) + 1 });
+        }
+        state.supportTravelCoords = found;
+        state.supportTravelLastUpdate = Date.now();
     }
 
     async function loadVillageOwners() {
@@ -426,12 +470,14 @@
             #${APP.id}-mapToolbar button:hover{background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
             #${APP.id}-attackMapToggle{order:10!important}
             #${APP.id}-supportMapToggle{order:20!important}
+            #${APP.id}-supportTravelMapToggle{order:25!important}
             #${APP.id}-bonusMapToggle{order:30!important}
             #${APP.id}-mapToggle{order:40!important}
             #${APP.id}-mapToggle .tp-togglePin{display:block!important;width:16px!important;height:16px!important;flex:0 0 16px!important;border:0!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;filter:none!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
-            #${APP.id}-bonusMapToggle .tp-toggleBonus,#${APP.id}-supportMapToggle .tp-toggleSupport,#${APP.id}-attackMapToggle .tp-toggleAttack{display:grid!important;place-items:center!important;width:16px!important;height:16px!important;flex:0 0 16px!important;margin:0!important;text-shadow:0 1px 1px #000!important}
+            #${APP.id}-bonusMapToggle .tp-toggleBonus,#${APP.id}-supportMapToggle .tp-toggleSupport,#${APP.id}-supportTravelMapToggle .tp-toggleSupportTravel,#${APP.id}-attackMapToggle .tp-toggleAttack{display:grid!important;place-items:center!important;width:16px!important;height:16px!important;flex:0 0 16px!important;margin:0!important;text-shadow:0 1px 1px #000!important}
             #${APP.id}-bonusMapToggle .tp-toggleBonus{color:#f6d28b!important;font:bold 15px/16px Arial!important}
             #${APP.id}-supportMapToggle .tp-toggleSupport{color:#9de8ff!important;font:bold 15px/16px Arial!important}
+            #${APP.id}-supportTravelMapToggle .tp-toggleSupportTravel{color:#ffd080!important;font:bold 16px/16px Arial!important}
             #${APP.id}-attackMapToggle .tp-toggleAttack{color:#fff!important;font:bold 16px/16px Arial!important}
             #${APP.id}-mapToolbar button.tp-off{border-color:#493b2b!important;background:linear-gradient(#80766a,#514940)!important;filter:saturate(.2)}
             #${APP.id}-mapToolbar button.tp-off::after{content:"";position:absolute;left:2px;top:12px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
@@ -470,7 +516,7 @@
             .${APP.id}-tool{border:1px solid #9a744b;background:#ead9b3;padding:5px}
             .${APP.id}-toolTitle{display:block;margin-bottom:4px;color:#4b2411;font:bold 11px Verdana}
             .${APP.id}-toolLine{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
-            .${APP.id}-enableRow{display:flex;align-items:center;margin:-5px -5px 5px;padding:5px 7px;border-bottom:1px solid #b58a52;background:#ddc48c}
+            .${APP.id}-enableRow{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin:-5px -5px 5px;padding:5px 7px;border-bottom:1px solid #b58a52;background:#ddc48c}
             .${APP.id}-enableLabel{display:flex;align-items:center;gap:7px;color:#742019;font:bold 12px Verdana}
             .${APP.id}-enableLabel input{width:15px;height:15px;margin:0;accent-color:#a82822}
             .${APP.id}-optionsRow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0;color:#4b3218}
@@ -794,6 +840,40 @@
         button.setAttribute("aria-pressed", String(state.supportEnabled));
     }
 
+    function createSupportTravelMapToggle() {
+        document.getElementById(`${APP.id}-supportTravelMapToggle`)?.remove();
+        const toolbar = getMapToolbar();
+        if (!toolbar) return;
+        const button = document.createElement("button");
+        button.id = `${APP.id}-supportTravelMapToggle`;
+        button.type = "button";
+        button.innerHTML = `<span class="tp-toggleSupportTravel" aria-hidden="true">➜</span>`;
+        button.addEventListener("click", async () => {
+            state.supportTravelEnabled = !state.supportTravelEnabled;
+            const checkbox = state.panel?.querySelector(".tp-support-travel-enabled");
+            if (checkbox) checkbox.checked = state.supportTravelEnabled;
+            if (state.supportTravelEnabled) {
+                try { await loadTravelingSupportVillages(true); } catch (error) { notify(`Não foi possível carregar os apoios a caminho: ${error.message}`); }
+            }
+            save();
+            updateSupportTravelMapToggle();
+            refreshMarkers(true);
+            notify(state.supportTravelEnabled ? "Marcações de apoios a caminho ativadas." : "Marcações de apoios a caminho desativadas.");
+        });
+        toolbar.appendChild(button);
+        state.supportTravelMapToggle = button;
+        updateSupportTravelMapToggle();
+    }
+
+    function updateSupportTravelMapToggle() {
+        const button = state.supportTravelMapToggle || document.getElementById(`${APP.id}-supportTravelMapToggle`);
+        if (!button) return;
+        button.classList.toggle("tp-off", !state.supportTravelEnabled);
+        button.title = state.supportTravelEnabled ? "Desligar marcações de apoios a caminho" : "Ligar marcações de apoios a caminho";
+        button.setAttribute("aria-label", button.title);
+        button.setAttribute("aria-pressed", String(state.supportTravelEnabled));
+    }
+
     function createAttackMapToggle() {
         document.getElementById(`${APP.id}-attackMapToggle`)?.remove();
         const toolbar = getMapToolbar();
@@ -871,8 +951,8 @@
                         <div class="${APP.id}-zonesOutput">${zonesCardsHtml(state.zones)}</div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-supportSection">
-                        <div><h3>Tropas em apoio</h3><p>Marca as aldeias onde tens tropas próprias estacionadas em apoio.</p></div>
-                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-support-enabled" type="checkbox" ${state.supportEnabled ? "checked" : ""}> Ativar marcação de tropas em apoio</label></div><span class="${APP.id}-toolTitle">Destinos a apresentar</span><div class="${APP.id}-optionsRow"><select class="tp-support-mode"><option value="own" ${state.supportMode === "own" ? "selected" : ""}>Apenas minhas aldeias</option><option value="others" ${state.supportMode === "others" ? "selected" : ""}>Apenas aldeias de outros jogadores</option><option value="both" ${state.supportMode === "both" ? "selected" : ""}>Minhas e de outros jogadores</option></select></div><div class="${APP.id}-toolLine"><button class="tp-support-apply" type="button">Carregar apoios e marcar</button><strong class="tp-support-count">${state.supportCoords.size ? `${state.supportCoords.size} encontrada(s)` : ""}</strong></div></div>
+                        <div><h3>Tropas em apoio</h3><p>Marca separadamente os apoios estacionados e os que ainda estão a caminho.</p></div>
+                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-support-enabled" type="checkbox" ${state.supportEnabled ? "checked" : ""}> Estacionados</label><label class="${APP.id}-enableLabel"><input class="tp-support-travel-enabled" type="checkbox" ${state.supportTravelEnabled ? "checked" : ""}> A caminho</label></div><span class="${APP.id}-toolTitle">Destinos a apresentar</span><div class="${APP.id}-optionsRow"><select class="tp-support-mode"><option value="own" ${state.supportMode === "own" ? "selected" : ""}>Apenas minhas aldeias</option><option value="others" ${state.supportMode === "others" ? "selected" : ""}>Apenas aldeias de outros jogadores</option><option value="both" ${state.supportMode === "both" ? "selected" : ""}>Minhas e de outros jogadores</option></select></div><div class="${APP.id}-toolLine"><button class="tp-support-apply" type="button">Carregar apoios e marcar</button><strong class="tp-support-count">${state.supportCoords.size} estacionado(s)</strong><strong class="tp-support-travel-count">${state.supportTravelCoords.size} a caminho</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-attackSection">
                         <div><h3>Aldeias atacadas</h3><p>Marca os destinos dos teus ataques em curso e apresenta as coordenadas no mapa.</p></div>
@@ -983,16 +1063,20 @@
             const button = event.currentTarget;
             state.supportMode = panel.querySelector(".tp-support-mode").value;
             state.supportEnabled = panel.querySelector(".tp-support-enabled").checked;
+            state.supportTravelEnabled = panel.querySelector(".tp-support-travel-enabled").checked;
             button.disabled = true;
             button.textContent = "A carregar…";
             try {
-                await loadSupportedVillages(true);
+                await Promise.all([loadSupportedVillages(true), loadTravelingSupportVillages(true)]);
                 save();
                 updateSupportMapToggle();
+                updateSupportTravelMapToggle();
                 refreshMarkers(true);
                 const count = panel.querySelector(".tp-support-count");
-                if (count) count.textContent = `${state.supportCoords.size} encontrada(s)`;
-                notify(`${state.supportCoords.size} aldeia(s) com tropas em apoio marcada(s).`);
+                if (count) count.textContent = `${state.supportCoords.size} estacionado(s)`;
+                const travelCount = panel.querySelector(".tp-support-travel-count");
+                if (travelCount) travelCount.textContent = `${state.supportTravelCoords.size} a caminho`;
+                notify(`${state.supportCoords.size} apoio(s) estacionado(s) e ${state.supportTravelCoords.size} a caminho marcado(s).`);
             } catch (error) {
                 notify(`Não foi possível carregar os apoios: ${error.message}`);
             } finally {
@@ -1033,16 +1117,19 @@
             state.bonusEnabled = panel.querySelector(".tp-bonus-enabled")?.checked === true;
             state.supportMode = panel.querySelector(".tp-support-mode")?.value || "both";
             state.supportEnabled = panel.querySelector(".tp-support-enabled")?.checked === true;
+            state.supportTravelEnabled = panel.querySelector(".tp-support-travel-enabled")?.checked === true;
             state.attackExcludeBarbarians = panel.querySelector(".tp-attack-exclude-barb")?.checked === true;
             state.attackExcludeFarm = panel.querySelector(".tp-attack-exclude-farm")?.checked === true;
             state.attackEnabled = panel.querySelector(".tp-attack-enabled")?.checked === true;
             try { await loadBonusBarbarians(); } catch (error) { notify(`Não foi possível analisar os bónus: ${error.message}`); }
             try { await loadSupportedVillages(true); } catch (error) { notify(`Não foi possível carregar os apoios: ${error.message}`); }
+            try { await loadTravelingSupportVillages(true); } catch (error) { notify(`Não foi possível carregar os apoios a caminho: ${error.message}`); }
             try { await loadAttackedVillages(true); } catch (error) { notify(`Não foi possível carregar os ataques: ${error.message}`); }
             save();
             updateMapToggle();
             updateBonusMapToggle();
             updateSupportMapToggle();
+            updateSupportTravelMapToggle();
             updateAttackMapToggle();
             refreshMarkers();
             closePanel();
@@ -1065,11 +1152,13 @@
             createMapToggle();
             createBonusMapToggle();
             createSupportMapToggle();
+            createSupportTravelMapToggle();
             createAttackMapToggle();
             observeMap();
             const loaders = [];
             if (state.bonusEnabled && state.bonusTypes.length) loaders.push(loadBonusBarbarians());
             if (state.supportEnabled) loaders.push(loadSupportedVillages());
+            if (state.supportTravelEnabled) loaders.push(loadTravelingSupportVillages());
             if (state.attackEnabled) loaders.push(loadAttackedVillages());
             Promise.allSettled(loaders).then(() => refreshMarkers(true));
             return;
@@ -1146,12 +1235,18 @@
             marker.className = `${APP.id}-mapPin`;
             const bonus = state.bonusCoords.get(`${x}|${y}`);
             const support = state.supportCoords.get(`${x}|${y}`);
+            const supportTravel = state.supportTravelCoords.get(`${x}|${y}`);
             const attack = state.attackCoords.get(`${x}|${y}`);
-            marker.title = attack ? `${x}|${y} — ${attack.count} ataque(s) em curso${attack.isBarbarian ? " — aldeia bárbara" : ""}${attack.isFarm ? " — Assistente de Farm" : ""}` : support ? `${x}|${y} — tropas em apoio (${support.isOwn ? "aldeia própria" : "outro jogador"})` : bonus ? `${x}|${y} — ${bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`}` : `${x}|${y}`;
+            const details = [];
+            if (attack) details.push(`${attack.count} ataque(s) em curso${attack.isBarbarian ? " — aldeia bárbara" : ""}${attack.isFarm ? " — Assistente de Farm" : ""}`);
+            if (supportTravel) details.push(`${supportTravel.count} apoio(s) a caminho (${supportTravel.isOwn ? "aldeia própria" : "outro jogador"})`);
+            if (support) details.push(`tropas estacionadas em apoio (${support.isOwn ? "aldeia própria" : "outro jogador"})`);
+            if (bonus) details.push(bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`);
+            marker.title = details.length ? `${x}|${y} — ${details.join("; ")}` : `${x}|${y}`;
             marker.style.setProperty("--tp-marker-color", markerColorFor(x, y));
             marker.style.left = `${left}px`;
             marker.style.top = `${top}px`;
-            marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels || attack ? `<b class="${APP.id}-pinLabel">${x}|${y}</b>` : ""}`;
+            marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels || attack || supportTravel ? `<b class="${APP.id}-pinLabel">${x}|${y}</b>` : ""}`;
             image.parentElement.appendChild(marker);
         }
     }
