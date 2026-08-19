@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.3.0
+// @version      2.3.1
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "Marcador - ThePlaguePT",
-        version: "2.3.0",
+        version: "2.3.1",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -60,6 +60,8 @@
         observer: null,
         refreshTimer: 0,
         pendingMiniRefresh: false,
+        dragActive: false,
+        dragFrame: 0,
         panel: null,
         launcher: null,
         mapToolbar: null,
@@ -1182,13 +1184,62 @@
                 minimap.contains(mutation.target) &&
                 !mutation.target.classList?.contains(`${APP.id}-minimapOverlay`)
             );
-            if (hasGameChange) scheduleRefresh(Boolean(minimapChanged));
+            if (hasGameChange) {
+                if (state.dragActive) state.pendingMiniRefresh ||= Boolean(minimapChanged);
+                else scheduleRefresh(Boolean(minimapChanged));
+            }
         });
         state.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "style"] });
         window.addEventListener("resize", () => scheduleRefresh(true), { passive: true });
-        document.addEventListener("mouseup", () => scheduleRefresh(true), { passive: true });
+        document.addEventListener("pointerdown", startMarkerDrag, { passive: true, capture: true });
+        document.addEventListener("mousedown", startMarkerDrag, { passive: true, capture: true });
+        document.addEventListener("touchstart", startMarkerDrag, { passive: true, capture: true });
+        document.addEventListener("pointerup", finishMarkerDrag, { passive: true, capture: true });
+        document.addEventListener("pointercancel", finishMarkerDrag, { passive: true, capture: true });
+        document.addEventListener("mouseup", finishMarkerDrag, { passive: true, capture: true });
+        document.addEventListener("touchend", finishMarkerDrag, { passive: true, capture: true });
+        document.addEventListener("touchcancel", finishMarkerDrag, { passive: true, capture: true });
         document.addEventListener("keyup", (event) => {
             if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) scheduleRefresh(true);
+        });
+    }
+
+    function startMarkerDrag(event) {
+        const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
+        if (!target) return;
+        const mainMap = target.closest("#map,#map_wrap,#map_container");
+        const miniMap = target.closest("#minimap,#politicalmap,#pmap,#minimap_container,.minimap");
+        if (!mainMap && !miniMap) return;
+        if (target.closest(`#${APP.id}-mapToolbar`)) return;
+        state.dragActive = true;
+        cancelAnimationFrame(state.dragFrame);
+        const sync = () => {
+            if (!state.dragActive) return;
+            syncMainMarkerPositions();
+            state.dragFrame = requestAnimationFrame(sync);
+        };
+        state.dragFrame = requestAnimationFrame(sync);
+    }
+
+    function finishMarkerDrag() {
+        if (!state.dragActive) return;
+        state.dragActive = false;
+        cancelAnimationFrame(state.dragFrame);
+        state.dragFrame = 0;
+        state.pendingMiniRefresh = false;
+        requestAnimationFrame(() => refreshMarkers(true));
+    }
+
+    function syncMainMarkerPositions() {
+        document.querySelectorAll(`.${APP.id}-mapPin[data-village-id]`).forEach((marker) => {
+            const image = document.getElementById(`map_village_${marker.dataset.villageId}`);
+            const parent = marker.parentElement;
+            if (!image || !parent || !image.isConnected) return;
+            const imageRect = image.getBoundingClientRect();
+            const parentRect = parent.getBoundingClientRect();
+            if (!imageRect.width || !imageRect.height) return;
+            marker.style.left = `${imageRect.left - parentRect.left + imageRect.width / 2}px`;
+            marker.style.top = `${imageRect.top - parentRect.top + imageRect.height / 2}px`;
         });
     }
 
@@ -1233,6 +1284,7 @@
             const top = imageRect.top - parentRect.top + imageRect.height / 2;
             const marker = document.createElement("span");
             marker.className = `${APP.id}-mapPin`;
+            marker.dataset.villageId = String(villageId);
             const bonus = state.bonusCoords.get(`${x}|${y}`);
             const support = state.supportCoords.get(`${x}|${y}`);
             const supportTravel = state.supportTravelCoords.get(`${x}|${y}`);
