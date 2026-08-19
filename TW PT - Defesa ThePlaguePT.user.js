@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.143
+// @version      0.1.144
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.143',
+        version: '0.1.144',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -90,10 +90,13 @@
             key: '',
             loading: false,
             requestId: 0,
+            loadedAt: 0,
             commandCount: 0,
             readableCount: 0,
             unreadCount: 0,
-            troops: {}
+            troops: {},
+            own: null,
+            others: null
         },
         incomingCountsCache: {
             loadedAt: 0,
@@ -2967,13 +2970,339 @@
     }
 
     function collectMapPopupSupportInfo(popup, coords) {
+        const villageId = getMapPopupVillageId(popup);
         const ownRows = getMapPopupOwnSupportRows(popup);
         const ownCommands = buildReceivedSupportCommandsFromRows(ownRows);
+
+        if (villageId) {
+            return getMapPopupInfoVillageSupportData(villageId, coords, ownCommands);
+        }
 
         return {
             own: getMapPopupOwnSupportData(coords, ownCommands),
             others: getMapPopupOtherSupportData(popup, coords)
         };
+    }
+
+    function getMapPopupInfoVillageSupportData(villageId, coords, fallbackOwnCommands) {
+        const cache = state.mapPopupSupportCache;
+        const key = `info_village:${villageId}:${coords || ''}`;
+        const now = Date.now();
+
+        if (cache.key !== key) {
+            const fallbackOwn = buildImmediateSupportDataFromCommands(
+                fallbackOwnCommands,
+                true,
+                'A carregar pagina da aldeia...'
+            );
+
+            cache.key = key;
+            cache.loading = true;
+            cache.loadedAt = 0;
+            cache.requestId += 1;
+            cache.own = mergeSupportDataDefaults(fallbackOwn, {
+                available: true,
+                loading: true,
+                status: 'A carregar pagina da aldeia...'
+            });
+            cache.others = {
+                available: true,
+                loading: true,
+                count: 0,
+                readableCount: 0,
+                unreadCount: 0,
+                troops: {},
+                status: 'A carregar pagina da aldeia...'
+            };
+
+            fetchInfoVillageSupportData(villageId, coords, fallbackOwnCommands, cache.requestId);
+        } else if (cache.loading && now - cache.loadedAt > 30000) {
+            cache.loadedAt = now;
+            fetchInfoVillageSupportData(villageId, coords, fallbackOwnCommands, cache.requestId);
+        }
+
+        return {
+            own: cloneSupportData(cache.own),
+            others: cloneSupportData(cache.others)
+        };
+    }
+
+    function fetchInfoVillageSupportData(villageId, coords, fallbackOwnCommands, requestId) {
+        $.get(buildInfoVillageUrl(villageId))
+            .done(function (html) {
+                if (requestId !== state.mapPopupSupportCache.requestId) return;
+
+                const sources = parseInfoVillageSupportSources(html, fallbackOwnCommands);
+                resolveInfoVillageSupportSources(sources)
+                    .done(function (data) {
+                        if (requestId !== state.mapPopupSupportCache.requestId) return;
+
+                        state.mapPopupSupportCache.own = data.own;
+                        state.mapPopupSupportCache.others = data.others;
+                        state.mapPopupSupportCache.loading = false;
+                        state.mapPopupSupportCache.loadedAt = Date.now();
+                        scheduleMapPopupDefenseRender();
+                    });
+            })
+            .fail(function () {
+            if (requestId !== state.mapPopupSupportCache.requestId) return;
+
+                const fallbackOwn = buildImmediateSupportDataFromCommands(
+                    fallbackOwnCommands,
+                    false,
+                    'Nao foi possivel ler a pagina da aldeia.'
+                );
+                state.mapPopupSupportCache.own = mergeSupportDataDefaults(fallbackOwn, {
+                    status: 'Nao foi possivel ler a pagina da aldeia.'
+                });
+                state.mapPopupSupportCache.others = {
+                    available: false,
+                    loading: false,
+                    count: 0,
+                    readableCount: 0,
+                    unreadCount: 0,
+                    troops: {},
+                    status: 'Nao foi possivel ler a pagina da aldeia.'
+                };
+                state.mapPopupSupportCache.loading = false;
+                state.mapPopupSupportCache.loadedAt = Date.now();
+                scheduleMapPopupDefenseRender();
+            });
+    }
+
+    function buildInfoVillageUrl(villageId) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('screen', 'info_village');
+        url.searchParams.set('id', villageId);
+        url.searchParams.delete('mode');
+        url.searchParams.delete('action');
+        url.searchParams.delete('ajax');
+        return url.toString();
+    }
+
+    function buildImmediateSupportDataFromCommands(commands, loading, status) {
+        const totals = {};
+        let readableCount = 0;
+        let unreadCount = 0;
+
+        (commands || []).forEach(function (command) {
+            if (hasTroops(command.troops)) {
+                addTroops(totals, command.troops);
+                readableCount += 1;
+            } else {
+                unreadCount += 1;
+            }
+        });
+
+        return {
+            available: true,
+            loading: !!loading,
+            count: (commands || []).length,
+            readableCount,
+            unreadCount,
+            troops: totals,
+            status: status || ''
+        };
+    }
+
+    function parseInfoVillageSupportSources(html, fallbackOwnCommands) {
+        const root = $('<div>').append($.parseHTML(String(html || ''), document, true));
+        const own = {
+            troops: {},
+            commands: (fallbackOwnCommands || []).slice()
+        };
+        const others = {
+            troops: {},
+            commands: []
+        };
+
+        root.find('table').each(function () {
+            const table = $(this);
+            const context = getInfoVillageTableContext(table);
+            const supportRows = table.find('tr').filter(function () {
+                const row = $(this);
+                return isCommandLikeRow(row) && hasSupportCommandIcon(row) && !hasAttackCommandIcon(row);
+            });
+            const tableTroops = readStrictUnitTableAmountsFromRoot(table);
+            const shouldUseTableTroops = hasTroops(tableTroops) && !supportRows.length;
+
+            if (isOwnSupportInfoSection(context)) {
+                if (shouldUseTableTroops) addTroops(own.troops, tableTroops);
+                own.commands = own.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
+                return;
+            }
+
+            if (isOtherSupportInfoSection(context)) {
+                if (shouldUseTableTroops) addTroops(others.troops, tableTroops);
+                others.commands = others.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
+            }
+        });
+
+        own.commands = dedupeSupportCommands(own.commands);
+        others.commands = dedupeSupportCommands(others.commands);
+
+        return {own, others};
+    }
+
+    function getInfoVillageTableContext(table) {
+        const heading = [
+            table.find('caption').first().text(),
+            table.find('tr:first th, tr:first td').slice(0, 3).text(),
+            table.prevAll('h1,h2,h3,h4,.vis').slice(0, 2).text()
+        ].join(' ');
+
+        return clean(`${heading} ${table.text()}`);
+    }
+
+    function isOwnSupportInfoSection(text) {
+        return hasAnyWord(text, [
+            'os seus comandos',
+            'as suas tropas',
+            'suas tropas',
+            'seus apoios',
+            'meus apoios',
+            'your commands',
+            'your troops',
+            'own troops',
+            'eigene truppen',
+            'eigene befehle',
+            'vos troupes',
+            'mes troupes',
+            'tus tropas',
+            'mis tropas',
+            'twoje wojska'
+        ]);
+    }
+
+    function isOtherSupportInfoSection(text) {
+        return hasAnyWord(text, [
+            'outros apoios',
+            'apoios de outros',
+            'outros jogadores',
+            'tropas de apoio',
+            'apoios da tribo',
+            'da tribo',
+            'other support',
+            'other players',
+            'foreign support',
+            'tribe support',
+            'unterstutzung anderer',
+            'soutien des autres',
+            'apoyo de otros',
+            'wsparcie innych'
+        ]);
+    }
+
+    function dedupeSupportCommands(commands) {
+        const map = new Map();
+
+        (commands || []).forEach(function (command, index) {
+            const key = command.id || command.url || getTroopsSignature(command.troops) || `cmd_${index}`;
+            if (!map.has(key)) map.set(key, command);
+        });
+
+        return Array.from(map.values());
+    }
+
+    function resolveInfoVillageSupportSources(sources) {
+        const deferred = $.Deferred();
+
+        $.when(
+            resolveSupportSourceData(sources.own, true),
+            resolveSupportSourceData(sources.others, true)
+        ).done(function (own, others) {
+            deferred.resolve({own, others});
+        });
+
+        return deferred.promise();
+    }
+
+    function resolveSupportSourceData(source, available) {
+        const deferred = $.Deferred();
+        const commands = source && source.commands || [];
+        const totals = cloneTroops(source && source.troops || {});
+        let readableCount = hasTroops(totals) ? 1 : 0;
+        let unreadCount = 0;
+        let remaining = commands.length;
+
+        if (!remaining) {
+            deferred.resolve({
+                available,
+                loading: false,
+                count: 0,
+                readableCount,
+                unreadCount: hasTroops(totals) ? 0 : 0,
+                troops: totals,
+                status: hasTroops(totals) ? '' : 'Sem informação de tropas.'
+            });
+            return deferred.promise();
+        }
+
+        commands.forEach(function (command) {
+            if (hasTroops(command.troops)) {
+                addTroops(totals, command.troops);
+                readableCount += 1;
+                remaining -= 1;
+                if (!remaining) finish();
+                return;
+            }
+
+            if (!command.url) {
+                unreadCount += 1;
+                remaining -= 1;
+                if (!remaining) finish();
+                return;
+            }
+
+            fetchIncomingSupportCommandTroops(command.url)
+                .done(function (troops) {
+                    if (hasTroops(troops)) {
+                        addTroops(totals, troops);
+                        readableCount += 1;
+                    } else {
+                        unreadCount += 1;
+                    }
+                })
+                .fail(function () {
+                    unreadCount += 1;
+                })
+                .always(function () {
+                    remaining -= 1;
+                    if (!remaining) finish();
+                });
+        });
+
+        function finish() {
+            deferred.resolve({
+                available,
+                loading: false,
+                count: commands.length,
+                readableCount,
+                unreadCount,
+                troops: totals,
+                status: hasTroops(totals) ? '' : 'Sem informação de tropas.'
+            });
+        }
+
+        return deferred.promise();
+    }
+
+    function mergeSupportDataDefaults(data, defaults) {
+        return Object.assign({
+            available: true,
+            loading: false,
+            count: 0,
+            readableCount: 0,
+            unreadCount: 0,
+            troops: {},
+            status: ''
+        }, data || {}, defaults || {});
+    }
+
+    function cloneSupportData(data) {
+        const cloned = mergeSupportDataDefaults(data);
+        cloned.troops = cloneTroops(cloned.troops);
+        return cloned;
     }
 
     function getMapPopupOwnSupportRows(popup) {
