@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.142
+// @version      0.1.143
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.141',
+        version: '0.1.143',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -86,6 +86,15 @@
         mapOverlayTimer: null,
         mapPopupObserver: null,
         mapPopupRenderTimer: null,
+        mapPopupSupportCache: {
+            key: '',
+            loading: false,
+            requestId: 0,
+            commandCount: 0,
+            readableCount: 0,
+            unreadCount: 0,
+            troops: {}
+        },
         incomingCountsCache: {
             loadedAt: 0,
             loading: false,
@@ -1911,6 +1920,64 @@
                     line-height: 12px;
                 }
 
+                #tpdefMapDefenseInfo .tpdef-map-support-box {
+                    display: grid;
+                    grid-template-columns: max-content minmax(0, 1fr);
+                    gap: 2px 6px;
+                    align-items: center;
+                    min-width: 0;
+                    padding: 2px 0;
+                }
+
+                #tpdefMapDefenseInfo .tpdef-map-support-title {
+                    grid-column: 1 / -1;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    color: #3b2508;
+                    font-weight: bold;
+                    line-height: 14px;
+                }
+
+                #tpdefMapDefenseInfo .tpdef-map-support-title img,
+                #tpdefMapDefenseInfo .tpdef-map-support-label img,
+                #tpdefMapDefenseInfo .tpdef-map-support-units img {
+                    width: 15px;
+                    height: 15px;
+                    vertical-align: middle;
+                }
+
+                #tpdefMapDefenseInfo .tpdef-map-support-label {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 3px;
+                    color: #8b1f17;
+                    font-weight: bold;
+                    white-space: nowrap;
+                }
+
+                #tpdefMapDefenseInfo .tpdef-map-support-units {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 2px 5px;
+                    min-width: 0;
+                    color: #3b2508;
+                    font-weight: bold;
+                    line-height: 15px;
+                }
+
+                #tpdefMapDefenseInfo .tpdef-map-support-unit {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 2px;
+                    white-space: nowrap;
+                }
+
+                #tpdefMapDefenseInfo .tpdef-map-support-empty {
+                    color: #6f4b16;
+                    font-weight: normal;
+                }
+
                 #tpdefMapDefenseInfo .tpdef-map-defense-icon {
                     width: 30px;
                     padding-left: 2px !important;
@@ -2813,27 +2880,38 @@
         if (!popup.length || !popup.is(':visible')) return;
 
         const villageData = collectMapPopupVillageDefense(popup);
-        if (!villageData || !Object.keys(villageData.troops).length) return;
+        const coords = villageData && villageData.coords || getMapPopupCoords(popup);
+        const supportInfo = collectMapPopupSupportInfo(popup, coords);
+        const hasDefenseData = Boolean(villageData && Object.keys(villageData.troops).length);
+        const hasSupportInfo = hasMapPopupSupportInfo(supportInfo);
+        const existing = $('#tpdefMapDefenseInfo');
+
+        if (!hasDefenseData && !hasSupportInfo) {
+            existing.remove();
+            return;
+        }
 
         const attackModel = loadAttackModel();
-        const level = getDefenseAgainstAttackModel(
-            villageData.troops,
-            villageData.wall,
-            attackModel,
-            villageData.incomingInfo,
-            villageData.supportTroops,
-            villageData.supportData
-        );
+        const level = hasDefenseData
+            ? getDefenseAgainstAttackModel(
+                villageData.troops,
+                villageData.wall,
+                attackModel,
+                villageData.incomingInfo,
+                villageData.supportTroops,
+                villageData.supportData
+            )
+            : null;
         const signature = JSON.stringify({
-            coords: villageData.coords,
-            wall: villageData.wall,
-            troops: villageData.troops,
-            incoming: villageData.incomingInfo,
-            support: villageData.supportTroops,
+            coords,
+            wall: hasDefenseData ? villageData.wall : '',
+            troops: hasDefenseData ? villageData.troops : {},
+            incoming: hasDefenseData ? villageData.incomingInfo : {},
+            support: hasDefenseData ? villageData.supportTroops : {},
+            popupSupport: getMapPopupSupportSignature(supportInfo),
             attackModel,
             defenseModel: loadDefenseModel()
         });
-        const existing = $('#tpdefMapDefenseInfo');
 
         if (existing.attr('data-tpdef-signature') === signature) return;
 
@@ -2850,18 +2928,22 @@
                 </colgroup>
                 <tr>
                     <th colspan="2" class="tpdef-map-defense-title">
-                        Defesa da Aldeia -
-                        <span style="color:${level.color};">${escapeHtml(level.text)}!</span>
+                        ${hasDefenseData
+                            ? `Defesa da Aldeia - <span style="color:${level.color};">${escapeHtml(level.text)}!</span>`
+                            : 'Apoios da Aldeia'}
                     </th>
                 </tr>
-                <tr>
-                    <td class="tpdef-map-defense-icon">
-                        <img src="${escapeAttr(level.icon)}" title="${escapeAttr(level.note)}" alt="">
-                    </td>
-                    <td>
-                        ${renderDefenseSummary(level)}
-                    </td>
-                </tr>
+                ${hasDefenseData ? `
+                    <tr>
+                        <td class="tpdef-map-defense-icon">
+                            <img src="${escapeAttr(level.icon)}" title="${escapeAttr(level.note)}" alt="">
+                        </td>
+                        <td>
+                            ${renderDefenseSummary(level)}
+                        </td>
+                    </tr>
+                ` : ''}
+                ${hasSupportInfo ? renderMapPopupSupportRows(supportInfo) : ''}
             </table>
         `;
 
@@ -2882,6 +2964,244 @@
         if (!Object.keys(troops).length) return null;
 
         return {coords, troops, wall, incomingInfo, supportTroops, supportData};
+    }
+
+    function collectMapPopupSupportInfo(popup, coords) {
+        const ownRows = getMapPopupOwnSupportRows(popup);
+        const ownCommands = buildReceivedSupportCommandsFromRows(ownRows);
+
+        return {
+            own: getMapPopupOwnSupportData(coords, ownCommands),
+            others: getMapPopupOtherSupportData(popup, coords)
+        };
+    }
+
+    function getMapPopupOwnSupportRows(popup) {
+        return popup.find('tr')
+            .not('#tpdefMapDefenseInfo tr')
+            .filter(function () {
+                const row = $(this);
+                return isCommandLikeRow(row) && hasSupportCommandIcon(row) && !hasAttackCommandIcon(row);
+            });
+    }
+
+    function getMapPopupOwnSupportData(coords, commands) {
+        const cache = state.mapPopupSupportCache;
+        const key = [
+            coords || 'sem-coords',
+            (commands || []).map(function (command) {
+                return command.id || command.url || getTroopsSignature(command.troops);
+            }).join(',')
+        ].join('|');
+
+        if (cache.key !== key) {
+            const totals = {};
+            let readableCount = 0;
+            let unreadCount = 0;
+
+            (commands || []).forEach(function (command) {
+                if (hasTroops(command.troops)) {
+                    addTroops(totals, command.troops);
+                    readableCount += 1;
+                } else {
+                    unreadCount += 1;
+                }
+            });
+
+            cache.key = key;
+            cache.commandCount = (commands || []).length;
+            cache.readableCount = readableCount;
+            cache.unreadCount = unreadCount;
+            cache.troops = cloneTroops(totals);
+            cache.loading = unreadCount > 0;
+            cache.requestId += 1;
+
+            if (cache.loading) {
+                fetchMapPopupOwnSupportTroops(commands, cache.requestId, totals, readableCount, unreadCount);
+            }
+        }
+
+        return {
+            available: true,
+            loading: cache.loading,
+            count: cache.commandCount,
+            readableCount: cache.readableCount,
+            unreadCount: cache.unreadCount,
+            troops: cloneTroops(cache.troops)
+        };
+    }
+
+    function fetchMapPopupOwnSupportTroops(commands, requestId, initialTotals, initialReadableCount, initialUnreadCount) {
+        const pending = (commands || []).filter(function (command) {
+            return !hasTroops(command.troops) && command.url;
+        });
+        const cache = state.mapPopupSupportCache;
+        const totals = cloneTroops(initialTotals);
+        let readableCount = initialReadableCount;
+        let unreadCount = initialUnreadCount;
+        let remaining = pending.length;
+
+        if (!remaining) {
+            cache.loading = false;
+            scheduleMapPopupDefenseRender();
+            return;
+        }
+
+        pending.forEach(function (command) {
+            fetchIncomingSupportCommandTroops(command.url)
+                .done(function (troops) {
+                    if (requestId !== cache.requestId) return;
+
+                    if (hasTroops(troops)) {
+                        addTroops(totals, troops);
+                        readableCount += 1;
+                        unreadCount = Math.max(0, unreadCount - 1);
+                    }
+                })
+                .always(function () {
+                    if (requestId !== cache.requestId) return;
+
+                    remaining -= 1;
+                    if (remaining > 0) return;
+
+                    cache.troops = cloneTroops(totals);
+                    cache.readableCount = readableCount;
+                    cache.unreadCount = unreadCount;
+                    cache.loading = false;
+                    scheduleMapPopupDefenseRender();
+                });
+        });
+    }
+
+    function getMapPopupOtherSupportData(popup, coords) {
+        if (!isCurrentVillageMapPopup(popup, coords)) {
+            return {
+                available: false,
+                loading: false,
+                count: 0,
+                readableCount: 0,
+                unreadCount: 0,
+                troops: {},
+                status: 'Nao disponibilizado neste pop-up.'
+            };
+        }
+
+        const data = getCurrentVillageIncomingSupportData();
+        const hasSupportTroops = hasTroops(data.troops);
+
+        return {
+            available: true,
+            loading: !!data.loading,
+            count: parseAmount(data.count),
+            readableCount: parseAmount(data.readableCount),
+            unreadCount: parseAmount(data.unreadCount),
+            troops: cloneTroops(data.troops || {}),
+            status: getSupportTroopsStatus(
+                hasSupportTroops,
+                !!data.loading,
+                parseAmount(data.readableCount),
+                parseAmount(data.unreadCount)
+            )
+        };
+    }
+
+    function hasMapPopupSupportInfo(info) {
+        if (!info) return false;
+        return parseAmount(info.own && info.own.count) > 0 || Boolean(info.others && info.others.available);
+    }
+
+    function getMapPopupSupportSignature(info) {
+        if (!info) return '';
+
+        return {
+            ownCount: parseAmount(info.own && info.own.count),
+            ownLoading: !!(info.own && info.own.loading),
+            ownReadable: parseAmount(info.own && info.own.readableCount),
+            ownUnread: parseAmount(info.own && info.own.unreadCount),
+            ownTroops: getTroopsSignature(info.own && info.own.troops),
+            otherAvailable: !!(info.others && info.others.available),
+            otherCount: parseAmount(info.others && info.others.count),
+            otherLoading: !!(info.others && info.others.loading),
+            otherReadable: parseAmount(info.others && info.others.readableCount),
+            otherUnread: parseAmount(info.others && info.others.unreadCount),
+            otherTroops: getTroopsSignature(info.others && info.others.troops)
+        };
+    }
+
+    function renderMapPopupSupportRows(info) {
+        return `
+            <tr>
+                <td class="tpdef-map-defense-icon">
+                    <img src="/graphic/command/support.png" title="Apoios" alt="">
+                </td>
+                <td>
+                    <div class="tpdef-map-support-box">
+                        <span class="tpdef-map-support-title">
+                            <img src="/graphic/command/support.png" alt="">
+                            Apoios nesta aldeia
+                        </span>
+                        ${renderMapPopupSupportLine('Meus apoios', info.own, true)}
+                        ${renderMapPopupSupportLine('Outros apoios', info.others, false)}
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
+    function renderMapPopupSupportLine(label, data, isOwn) {
+        const count = parseAmount(data && data.count);
+        const countText = count > 0 ? ` (${formatNumber(count)})` : '';
+
+        return `
+            <span class="tpdef-map-support-label">
+                <img src="${isOwn ? '/graphic/command/support.png' : '/graphic/unit/unit_spear.png'}" alt="">
+                ${escapeHtml(label)}${countText}
+            </span>
+            <span class="tpdef-map-support-units">
+                ${renderMapPopupSupportUnits(data)}
+            </span>
+        `;
+    }
+
+    function renderMapPopupSupportUnits(data) {
+        if (data && hasTroops(data.troops)) {
+            return renderCompactTroopUnits(data.troops, 'tpdef-map-support-unit');
+        }
+
+        if (data && data.loading) {
+            return '<span class="tpdef-map-support-empty">A carregar quantidades...</span>';
+        }
+
+        if (data && data.available === false) {
+            return '<span class="tpdef-map-support-empty">Nao disponibilizado pelo jogo.</span>';
+        }
+
+        if (data && data.status) {
+            return `<span class="tpdef-map-support-empty">${escapeHtml(data.status)}</span>`;
+        }
+
+        const unread = parseAmount(data && data.unreadCount);
+        if (unread > 0) {
+            return `<span class="tpdef-map-support-empty">${formatNumber(unread)} comandos sem quantidades.</span>`;
+        }
+
+        return '<span class="tpdef-map-support-empty">Sem apoios encontrados.</span>';
+    }
+
+    function renderCompactTroopUnits(troops, className) {
+        const preferredOrder = (game_data.units || []).concat(Object.keys(APP.troopPop));
+        const units = Array.from(new Set(preferredOrder)).filter(function (unit) {
+            return parseAmount(troops && troops[unit]) > 0;
+        });
+
+        return units.map(function (unit) {
+            return `
+                <span class="${escapeAttr(className || 'tpdef-support-unit')}">
+                    <img src="/graphic/unit/unit_${escapeAttr(unit)}.png" title="${escapeAttr(getUnitName(unit))}" alt="">
+                    ${formatNumber(troops[unit])}
+                </span>
+            `;
+        }).join('') || '<span class="tpdef-map-support-empty">Sem tropas.</span>';
     }
 
     function renderDefenseSummary(level) {
