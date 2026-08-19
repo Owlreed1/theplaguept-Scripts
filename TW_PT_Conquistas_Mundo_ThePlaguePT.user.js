@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW - Conquistas do Mundo ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.54
+// @version      1.0.55
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        *://*/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.51",
+        version: "1.0.55",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -818,6 +818,29 @@
                 opacity: .72;
                 cursor: wait;
             }
+            #tpMapMarker-mapToolbar #${APP.id}-map-load {
+                position: relative !important;
+                top: auto !important;
+                right: auto !important;
+                bottom: auto !important;
+                left: auto !important;
+                z-index: auto !important;
+                order: 50 !important;
+                box-sizing: border-box !important;
+                width: 30px !important;
+                min-width: 30px !important;
+                max-width: 30px !important;
+                height: 28px !important;
+                min-height: 28px !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                flex: 0 0 30px !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                vertical-align: middle !important;
+                line-height: 1 !important;
+            }
             .${APP.id}-footer {
                 display: flex;
                 align-items: center;
@@ -1070,7 +1093,7 @@
             return;
         }
 
-        const parent = findMapOverlayRoot() || document.getElementById("map") || document.body;
+        const parent = document.getElementById("tpMapMarker-mapToolbar") || findMapOverlayRoot() || document.getElementById("map") || document.body;
         let button = existing;
         if (!button) {
             button = document.createElement("button");
