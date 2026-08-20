@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.145
+// @version      0.1.146
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.145',
+        version: '0.1.146',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -2973,9 +2973,10 @@
         const villageId = getMapPopupVillageId(popup);
         const ownRows = getMapPopupOwnSupportRows(popup);
         const ownCommands = buildReceivedSupportCommandsFromRows(ownRows);
+        const expectedOwnCount = getMapPopupOwnSupportExpectedCount(popup, ownRows);
 
         if (villageId) {
-            return getMapPopupInfoVillageSupportData(villageId, coords, ownCommands);
+            return getMapPopupInfoVillageSupportData(villageId, coords, ownCommands, expectedOwnCount);
         }
 
         return {
@@ -2984,16 +2985,36 @@
         };
     }
 
-    function getMapPopupInfoVillageSupportData(villageId, coords, fallbackOwnCommands) {
+    function getMapPopupOwnSupportExpectedCount(popup, ownRows) {
+        let count = 0;
+        const rows = ownRows && ownRows.length ? ownRows : getMapPopupOwnSupportRows(popup);
+
+        rows.each(function () {
+            const table = $(this).closest('table');
+            const header = table.find('tr:first th, tr:first td').first().text();
+            const headerCount = parseBracketCount(header);
+            if (headerCount > 0) count = Math.max(count, headerCount);
+        });
+
+        return count;
+    }
+
+    function parseBracketCount(value) {
+        const match = String(value || '').match(/\(([\d.]+)\)/);
+        return match ? parseAmount(match[1]) : 0;
+    }
+
+    function getMapPopupInfoVillageSupportData(villageId, coords, fallbackOwnCommands, expectedOwnCount) {
         const cache = state.mapPopupSupportCache;
-        const key = `info_village:${villageId}:${coords || ''}`;
+        const key = `info_village:${villageId}:${coords || ''}:${parseAmount(expectedOwnCount)}`;
         const now = Date.now();
 
         if (cache.key !== key) {
-            const fallbackOwn = buildImmediateSupportDataFromCommands(
+            const fallbackOwn = buildImmediateMapPopupOwnSupportData(
                 fallbackOwnCommands,
+                expectedOwnCount,
                 true,
-                'A carregar pagina da aldeia...'
+                'A carregar lista completa de apoios...'
             );
 
             cache.key = key;
@@ -3003,7 +3024,7 @@
             cache.own = mergeSupportDataDefaults(fallbackOwn, {
                 available: true,
                 loading: true,
-                status: 'A carregar pagina da aldeia...'
+                status: 'A carregar lista completa de apoios...'
             });
             cache.others = {
                 available: true,
@@ -3015,10 +3036,10 @@
                 status: 'A carregar pagina da aldeia...'
             };
 
-            fetchInfoVillageSupportData(villageId, coords, fallbackOwnCommands, cache.requestId);
+            fetchInfoVillageSupportData(villageId, coords, fallbackOwnCommands, expectedOwnCount, cache.requestId);
         } else if (cache.loading && now - cache.loadedAt > 30000) {
             cache.loadedAt = now;
-            fetchInfoVillageSupportData(villageId, coords, fallbackOwnCommands, cache.requestId);
+            fetchInfoVillageSupportData(villageId, coords, fallbackOwnCommands, expectedOwnCount, cache.requestId);
         }
 
         return {
@@ -3027,28 +3048,32 @@
         };
     }
 
-    function fetchInfoVillageSupportData(villageId, coords, fallbackOwnCommands, requestId) {
+    function fetchInfoVillageSupportData(villageId, coords, fallbackOwnCommands, expectedOwnCount, requestId) {
         $.get(buildInfoVillageUrl(villageId))
             .done(function (html) {
                 if (requestId !== state.mapPopupSupportCache.requestId) return;
 
-                const sources = parseInfoVillageSupportSources(html, fallbackOwnCommands);
-                resolveInfoVillageSupportSources(sources)
-                    .done(function (data) {
-                        if (requestId !== state.mapPopupSupportCache.requestId) return;
+                const sources = parseInfoVillageSupportSources(html, fallbackOwnCommands, expectedOwnCount);
+                enrichInfoVillageSupportSourcesFromCommandOverview(sources, villageId, coords, expectedOwnCount)
+                    .done(function (resolvedSources) {
+                        resolveInfoVillageSupportSources(resolvedSources)
+                            .done(function (data) {
+                                if (requestId !== state.mapPopupSupportCache.requestId) return;
 
-                        state.mapPopupSupportCache.own = data.own;
-                        state.mapPopupSupportCache.others = data.others;
-                        state.mapPopupSupportCache.loading = false;
-                        state.mapPopupSupportCache.loadedAt = Date.now();
-                        scheduleMapPopupDefenseRender();
+                                state.mapPopupSupportCache.own = data.own;
+                                state.mapPopupSupportCache.others = data.others;
+                                state.mapPopupSupportCache.loading = false;
+                                state.mapPopupSupportCache.loadedAt = Date.now();
+                                scheduleMapPopupDefenseRender();
+                            });
                     });
             })
             .fail(function () {
             if (requestId !== state.mapPopupSupportCache.requestId) return;
 
-                const fallbackOwn = buildImmediateSupportDataFromCommands(
+                const fallbackOwn = buildImmediateMapPopupOwnSupportData(
                     fallbackOwnCommands,
+                    expectedOwnCount,
                     false,
                     'Nao foi possivel ler a pagina da aldeia.'
                 );
@@ -3080,6 +3105,25 @@
         return url.toString();
     }
 
+    function buildImmediateMapPopupOwnSupportData(commands, expectedCount, loading, status) {
+        const expected = parseAmount(expectedCount);
+        const knownCommands = (commands || []).length;
+
+        if (expected > knownCommands) {
+            return {
+                available: true,
+                loading,
+                count: expected,
+                readableCount: 0,
+                unreadCount: Math.max(0, expected - knownCommands),
+                troops: {},
+                status: status || 'A carregar lista completa de apoios...'
+            };
+        }
+
+        return buildImmediateSupportDataFromCommands(commands, loading, status);
+    }
+
     function buildImmediateSupportDataFromCommands(commands, loading, status) {
         const totals = {};
         let readableCount = 0;
@@ -3105,15 +3149,18 @@
         };
     }
 
-    function parseInfoVillageSupportSources(html, fallbackOwnCommands) {
+    function parseInfoVillageSupportSources(html, fallbackOwnCommands, expectedOwnCount) {
         const root = $('<div>').append($.parseHTML(String(html || ''), document, true));
         const own = {
             troops: {},
-            commands: (fallbackOwnCommands || []).slice()
+            commands: [],
+            fallbackCommands: (fallbackOwnCommands || []).slice(),
+            expectedCount: parseAmount(expectedOwnCount)
         };
         const others = {
             troops: {},
-            commands: []
+            commands: [],
+            expectedCount: 0
         };
 
         root.find('table').each(function () {
@@ -3128,8 +3175,10 @@
             const tableTroops = readStrictUnitTableAmountsFromRoot(table);
             const shouldUseCommandTroops = hasTroops(commandTroops);
             const shouldUseTableTroops = hasTroops(tableTroops) && !shouldUseCommandTroops && !supportRows.length;
+            const sectionCount = parseBracketCount(table.find('tr:first th, tr:first td').first().text());
 
             if (isOwnSupportInfoSection(context)) {
+                own.expectedCount = Math.max(own.expectedCount, sectionCount);
                 if (shouldUseCommandTroops) addTroops(own.troops, commandTroops);
                 if (shouldUseTableTroops) addTroops(own.troops, tableTroops);
                 if (!shouldUseCommandTroops) own.commands = own.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
@@ -3137,6 +3186,7 @@
             }
 
             if (isOtherSupportInfoSection(context)) {
+                others.expectedCount = Math.max(others.expectedCount, sectionCount);
                 if (shouldUseCommandTroops) addTroops(others.troops, commandTroops);
                 if (shouldUseTableTroops) addTroops(others.troops, tableTroops);
                 if (!shouldUseCommandTroops) others.commands = others.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
@@ -3146,7 +3196,153 @@
         own.commands = dedupeSupportCommands(own.commands);
         others.commands = dedupeSupportCommands(others.commands);
 
+        if (!hasTroops(own.troops) && !own.commands.length) {
+            own.commands = dedupeSupportCommands(own.fallbackCommands);
+        }
+        delete own.fallbackCommands;
+
         return {own, others};
+    }
+
+    function enrichInfoVillageSupportSourcesFromCommandOverview(sources, villageId, coords, expectedOwnCount) {
+        const deferred = $.Deferred();
+        const own = sources && sources.own || {troops: {}, commands: []};
+        const expected = parseAmount(expectedOwnCount || own.expectedCount);
+        const commands = own.commands || [];
+        const hasEnoughData = hasTroops(own.troops) || !expected || commands.length >= expected;
+
+        own.expectedCount = expected;
+
+        if (hasEnoughData) {
+            deferred.resolve(sources);
+            return deferred.promise();
+        }
+
+        fetchMapTargetSupportCommands(villageId, coords, expected)
+            .done(function (fullCommands) {
+                if (fullCommands.length > commands.length) {
+                    own.commands = fullCommands;
+                }
+
+                deferred.resolve(sources);
+            })
+            .fail(function () {
+                deferred.resolve(sources);
+            });
+
+        return deferred.promise();
+    }
+
+    function fetchMapTargetSupportCommands(villageId, coords, expectedCount) {
+        const deferred = $.Deferred();
+        const urls = getMapTargetSupportCommandPageUrls(villageId);
+        let bestCommands = [];
+        let bestScore = 0;
+
+        function tryNext(index) {
+            if (index >= urls.length) {
+                deferred.resolve(bestCommands);
+                return;
+            }
+
+            $.get(urls[index])
+                .done(function (html) {
+                    const commands = parseMapTargetSupportCommandsPage(html, coords, villageId);
+                    const score = scoreSupportCommandSource(commands, expectedCount);
+
+                    if (score > bestScore || (score === bestScore && commands.length > bestCommands.length)) {
+                        bestScore = score;
+                        bestCommands = commands;
+                    }
+
+                    if (parseAmount(expectedCount) > 0 && commands.length >= parseAmount(expectedCount) && score > 0) {
+                        deferred.resolve(commands);
+                        return;
+                    }
+
+                    tryNext(index + 1);
+                })
+                .fail(function () {
+                    tryNext(index + 1);
+                });
+        }
+
+        tryNext(0);
+        return deferred.promise();
+    }
+
+    function getMapTargetSupportCommandPageUrls(villageId) {
+        const candidates = [
+            `${game_data.link_base_pure}overview_villages&mode=commands&type=support&page=-1`,
+            `${game_data.link_base_pure}overview_villages&mode=commands&type=incoming&page=-1`,
+            `${game_data.link_base_pure}overview_villages&mode=commands&type=all&page=-1`,
+            `${game_data.link_base_pure}overview_villages&mode=commands&page=-1`,
+            `${game_data.link_base_pure}place&mode=command&type=support&page=-1`,
+            `${game_data.link_base_pure}place&mode=command&type=incoming&page=-1`,
+            `${game_data.link_base_pure}place&mode=commands&page=-1`
+        ];
+
+        if (villageId) {
+            candidates.push(`${game_data.link_base_pure}info_village&id=${villageId}`);
+        }
+
+        return Array.from(new Set(candidates.map(resolveGameUrl)));
+    }
+
+    function parseMapTargetSupportCommandsPage(html, coords, villageId) {
+        const root = $('<div>').append($.parseHTML(String(html || ''), document, true));
+        const preferred = root.find(
+            '#commands_incomings tr, #commands_incomings .command-row, ' +
+            '#commands_table tr, #commands_outgoings tr, [id*="commands"] tr, [class*="commands"] tr'
+        ).filter(function () {
+            const row = $(this);
+            return isIncomingSupportCommandRow(row) && supportRowTargetsMapVillage(row, coords, villageId);
+        });
+
+        if (preferred.length) return buildReceivedSupportCommandsFromRows(preferred);
+
+        const rows = root.find('tr').filter(function () {
+            const row = $(this);
+            const table = row.closest('table');
+
+            return isIncomingSupportCommandRow(row) &&
+                supportRowTargetsMapVillage(row, coords, villageId) &&
+                (
+                    row.find('a[href*="info_command"][href*="id="]').length > 0 ||
+                    Object.keys(getCommandTableUnitColumns(table)).length > 0
+                );
+        });
+
+        return buildReceivedSupportCommandsFromRows(rows);
+    }
+
+    function supportRowTargetsMapVillage(row, coords, villageId) {
+        const targetCoords = normalizeCoords(coords);
+        const commandCell = getCommandNameCell(row);
+        const text = [
+            commandCell.text(),
+            row.children('td,th').slice(0, 4).text()
+        ].join(' ');
+        const rowCoords = String(text || '').match(/\b\d{1,3}\|\d{1,3}\b/g) || [];
+
+        if (targetCoords && rowCoords.indexOf(targetCoords) >= 0) return true;
+
+        const targetId = String(villageId || '');
+        if (!targetId) return false;
+
+        return row.find('a[href]').filter(function () {
+            const href = String($(this).attr('href') || '').replace(/&amp;/g, '&');
+
+            return (
+                new RegExp(`screen=info_village[^#]*[?&]id=${targetId}(?:\\D|$)`).test(href) ||
+                new RegExp(`[?&](?:target|target_id|village|village_id|target_village_id)=${targetId}(?:\\D|$)`).test(href)
+            );
+        }).length > 0;
+    }
+
+    function normalizeCoords(value) {
+        const match = String(value || '').match(/\b\d{1,3}\|\d{1,3}\b/);
+        return match ? match[0] : '';
     }
 
     function getInfoVillageTableContext(table) {
@@ -3237,6 +3433,7 @@
         const deferred = $.Deferred();
         const commands = source && source.commands || [];
         const totals = cloneTroops(source && source.troops || {});
+        const expectedCount = parseAmount(source && source.expectedCount);
         let readableCount = hasTroops(totals) ? 1 : 0;
         let unreadCount = 0;
         let remaining = commands.length;
@@ -3245,9 +3442,9 @@
             deferred.resolve({
                 available,
                 loading: false,
-                count: 0,
+                count: expectedCount || 0,
                 readableCount,
-                unreadCount: hasTroops(totals) ? 0 : 0,
+                unreadCount: hasTroops(totals) ? 0 : expectedCount,
                 troops: totals,
                 status: hasTroops(totals) ? '' : 'Sem informação de tropas.'
             });
@@ -3289,14 +3486,18 @@
         });
 
         function finish() {
+            const incomplete = expectedCount > commands.length && !hasTroops(source && source.troops);
+
             deferred.resolve({
                 available,
                 loading: false,
-                count: commands.length,
-                readableCount,
-                unreadCount,
-                troops: totals,
-                status: hasTroops(totals) ? '' : 'Sem informação de tropas.'
+                count: expectedCount || commands.length,
+                readableCount: incomplete ? 0 : readableCount,
+                unreadCount: incomplete ? expectedCount - commands.length + unreadCount : unreadCount,
+                troops: incomplete ? {} : totals,
+                status: incomplete
+                    ? `Lista incompleta: ${formatNumber(commands.length)}/${formatNumber(expectedCount)} apoios lidos.`
+                    : (hasTroops(totals) ? '' : 'Sem informação de tropas.')
             });
         }
 
