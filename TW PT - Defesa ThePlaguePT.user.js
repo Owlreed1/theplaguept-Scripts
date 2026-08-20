@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.146
+// @version      0.1.147
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.146',
+        version: '0.1.147',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -3014,7 +3014,7 @@
                 fallbackOwnCommands,
                 expectedOwnCount,
                 true,
-                'A carregar lista completa de apoios...'
+                'A carregar apoios da aldeia...'
             );
 
             cache.key = key;
@@ -3024,7 +3024,7 @@
             cache.own = mergeSupportDataDefaults(fallbackOwn, {
                 available: true,
                 loading: true,
-                status: 'A carregar lista completa de apoios...'
+                status: 'A carregar apoios da aldeia...'
             });
             cache.others = {
                 available: true,
@@ -3054,18 +3054,15 @@
                 if (requestId !== state.mapPopupSupportCache.requestId) return;
 
                 const sources = parseInfoVillageSupportSources(html, fallbackOwnCommands, expectedOwnCount);
-                enrichInfoVillageSupportSourcesFromCommandOverview(sources, villageId, coords, expectedOwnCount)
-                    .done(function (resolvedSources) {
-                        resolveInfoVillageSupportSources(resolvedSources)
-                            .done(function (data) {
-                                if (requestId !== state.mapPopupSupportCache.requestId) return;
+                resolveInfoVillageSupportSources(sources)
+                    .done(function (data) {
+                        if (requestId !== state.mapPopupSupportCache.requestId) return;
 
-                                state.mapPopupSupportCache.own = data.own;
-                                state.mapPopupSupportCache.others = data.others;
-                                state.mapPopupSupportCache.loading = false;
-                                state.mapPopupSupportCache.loadedAt = Date.now();
-                                scheduleMapPopupDefenseRender();
-                            });
+                        state.mapPopupSupportCache.own = data.own;
+                        state.mapPopupSupportCache.others = data.others;
+                        state.mapPopupSupportCache.loading = false;
+                        state.mapPopupSupportCache.loadedAt = Date.now();
+                        scheduleMapPopupDefenseRender();
                     });
             })
             .fail(function () {
@@ -3107,21 +3104,16 @@
 
     function buildImmediateMapPopupOwnSupportData(commands, expectedCount, loading, status) {
         const expected = parseAmount(expectedCount);
-        const knownCommands = (commands || []).length;
 
-        if (expected > knownCommands) {
-            return {
-                available: true,
-                loading,
-                count: expected,
-                readableCount: 0,
-                unreadCount: Math.max(0, expected - knownCommands),
-                troops: {},
-                status: status || 'A carregar lista completa de apoios...'
-            };
-        }
-
-        return buildImmediateSupportDataFromCommands(commands, loading, status);
+        return {
+            available: true,
+            loading: !!loading,
+            count: expected,
+            readableCount: 0,
+            unreadCount: 0,
+            troops: {},
+            status: status || 'A carregar apoios da aldeia...'
+        };
     }
 
     function buildImmediateSupportDataFromCommands(commands, loading, status) {
@@ -3154,54 +3146,109 @@
         const own = {
             troops: {},
             commands: [],
-            fallbackCommands: (fallbackOwnCommands || []).slice(),
-            expectedCount: parseAmount(expectedOwnCount)
+            expectedCount: 0,
+            status: 'Sem informação de apoios.'
         };
         const others = {
             troops: {},
             commands: [],
-            expectedCount: 0
+            expectedCount: 0,
+            status: 'Nao disponibilizado pelo jogo.'
         };
 
         root.find('table').each(function () {
             const table = $(this);
             const context = getInfoVillageTableContext(table);
-            const supportRows = table.find('tr').filter(function () {
+
+            if (!isVillageSupportInfoSection(context)) return;
+
+            table.find('tr').each(function () {
                 const row = $(this);
-                return isCommandLikeRow(row) && hasSupportCommandIcon(row) && !hasAttackCommandIcon(row);
+                const rowText = clean(row.text());
+                const rowCount = parseBracketCount(row.text());
+                const rowTroops = readInlineUnitAmountsFromScope(row);
+
+                if (isOwnSupportInfoSection(rowText)) {
+                    own.expectedCount = Math.max(own.expectedCount, rowCount);
+                    addTroops(own.troops, rowTroops);
+                    own.status = hasTroops(own.troops)
+                        ? ''
+                        : (rowCount > 0 ? 'Quantidades nao disponibilizadas pelo jogo.' : 'Sem apoios encontrados.');
+                    return;
+                }
+
+                if (isOtherSupportInfoSection(rowText)) {
+                    others.expectedCount = Math.max(others.expectedCount, rowCount);
+                    addTroops(others.troops, rowTroops);
+                    others.status = hasTroops(others.troops)
+                        ? ''
+                        : (rowCount > 0 ? 'Quantidades nao disponibilizadas pelo jogo.' : 'Nao disponibilizado pelo jogo.');
+                }
             });
-            const commandColumns = getCommandTableUnitColumns(table);
-            const commandTroops = sumCommandTableRowsTroops(supportRows, commandColumns);
-            const tableTroops = readStrictUnitTableAmountsFromRoot(table);
-            const shouldUseCommandTroops = hasTroops(commandTroops);
-            const shouldUseTableTroops = hasTroops(tableTroops) && !shouldUseCommandTroops && !supportRows.length;
-            const sectionCount = parseBracketCount(table.find('tr:first th, tr:first td').first().text());
-
-            if (isOwnSupportInfoSection(context)) {
-                own.expectedCount = Math.max(own.expectedCount, sectionCount);
-                if (shouldUseCommandTroops) addTroops(own.troops, commandTroops);
-                if (shouldUseTableTroops) addTroops(own.troops, tableTroops);
-                if (!shouldUseCommandTroops) own.commands = own.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
-                return;
-            }
-
-            if (isOtherSupportInfoSection(context)) {
-                others.expectedCount = Math.max(others.expectedCount, sectionCount);
-                if (shouldUseCommandTroops) addTroops(others.troops, commandTroops);
-                if (shouldUseTableTroops) addTroops(others.troops, tableTroops);
-                if (!shouldUseCommandTroops) others.commands = others.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
-            }
         });
 
         own.commands = dedupeSupportCommands(own.commands);
         others.commands = dedupeSupportCommands(others.commands);
 
-        if (!hasTroops(own.troops) && !own.commands.length) {
-            own.commands = dedupeSupportCommands(own.fallbackCommands);
-        }
-        delete own.fallbackCommands;
-
         return {own, others};
+    }
+
+    function isVillageSupportInfoSection(text) {
+        return hasAnyWord(text, [
+            'apoios da aldeia',
+            'apoios nesta aldeia',
+            'support in this village',
+            'supports in this village',
+            'village support',
+            'unterstutzung im dorf',
+            'soutien dans ce village',
+            'apoyo en esta aldea',
+            'wsparcie w tej wiosce'
+        ]);
+    }
+
+    function readInlineUnitAmountsFromScope(scope) {
+        const troops = {};
+
+        scope.find(
+            'img[src*="/unit/unit_"], img[src*="unit/unit_"], ' +
+            '[data-unit], [class*="unit-item-"], [class*="unit_"]'
+        )
+            .not('#tpdefMapDefenseInfo img, #tpdefWallResistance img')
+            .each(function () {
+                const marker = $(this);
+                const unit = getUnitFromElement(marker);
+                if (!unit) return;
+
+                const amount = parseFirstAmount(readTextAfterUnitMarker(marker)) ||
+                    parseFirstAmount(marker.closest('td,th,span,div').clone().children('img').remove().end().text());
+
+                if (amount > 0) troops[unit] = (troops[unit] || 0) + amount;
+            });
+
+        return troops;
+    }
+
+    function readTextAfterUnitMarker(marker) {
+        const element = marker[0];
+        let node = element && element.nextSibling;
+        let text = '';
+
+        while (node) {
+            if (node.nodeType === 1) {
+                const nextElement = $(node);
+                if (getUnitFromElement(nextElement) || nextElement.find('img[src*="unit/unit_"], img[src*="/unit/unit_"], [data-unit], [class*="unit-item-"], [class*="unit_"]').length) {
+                    break;
+                }
+                text += nextElement.text();
+            } else {
+                text += node.nodeValue || '';
+            }
+
+            node = node.nextSibling;
+        }
+
+        return text;
     }
 
     function enrichInfoVillageSupportSourcesFromCommandOverview(sources, villageId, coords, expectedOwnCount) {
@@ -3357,22 +3404,17 @@
 
     function isOwnSupportInfoSection(text) {
         return hasAnyWord(text, [
-            'os seus comandos',
-            'seus comandos',
-            'as suas tropas',
-            'suas tropas',
             'seus apoios',
             'meus apoios',
-            'your commands',
-            'your troops',
-            'own troops',
+            'meu apoio',
+            'my support',
+            'my supports',
+            'your support',
+            'own support',
             'eigene truppen',
-            'eigene befehle',
-            'vos troupes',
-            'mes troupes',
-            'tus tropas',
-            'mis tropas',
-            'twoje wojska'
+            'mes soutiens',
+            'mis apoyos',
+            'twoje wsparcie'
         ]);
     }
 
@@ -3446,7 +3488,7 @@
                 readableCount,
                 unreadCount: hasTroops(totals) ? 0 : expectedCount,
                 troops: totals,
-                status: hasTroops(totals) ? '' : 'Sem informação de tropas.'
+                status: hasTroops(totals) ? '' : (source && source.status || 'Sem informação de tropas.')
             });
             return deferred.promise();
         }
@@ -3497,7 +3539,7 @@
                 troops: incomplete ? {} : totals,
                 status: incomplete
                     ? `Lista incompleta: ${formatNumber(commands.length)}/${formatNumber(expectedCount)} apoios lidos.`
-                    : (hasTroops(totals) ? '' : 'Sem informação de tropas.')
+                    : (hasTroops(totals) ? '' : (source && source.status || 'Sem informação de tropas.'))
             });
         }
 
