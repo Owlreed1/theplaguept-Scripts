@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.149
+// @version      0.1.150
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.149',
+        version: '0.1.150',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -86,8 +86,6 @@
         mapOverlayTimer: null,
         mapPopupObserver: null,
         mapPopupRenderTimer: null,
-        mapPopupRetryTimers: [],
-        mapPopupForceSupportRefresh: false,
         mapPopupSupportCache: {
             key: '',
             loading: false,
@@ -2865,7 +2863,6 @@
             if (onlyTpdefChanges) return;
 
             scheduleMapPopupDefenseRender();
-            scheduleMapPopupDefenseRetrySeries();
         });
 
         state.mapPopupObserver.observe(popup, {
@@ -2874,40 +2871,16 @@
         });
 
         scheduleMapPopupDefenseRender();
-        scheduleMapPopupDefenseRetrySeries();
     }
 
-    function scheduleMapPopupDefenseRender(delay) {
-        const wait = typeof delay === 'number' ? delay : 25;
-
+    function scheduleMapPopupDefenseRender() {
         clearTimeout(state.mapPopupRenderTimer);
-        state.mapPopupRenderTimer = setTimeout(renderMapPopupDefense, wait);
-    }
-
-    function scheduleMapPopupDefenseRetrySeries() {
-        clearMapPopupDefenseRetryTimers();
-
-        [800, 1800, 3500, 5200].forEach(function (delay) {
-            state.mapPopupRetryTimers.push(setTimeout(function () {
-                state.mapPopupForceSupportRefresh = true;
-                scheduleMapPopupDefenseRender(0);
-            }, delay));
-        });
-    }
-
-    function clearMapPopupDefenseRetryTimers() {
-        (state.mapPopupRetryTimers || []).forEach(function (timer) {
-            clearTimeout(timer);
-        });
-        state.mapPopupRetryTimers = [];
+        state.mapPopupRenderTimer = setTimeout(renderMapPopupDefense, 25);
     }
 
     function renderMapPopupDefense() {
         const popup = $('#map_popup');
-        if (!popup.length || !popup.is(':visible')) {
-            clearMapPopupDefenseRetryTimers();
-            return;
-        }
+        if (!popup.length || !popup.is(':visible')) return;
 
         const villageData = collectMapPopupVillageDefense(popup);
         const coords = villageData && villageData.coords || getMapPopupCoords(popup);
@@ -3013,12 +2986,9 @@
         const ownRows = getMapPopupOwnSupportRows(popup);
         const ownCommands = buildReceivedSupportCommandsFromRows(ownRows);
         const expectedOwnCount = getMapPopupOwnSupportExpectedCount(popup, ownRows);
-        const forceRefresh = state.mapPopupForceSupportRefresh;
-
-        state.mapPopupForceSupportRefresh = false;
 
         if (villageId) {
-            return getMapPopupInfoVillageSupportData(villageId, coords, ownCommands, expectedOwnCount, forceRefresh);
+            return getMapPopupInfoVillageSupportData(villageId, coords, ownCommands, expectedOwnCount);
         }
 
         return {
@@ -3046,17 +3016,17 @@
         return match ? parseAmount(match[1]) : 0;
     }
 
-    function getMapPopupInfoVillageSupportData(villageId, coords, fallbackOwnCommands, expectedOwnCount, forceRefresh) {
+    function getMapPopupInfoVillageSupportData(villageId, coords, fallbackOwnCommands, expectedOwnCount) {
         const cache = state.mapPopupSupportCache;
         const key = `info_village:${villageId}:${coords || ''}:${parseAmount(expectedOwnCount)}`;
         const now = Date.now();
 
-        if (forceRefresh || cache.key !== key) {
+        if (cache.key !== key) {
             const fallbackOwn = buildImmediateMapPopupOwnSupportData(
                 fallbackOwnCommands,
                 expectedOwnCount,
                 true,
-                forceRefresh ? 'A atualizar apoios da aldeia...' : 'A carregar apoios da aldeia...'
+                'A carregar apoios da aldeia...'
             );
 
             cache.key = key;
@@ -3066,7 +3036,7 @@
             cache.own = mergeSupportDataDefaults(fallbackOwn, {
                 available: true,
                 loading: true,
-                status: forceRefresh ? 'A atualizar apoios da aldeia...' : 'A carregar apoios da aldeia...'
+                status: 'A carregar apoios da aldeia...'
             });
             cache.others = {
                 available: true,
