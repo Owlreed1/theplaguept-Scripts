@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.147
+// @version      0.1.148
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.147',
+        version: '0.1.148',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -2885,6 +2885,7 @@
         const villageData = collectMapPopupVillageDefense(popup);
         const coords = villageData && villageData.coords || getMapPopupCoords(popup);
         const supportInfo = collectMapPopupSupportInfo(popup, coords);
+        const popupSupportTroops = getMapPopupSupportTroops(supportInfo);
         const hasDefenseData = Boolean(villageData && Object.keys(villageData.troops).length);
         const hasSupportInfo = hasMapPopupSupportInfo(supportInfo);
         const existing = $('#tpdefMapDefenseInfo');
@@ -2895,14 +2896,25 @@
         }
 
         const attackModel = loadAttackModel();
+        const effectiveSupportTroops = hasDefenseData
+            ? mergeTroops(villageData.supportTroops, popupSupportTroops)
+            : {};
+        const effectiveSupportData = hasDefenseData
+            ? mergeSupportDataDefaults(villageData.supportData, {
+                count: Math.max(parseAmount(villageData.supportData && villageData.supportData.count), getMapPopupSupportCount(supportInfo)),
+                readableCount: Math.max(parseAmount(villageData.supportData && villageData.supportData.readableCount), getMapPopupSupportReadableCount(supportInfo)),
+                troops: effectiveSupportTroops,
+                loading: Boolean(villageData.supportData && villageData.supportData.loading) || isMapPopupSupportLoading(supportInfo)
+            })
+            : null;
         const level = hasDefenseData
             ? getDefenseAgainstAttackModel(
                 villageData.troops,
                 villageData.wall,
                 attackModel,
                 villageData.incomingInfo,
-                villageData.supportTroops,
-                villageData.supportData
+                effectiveSupportTroops,
+                effectiveSupportData
             )
             : null;
         const signature = JSON.stringify({
@@ -2910,7 +2922,7 @@
             wall: hasDefenseData ? villageData.wall : '',
             troops: hasDefenseData ? villageData.troops : {},
             incoming: hasDefenseData ? villageData.incomingInfo : {},
-            support: hasDefenseData ? villageData.supportTroops : {},
+            support: hasDefenseData ? effectiveSupportTroops : {},
             popupSupport: getMapPopupSupportSignature(supportInfo),
             attackModel,
             defenseModel: loadDefenseModel()
@@ -3212,21 +3224,82 @@
 
         scope.find(
             'img[src*="/unit/unit_"], img[src*="unit/unit_"], ' +
-            '[data-unit], [class*="unit-item-"], [class*="unit_"]'
+            '[data-unit], [class*="unit-item-"], [class*="unit_"], [class*="unit-"]'
         )
             .not('#tpdefMapDefenseInfo img, #tpdefWallResistance img')
+            .filter(function () {
+                const marker = $(this);
+                return marker.find(
+                    'img[src*="/unit/unit_"], img[src*="unit/unit_"], ' +
+                    '[data-unit], [class*="unit-item-"], [class*="unit_"], [class*="unit-"]'
+                ).not(marker).length === 0;
+            })
             .each(function () {
                 const marker = $(this);
                 const unit = getUnitFromElement(marker);
                 if (!unit) return;
 
-                const amount = parseFirstAmount(readTextAfterUnitMarker(marker)) ||
-                    parseFirstAmount(marker.closest('td,th,span,div').clone().children('img').remove().end().text());
+                const amount = readAmountBesideUnitMarker(marker, unit);
 
                 if (amount > 0) troops[unit] = (troops[unit] || 0) + amount;
             });
 
         return troops;
+    }
+
+    function readAmountBesideUnitMarker(marker, unit) {
+        const directValues = [
+            marker.attr('data-count'),
+            marker.attr('data-amount'),
+            marker.attr('data-value'),
+            marker.attr('title'),
+            marker.attr('alt')
+        ];
+
+        for (let i = 0; i < directValues.length; i += 1) {
+            const amount = parseLabeledUnitAmount(directValues[i], unit);
+            if (amount > 0) return amount;
+        }
+
+        const afterMarker = parseFirstAmount(readTextAfterUnitMarker(marker));
+        if (afterMarker > 0) return afterMarker;
+
+        const afterCell = readAmountAfterUnitCell(marker);
+        if (afterCell > 0) return afterCell;
+
+        const localScope = marker.closest('span,div,td,th');
+        const localAmount = parseFirstAmount(localScope.clone().find('img').remove().end().text());
+        if (localAmount > 0) return localAmount;
+
+        return parseLabeledUnitAmount(marker.closest('tr').text(), unit);
+    }
+
+    function readAmountAfterUnitCell(marker) {
+        const cell = marker.closest('td,th');
+        if (!cell.length) return 0;
+
+        const unitSelector = 'img[src*="/unit/unit_"], img[src*="unit/unit_"], [data-unit], [class*="unit-item-"], [class*="unit_"], [class*="unit-"]';
+        let amount = 0;
+
+        cell.nextAll('td,th').each(function () {
+            const nextCell = $(this);
+            if (nextCell.find(unitSelector).length) return false;
+
+            amount = parseFirstAmount(nextCell.text());
+            return amount <= 0;
+        });
+
+        return amount;
+    }
+
+    function parseLabeledUnitAmount(value, unit) {
+        const text = String(value || '');
+        if (!text) return 0;
+
+        const amount = parseFirstAmount(text);
+        if (amount > 0 && clean(text).indexOf(clean(getUnitName(unit))) >= 0) return amount;
+
+        return 0;
     }
 
     function readTextAfterUnitMarker(marker) {
@@ -3237,7 +3310,7 @@
         while (node) {
             if (node.nodeType === 1) {
                 const nextElement = $(node);
-                if (getUnitFromElement(nextElement) || nextElement.find('img[src*="unit/unit_"], img[src*="/unit/unit_"], [data-unit], [class*="unit-item-"], [class*="unit_"]').length) {
+                if (getUnitFromElement(nextElement) || nextElement.find('img[src*="unit/unit_"], img[src*="/unit/unit_"], [data-unit], [class*="unit-item-"], [class*="unit_"], [class*="unit-"]').length) {
                     break;
                 }
                 text += nextElement.text();
@@ -3696,6 +3769,32 @@
     function hasMapPopupSupportInfo(info) {
         if (!info) return false;
         return parseAmount(info.own && info.own.count) > 0 || Boolean(info.others && info.others.available);
+    }
+
+    function getMapPopupSupportTroops(info) {
+        const troops = {};
+
+        if (info && info.own) addTroops(troops, info.own.troops);
+        if (info && info.others) addTroops(troops, info.others.troops);
+
+        return troops;
+    }
+
+    function getMapPopupSupportCount(info) {
+        return parseAmount(info && info.own && info.own.count) +
+            parseAmount(info && info.others && info.others.count);
+    }
+
+    function getMapPopupSupportReadableCount(info) {
+        return parseAmount(info && info.own && info.own.readableCount) +
+            parseAmount(info && info.others && info.others.readableCount);
+    }
+
+    function isMapPopupSupportLoading(info) {
+        return Boolean(info && (
+            info.own && info.own.loading ||
+            info.others && info.others.loading
+        ));
     }
 
     function getMapPopupSupportSignature(info) {
@@ -6795,7 +6894,7 @@
         const projectedTroops = supportFullEndurance ? mergeTroops(troops, supportTroops) : troops;
         const shortage = getDefenseRequirementSuggestion(projectedTroops, wall, model, incoming);
         const attackCounterValue = hasIncoming ? incoming.count : 0;
-        const defenseCounterValue = currentFullsText;
+        const defenseCounterValue = supportFullsText || currentFullsText;
         const attackCounter = `Fulls a Chegar: ${attackCounterValue}`;
         const defenseCounter = `Fulls que a aldeia aguenta: ${defenseCounterValue}`;
         const highlight = hasIncoming
