@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.144
+// @version      0.1.145
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.144',
+        version: '0.1.145',
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -3123,18 +3123,23 @@
                 const row = $(this);
                 return isCommandLikeRow(row) && hasSupportCommandIcon(row) && !hasAttackCommandIcon(row);
             });
+            const commandColumns = getCommandTableUnitColumns(table);
+            const commandTroops = sumCommandTableRowsTroops(supportRows, commandColumns);
             const tableTroops = readStrictUnitTableAmountsFromRoot(table);
-            const shouldUseTableTroops = hasTroops(tableTroops) && !supportRows.length;
+            const shouldUseCommandTroops = hasTroops(commandTroops);
+            const shouldUseTableTroops = hasTroops(tableTroops) && !shouldUseCommandTroops && !supportRows.length;
 
             if (isOwnSupportInfoSection(context)) {
+                if (shouldUseCommandTroops) addTroops(own.troops, commandTroops);
                 if (shouldUseTableTroops) addTroops(own.troops, tableTroops);
-                own.commands = own.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
+                if (!shouldUseCommandTroops) own.commands = own.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
                 return;
             }
 
             if (isOtherSupportInfoSection(context)) {
+                if (shouldUseCommandTroops) addTroops(others.troops, commandTroops);
                 if (shouldUseTableTroops) addTroops(others.troops, tableTroops);
-                others.commands = others.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
+                if (!shouldUseCommandTroops) others.commands = others.commands.concat(buildReceivedSupportCommandsFromRows(supportRows));
             }
         });
 
@@ -3157,6 +3162,7 @@
     function isOwnSupportInfoSection(text) {
         return hasAnyWord(text, [
             'os seus comandos',
+            'seus comandos',
             'as suas tropas',
             'suas tropas',
             'seus apoios',
@@ -3191,6 +3197,16 @@
             'apoyo de otros',
             'wsparcie innych'
         ]);
+    }
+
+    function sumCommandTableRowsTroops(rows, unitColumns) {
+        const totals = {};
+
+        rows.each(function () {
+            addTroops(totals, readCommandTableRowTroops($(this), unitColumns));
+        });
+
+        return totals;
     }
 
     function dedupeSupportCommands(commands) {

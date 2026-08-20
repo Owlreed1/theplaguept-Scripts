@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.45
+// @version      1.0.46
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -19,7 +19,8 @@
     const STATE_KEY = "tag_incomings_pt_melhorado_state_v1";
     const ALERTA_NOBRE_KEY = "tag_incomings_pt_alerta_nobre_v1";
     const ALERTA_NOBRE_STATE_VERSION = 2;
-    const VERSAO_SCRIPT = "1.0.44";
+    const ESTADO_CONTADOR_ATAQUES_VERSION = 3;
+    const VERSAO_SCRIPT = "1.0.46";
     const NOME_LANCADOR = "Etiquetador - TheplaguePT";
 
     const CONFIG_PADRAO = {
@@ -256,25 +257,30 @@
                 ? guardado.comandosTratados.map(String)
                 : [];
             const estadoNobreAtual = Number(guardado.versaoEstadoNobre) === ALERTA_NOBRE_STATE_VERSION;
+            const estadoContadorAtual = Number(guardado.versaoContadorAtaques) === ESTADO_CONTADOR_ATAQUES_VERSION;
             return {
-                ultimoTotalIncomings: Number(guardado.ultimoTotalIncomings) || 0,
-                ultimoTotalContador: Number(guardado.ultimoTotalContador) || 0,
-                ultimaAssinatura: String(guardado.ultimaAssinatura || ""),
-                processado: Boolean(guardado.processado),
-                comandosTratados,
-                comandosPendentes: Array.isArray(guardado.comandosPendentes)
+                ultimoTotalIncomings: estadoContadorAtual ? Number(guardado.ultimoTotalIncomings) || 0 : 0,
+                ultimoTotalContador: estadoContadorAtual ? Number(guardado.ultimoTotalContador) || 0 : 0,
+                ultimaAssinatura: estadoContadorAtual ? String(guardado.ultimaAssinatura || "") : "",
+                processado: estadoContadorAtual && Boolean(guardado.processado),
+                comandosTratados: estadoContadorAtual ? comandosTratados : [],
+                comandosPendentes: estadoContadorAtual && Array.isArray(guardado.comandosPendentes)
                     ? guardado.comandosPendentes.map(String)
                     : [],
-                comandosConhecidos: guardado.comandosConhecidos && typeof guardado.comandosConhecidos === "object"
+                comandosConhecidos: estadoContadorAtual
+                    && guardado.comandosConhecidos
+                    && typeof guardado.comandosConhecidos === "object"
                     ? guardado.comandosConhecidos
                     : {},
-                comandosAvisadosAtaque: Array.isArray(guardado.comandosAvisadosAtaque)
+                comandosAvisadosAtaque: estadoContadorAtual && Array.isArray(guardado.comandosAvisadosAtaque)
                     ? guardado.comandosAvisadosAtaque.map(String)
-                    : [...comandosTratados],
-                comandosAvisadosNobre: Array.isArray(guardado.comandosAvisadosNobre)
+                    : [],
+                comandosAvisadosNobre: estadoContadorAtual
+                    && Array.isArray(guardado.comandosAvisadosNobre)
                     && estadoNobreAtual
                     ? guardado.comandosAvisadosNobre.map(String)
                     : [],
+                versaoContadorAtaques: ESTADO_CONTADOR_ATAQUES_VERSION,
                 versaoEstadoNobre: ALERTA_NOBRE_STATE_VERSION,
                 alertaNobreAtivo: localStorage.getItem(ALERTA_NOBRE_KEY) === null
                     ? Boolean(guardado.alertaNobreAtivo)
@@ -291,6 +297,7 @@
                 comandosConhecidos: {},
                 comandosAvisadosAtaque: [],
                 comandosAvisadosNobre: [],
+                versaoContadorAtaques: ESTADO_CONTADOR_ATAQUES_VERSION,
                 versaoEstadoNobre: ALERTA_NOBRE_STATE_VERSION,
                 alertaNobreAtivo: false,
             };
@@ -302,6 +309,8 @@
         if (alertaGuardado !== null) {
             estado.alertaNobreAtivo = alertaGuardado === "1";
         }
+        estado.versaoContadorAtaques = ESTADO_CONTADOR_ATAQUES_VERSION;
+        estado.versaoEstadoNobre = ALERTA_NOBRE_STATE_VERSION;
         localStorage.setItem(STATE_KEY, JSON.stringify(estado));
         agendarAtualizacaoChegadas();
     }
@@ -1042,12 +1051,14 @@
 
     function criarSnapshotComandos(linhas) {
         const agoraMs = obterAgoraServidorMs();
-        return Object.fromEntries(linhas.filter((linha) => linhaAindaPorChegar(linha, agoraMs)).map((linha) => [
-            obterIdComando(linha),
-            {
-                chegadaMs: obterTimestampChegada(linha),
-            },
-        ]).filter(([chave]) => Boolean(chave)));
+        return Object.fromEntries(linhas
+            .filter((linha) => linhaAindaPorChegar(linha, agoraMs) && linhaDeAtaque(linha))
+            .map((linha) => [
+                obterIdComando(linha),
+                {
+                    chegadaMs: obterTimestampChegada(linha),
+                },
+            ]).filter(([chave]) => Boolean(chave)));
     }
 
     function sincronizarComandosConhecidos(linhas) {
@@ -1075,9 +1086,10 @@
     }
 
     function avisarNovosAtaques(linhas) {
+        const linhasAtaque = linhas.filter(linhaDeAtaque);
         const avisadosAtaque = new Set(estado.comandosAvisadosAtaque || []);
-        const porTratar = linhas.filter((linha) => !linhaJaEstaEtiquetada(linha));
-        const novos = linhas.filter((linha) => !avisadosAtaque.has(obterIdComando(linha)));
+        const porTratar = linhasAtaque.filter((linha) => !linhaJaEstaEtiquetada(linha));
+        const novos = linhasAtaque.filter((linha) => !avisadosAtaque.has(obterIdComando(linha)));
 
         if (novos.length > 0) {
             emitirSom("ataque");
@@ -1121,7 +1133,7 @@
         return true;
     }
 
-    function assinaturaIncomings(linhas = obterLinhasValidas()) {
+    function assinaturaIncomings(linhas = obterLinhasAtaqueValidas()) {
         return linhas.map((linha) => [
             obterIdComando(linha),
             obterAldeiaAtacante(linha),
@@ -1130,9 +1142,9 @@
         ].join("|")).join("||");
     }
 
-    function atualizarEstadoIncomings(linhas = obterLinhasValidas()) {
+    function atualizarEstadoIncomings(linhas = obterLinhasAtaqueValidas()) {
         const agoraMs = obterAgoraServidorMs();
-        const linhasAtivas = linhas.filter((linha) => linhaAindaPorChegar(linha, agoraMs));
+        const linhasAtivas = linhas.filter((linha) => linhaAindaPorChegar(linha, agoraMs) && linhaDeAtaque(linha));
         const chavesAtuais = new Set(linhasAtivas.map(obterIdComando).filter(Boolean));
         const tratados = new Set([
             ...(estado.comandosTratados || []),
@@ -1429,7 +1441,19 @@
         return "ataque";
     }
 
+    function linhaDeAtaque(linha) {
+        return detectarTipoComando(linha) !== "apoio";
+    }
+
+    function obterLinhasAtaqueValidas() {
+        return obterLinhasValidas().filter(linhaDeAtaque);
+    }
+
     function obterEtiquetaBaseDaLinha(linha) {
+        if (detectarTipoComando(linha) === "apoio") {
+            return config.etiquetas.apoio;
+        }
+
         const unidade = detectarUnidadeMaisLenta(linha);
         if (unidade) {
             if (unidade.id === "snob") {
@@ -1439,7 +1463,7 @@
             return unidade.etiqueta;
         }
 
-        return detectarTipoComando(linha) === "apoio" ? config.etiquetas.apoio : "";
+        return "";
     }
 
     function obterLinkAldeiaAtacante(linha) {
@@ -2048,10 +2072,11 @@
                     .forEach(desmarcarParaNaoEtiquetar);
             }
             const linhas = obterLinhasValidas().filter(linhaAindaPorChegar);
-            sincronizarComandosConhecidos(linhas);
-            avisarNovosAtaques(linhas);
+            const linhasAtaque = linhas.filter(linhaDeAtaque);
+            sincronizarComandosConhecidos(linhasAtaque);
+            avisarNovosAtaques(linhasAtaque);
             const gruposRepetidos = funcaoAtiva("agruparPorAldeia")
-                ? criarGruposPorAldeia(linhas)
+                ? criarGruposPorAldeia(linhasAtaque)
                 : { grupos: [], porLinha: new Map() };
             const fullsNobre = funcaoAtiva("detetarNobres")
                 ? contarFullsPorComboioDeNobres(gruposRepetidos.grupos)
@@ -2128,7 +2153,7 @@
 
             selecionados = selecionarLinhasParaEtiquetar(linhas, etiquetas);
             if (selecionados > 0 && !config.modoTeste) {
-                registarComandosPendentes(linhas);
+                registarComandosPendentes(linhasAtaque);
             }
             const etiquetaEnviada = clicarBotaoEtiquetar(selecionados);
             mostrarResumo({
@@ -2145,7 +2170,7 @@
                 }
                 return;
             } else {
-                atualizarEstadoIncomings(linhas);
+                atualizarEstadoIncomings(linhasAtaque);
                 log("Todos os comandos conhecidos estao tratados. A pagina visivel permanece parada.");
                 notificarProcessamentoConcluido();
             }
@@ -2159,8 +2184,63 @@
         return resultado ? Number(resultado[0]) : 0;
     }
 
+    function obterTextoContextoContador(elemento) {
+        const partes = [];
+        const atributos = ["id", "class", "title", "aria-label", "data-title", "data-tooltip", "href", "src", "alt"];
+        const recolher = (alvo, incluirTexto = false) => {
+            if (!alvo) {
+                return;
+            }
+
+            atributos.forEach((atributo) => {
+                const valor = alvo.getAttribute?.(atributo);
+                if (valor) {
+                    partes.push(valor);
+                }
+            });
+
+            if (incluirTexto && alvo.textContent) {
+                partes.push(alvo.textContent);
+            }
+        };
+
+        const link = elemento.closest?.("a[href]") || elemento.querySelector?.("a[href]");
+        const bloco = elemento.closest?.("a, span, div, td, li") || elemento;
+        const pai = elemento.parentElement;
+        const contentorImagens = link || pai || bloco || elemento;
+        recolher(elemento, true);
+        recolher(link, true);
+        recolher(bloco, false);
+        recolher(pai, false);
+        [...(contentorImagens?.querySelectorAll?.("img") || [])]
+            .slice(0, 4)
+            .forEach((imagem) => recolher(imagem, false));
+
+        return normalizar(partes.join(" "));
+    }
+
+    function elementoContadorDeApoio(elemento) {
+        const contexto = obterTextoContextoContador(elemento);
+        return /\b(support|supports|apoio|apoios|suporte|reforco|reforcos)\b/.test(contexto)
+            || /support_counter|supports_amount|support_amount|incoming_support|command\/support/.test(contexto);
+    }
+
+    function elementoContadorDeAtaque(elemento) {
+        if (elementoContadorDeApoio(elemento)) {
+            return false;
+        }
+
+        const contexto = obterTextoContextoContador(elemento);
+        return /\b(attack|attacks|ataque|ataques|incoming|incomings)\b/.test(contexto)
+            || /attack_counter|incomings_amount|incoming_amount|mode=incomings|command\/attack/.test(contexto);
+    }
+
+    function obterElementosContadorAtaques() {
+        return [...document.querySelectorAll(SELETORES.contadorIncomings)].filter(elementoContadorDeAtaque);
+    }
+
     function obterContadorIncomings() {
-        const candidatos = [...document.querySelectorAll(SELETORES.contadorIncomings)];
+        const candidatos = obterElementosContadorAtaques();
 
         return candidatos.reduce((maior, elemento) => {
             const texto = elemento.textContent || elemento.getAttribute("title") || elemento.getAttribute("aria-label") || "";
@@ -2172,7 +2252,7 @@
         sincronizarEstado();
 
         if (paginaDeIncomings()) {
-            return obterLinhasValidas().filter(linhaAindaPorChegar).length;
+            return obterLinhasAtaqueValidas().filter(linhaAindaPorChegar).length;
         }
 
         return estado.processado
@@ -2221,7 +2301,7 @@
             return;
         }
 
-        const elementos = [...document.querySelectorAll(SELETORES.contadorIncomings)];
+        const elementos = obterElementosContadorAtaques();
         if (elementos.length === 0) {
             log("Contador real de ataques nao encontrado; sem verificacoes automaticas nesta pagina.");
             return;
@@ -2382,15 +2462,16 @@
             }
 
             const linhas = obterLinhasValidas().filter(linhaAindaPorChegar);
+            const linhasAtaque = linhas.filter(linhaDeAtaque);
             const avisadosAntes = new Set(estado.comandosAvisadosAtaque || []);
-            const cancelados = sincronizarComandosConhecidos(linhas);
-            const novos = linhas.filter((linha) => !avisadosAntes.has(obterIdComando(linha))).length;
-            avisarNovosAtaques(linhas);
-            atualizarEstadoIncomings(linhas);
-            const porTratar = linhas.filter((linha) => !linhaJaEstaEtiquetada(linha)).length;
+            const cancelados = sincronizarComandosConhecidos(linhasAtaque);
+            const novos = linhasAtaque.filter((linha) => !avisadosAntes.has(obterIdComando(linha))).length;
+            avisarNovosAtaques(linhasAtaque);
+            atualizarEstadoIncomings(linhasAtaque);
+            const porTratar = linhasAtaque.filter((linha) => !linhaJaEstaEtiquetada(linha)).length;
 
             notificarDetecaoIncomings({
-                total: linhas.length,
+                total: linhasAtaque.length,
                 novos,
                 porTratar,
                 cancelados,
