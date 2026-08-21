@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.48
+// @version      1.3.50
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.48 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.50 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -3179,6 +3179,31 @@
         return /\b(apoio|apoios|apoiar|apoiando|suporte|suportes|support|supports|supporting|reforco|reforcos|reinforcement|reinforcements|unterstutzung|unterstuetzung|verstarkung|verstaerkung|ondersteuning|soutien|renfort|apoyo|apoyos|rinforzo|rinforzi|wsparcie|posilky|podpora|sprijin|suport|tamogatas|erosites|stotte|stod|stöd|tuki|destek)\b/.test(rowText);
     }
 
+    function isOwnTroopOverviewRow(rowText) {
+        return [
+            'as suas proprias',
+            'suas proprias',
+            'tropas proprias',
+            'proprias',
+            'own troops',
+            'your own',
+            'own units',
+            'eigene truppen',
+            'eigene',
+            'wlasne',
+            'wlasnych',
+            'vlastni',
+            'vlastne',
+            'propias',
+            'proprie',
+            'propres',
+            'eigen troepen',
+            'eigen',
+            'sajat',
+            'kendi'
+        ].some(label => rowText.includes(label));
+    }
+
     function hasTroopValues(rowTotals) {
         return Object.keys(rowTotals || {}).some(unitKey => Number(rowTotals[unitKey] || 0) > 0);
     }
@@ -3478,26 +3503,43 @@
         return null;
     }
 
+    function getPlausibleTroopNobleCeiling(academyAvailability) {
+        const academyCeiling = getPlausibleAcademyNobleCeiling(academyAvailability);
+        const academyExisting = Number(academyAvailability?.existingNobles);
+
+        if (academyCeiling !== null) {
+            return Math.max(Number.isFinite(academyExisting) ? academyExisting : 0, academyCeiling);
+        }
+
+        const villageCount = Number(getPlayerVillageCount() || 0);
+
+        if (Number.isFinite(villageCount) && villageCount > 0) {
+            return Math.max(20, villageCount * 5);
+        }
+
+        return 500;
+    }
+
     function getReliableCurrentNobles(academyAvailability, troopNobles) {
         const academyExisting = academyAvailability?.existingNobles;
         const troopCount = Number(troopNobles || 0);
+        const troopCeiling = getPlausibleTroopNobleCeiling(academyAvailability);
+        const hasPlausibleTroopCount =
+            Number.isFinite(troopCount) &&
+            troopCount > 0 &&
+            troopCount <= troopCeiling;
 
         if (academyExisting !== null && academyExisting !== undefined) {
             const academyCount = Number(academyExisting || 0);
-            const ceiling = getPlausibleAcademyNobleCeiling(academyAvailability);
 
-            if (
-                troopCount > academyCount &&
-                troopCount > 0 &&
-                (ceiling === null || troopCount <= Math.max(academyCount, ceiling))
-            ) {
+            if (hasPlausibleTroopCount && troopCount > academyCount) {
                 return troopCount;
             }
 
             return academyCount;
         }
 
-        return troopCount;
+        return hasPlausibleTroopCount ? troopCount : null;
     }
 
     async function getAcademyNoblesAvailable() {
@@ -3588,6 +3630,7 @@
         if (!bestTable || !bestColumns.length) return null;
 
         const totals = createTroopTotals();
+        const attackTotals = createTroopTotals();
         const rows = getDirectTableRows(bestTable)
             .filter(row => !row.querySelector('th'));
 
@@ -3614,7 +3657,9 @@
                         key: detectedVillageKey,
                         id: detectedVillageId,
                         totals: createTroopTotals(),
+                        attackTotals: createTroopTotals(),
                         fallbackTotals: createTroopTotals(),
+                        hasAttackRow: false,
                         hasTotalRow: false
                     });
                 } else if (detectedVillageId && !villagesByKey.get(detectedVillageKey).id) {
@@ -3634,7 +3679,9 @@
                     key: villageKey,
                     id: detectedVillageId || currentVillageId,
                     totals: createTroopTotals(),
+                    attackTotals: createTroopTotals(),
                     fallbackTotals: createTroopTotals(),
+                    hasAttackRow: false,
                     hasTotalRow: false
                 });
             }
@@ -3651,6 +3698,14 @@
                 return;
             }
 
+            if (
+                !village.hasAttackRow &&
+                (detectedVillageKey || isOwnTroopOverviewRow(rowText))
+            ) {
+                village.attackTotals = rowTotals;
+                village.hasAttackRow = true;
+            }
+
             if (!village.hasTotalRow) {
                 maxTroopTotals(village.fallbackTotals, rowTotals);
             }
@@ -3662,15 +3717,22 @@
                     village.totals = village.fallbackTotals;
                 }
 
+                if (!village.hasAttackRow || !hasTroopValues(village.attackTotals)) {
+                    village.attackTotals = village.totals;
+                }
+
                 delete village.fallbackTotals;
+                delete village.hasAttackRow;
                 delete village.hasTotalRow;
 
                 addTroopTotals(totals, village.totals);
+                addTroopTotals(attackTotals, village.attackTotals);
                 return village;
             });
 
         return {
             totals,
+            attackTotals,
             villages,
             attackFullCounter: calculateAttackFullCounterByVillage(villages),
             villageCount: getPlayerVillageCount() || villageKeys.size || rows.length
@@ -3691,6 +3753,7 @@
         });
 
         const rebuiltTotals = createTroopTotals();
+        const rebuiltAttackTotals = createTroopTotals();
         const rebuiltDefenseTotals = createTroopTotals();
         const rebuiltVillages = [];
         let placeVillageCount = 0;
@@ -3710,28 +3773,38 @@
                 const transitTotals = parseTransitTroopTotals(doc);
                 const placeTotals = createTroopTotals();
                 const defenseTotals = createTroopTotals();
-                const overviewTotals = Object.assign(createTroopTotals(), village.totals || {});
+                const overviewAttackTotals = Object.assign(
+                    createTroopTotals(),
+                    village.attackTotals || village.totals || {}
+                );
 
                 addTroopTotals(defenseTotals, homeTotals);
                 addTroopTotals(placeTotals, homeTotals);
                 addTroopTotals(placeTotals, scavengingTotals);
                 addTroopTotals(placeTotals, transitTotals);
 
-                placeTotals.axe = Math.max(Number(placeTotals.axe || 0), Number(overviewTotals.axe || 0));
-                placeTotals.light = Math.max(Number(placeTotals.light || 0), Number(overviewTotals.light || 0));
+                const attackTotals = hasTroopValues(overviewAttackTotals)
+                    ? overviewAttackTotals
+                    : placeTotals;
 
                 if (hasTroopValues(placeTotals)) {
                     village.totals = placeTotals;
+                    village.attackTotals = attackTotals;
                     village.defenseTotals = defenseTotals;
                     rebuiltVillages.push(village);
                     addTroopTotals(rebuiltTotals, placeTotals);
+                    addTroopTotals(rebuiltAttackTotals, attackTotals);
                     if (hasTroopValues(defenseTotals)) {
                         addTroopTotals(rebuiltDefenseTotals, defenseTotals);
                     }
                     placeVillageCount += 1;
                 } else if (hasTroopValues(village.totals)) {
+                    village.attackTotals = hasTroopValues(overviewAttackTotals)
+                        ? overviewAttackTotals
+                        : village.totals;
                     rebuiltVillages.push(village);
                     addTroopTotals(rebuiltTotals, village.totals);
+                    addTroopTotals(rebuiltAttackTotals, village.attackTotals);
                     addTroopTotals(rebuiltDefenseTotals, village.defenseTotals || village.totals);
                 }
 
@@ -3749,6 +3822,7 @@
 
         if (rebuiltVillages.length > 0) {
             summary.totals = rebuiltTotals;
+            summary.attackTotals = rebuiltAttackTotals;
             summary.defenseTotals = rebuiltDefenseTotals;
             summary.villages = rebuiltVillages;
         }
@@ -3783,6 +3857,18 @@
 
     function formatTroopNumber(value) {
         return Number(value || 0).toLocaleString(getNumberLocale());
+    }
+
+    function formatOptionalTroopNumber(value) {
+        if (value === null || value === undefined || value === '') {
+            return 'N/A';
+        }
+
+        const number = Number(value);
+
+        return Number.isFinite(number)
+            ? formatTroopNumber(number)
+            : 'N/A';
     }
 
     function sumTroopUnits(totals, units) {
@@ -3822,7 +3908,7 @@
         };
 
         (villages || []).forEach(village => {
-            const totals = village.totals || {};
+            const totals = village.attackTotals || village.totals || {};
             const tier = getAttackFullTier(totals);
 
             if (!tier) return;
@@ -3893,7 +3979,7 @@
         }
 
         const academyAvailability = await getAcademyNoblesAvailable();
-        const troopNobles = Number(troopsSummary.totals.snob || 0);
+        const troopNobles = Number((troopsSummary.attackTotals || troopsSummary.totals).snob || 0);
 
         return {
             currentNobles: getReliableCurrentNobles(academyAvailability, troopNobles),
@@ -3926,7 +4012,7 @@
                 {
                     name: '👑 Nobres',
                     value: [
-                        `Nobres atuais: **${formatTroopNumber(summary.currentNobles)}**`,
+                        `Nobres atuais: **${formatOptionalTroopNumber(summary.currentNobles)}**`,
                         `Nobres que ainda podem ser feitos: **${canMakeText}**`
                     ].join('\n'),
                     inline: false
@@ -3950,7 +4036,7 @@
         ]);
 
         troopsSummary.defenderTribe = defenderTribe;
-        const troopNobles = Number(troopsSummary.totals.snob || 0);
+        const troopNobles = Number((troopsSummary.attackTotals || troopsSummary.totals).snob || 0);
 
         return {
             attackFulls: troopsSummary,
@@ -3998,7 +4084,7 @@
                 {
                     name: '👑 Nobres',
                     value: [
-                        `Nobres atuais: **${formatTroopNumber(nobleCounter.currentNobles)}**`,
+                        `Nobres atuais: **${formatOptionalTroopNumber(nobleCounter.currentNobles)}**`,
                         `Nobres que ainda podem ser feitos: **${canMakeText}**`
                     ].join('\n'),
                     inline: false
