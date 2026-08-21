@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.41
+// @version      1.3.44
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.41 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.44 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2773,15 +2773,25 @@
         return rowTotals;
     }
 
+    function isLikelyTroopValueCell(cell) {
+        const text = cleanText(cell ? (cell.innerText || cell.textContent || '') : '');
+
+        if (!text || parseCoords(text)) return false;
+        if (/^[-—â€”]+$/.test(text)) return true;
+
+        return /^\d[\d.\s]*$/.test(text);
+    }
+
     function parseTroopRowTotalsFromRight(row, columns) {
         const rowTotals = createTroopTotals();
         const cells = Array.from(row ? row.children : []);
 
         if (!cells.length || !columns || !columns.length) return rowTotals;
 
-        const unitCells = cells.length >= columns.length
-            ? cells.slice(cells.length - columns.length)
-            : cells;
+        const valueCells = cells.filter(isLikelyTroopValueCell);
+        const unitCells = valueCells.length >= columns.length
+            ? valueCells.slice(0, columns.length)
+            : cells.slice(Math.max(0, cells.length - columns.length));
 
         columns.slice(-unitCells.length).forEach((column, index) => {
             const cell = unitCells[index];
@@ -2798,16 +2808,12 @@
     function parsePlaceTroopRowTotals(row, columns) {
         const normalTotals = parseTroopRowTotals(row, columns);
         const rightTotals = parseTroopRowTotalsFromRight(row, columns);
-        const mergedTotals = createTroopTotals();
 
-        Object.keys(mergedTotals).forEach(unitKey => {
-            mergedTotals[unitKey] = Math.max(
-                Number(normalTotals[unitKey] || 0),
-                Number(rightTotals[unitKey] || 0)
-            );
-        });
+        if (hasTroopValues(rightTotals)) {
+            return rightTotals;
+        }
 
-        return mergedTotals;
+        return normalTotals;
     }
 
     function createTroopTotals() {
@@ -2826,6 +2832,15 @@
             if (!value) return;
 
             target[unitKey] = Number(target[unitKey] || 0) + value;
+        });
+    }
+
+    function maxTroopTotals(target, source) {
+        Object.keys(source || {}).forEach(unitKey => {
+            const value = Number(source[unitKey] || 0);
+            if (!value) return;
+
+            target[unitKey] = Math.max(Number(target[unitKey] || 0), value);
         });
     }
 
@@ -3157,7 +3172,6 @@
 
     function isIgnoredTroopOverviewRow(rowText) {
         return !rowText ||
-            isTotalTroopRow(rowText) ||
             /\b(selecionar|seleccionar|select|auswahlen|auswaehlen|wybierz|vybrat|seleccionar|seleccion|selecteaza|kivalaszt|sec|secin)\b/.test(rowText);
     }
 
@@ -3579,6 +3593,9 @@
 
         const villageKeys = new Set();
         const villagesByKey = new Map();
+        let currentVillageKey = '';
+        let currentVillageId = '';
+
         rows.forEach(row => {
             const detectedVillageKey = getRowCoordsKey(row);
             const detectedVillageId = detectedVillageKey ? getRowVillageId(row) : '';
@@ -3588,42 +3605,69 @@
             if (isSupportTroopOverviewRow(rowText)) return;
 
             if (detectedVillageKey) {
+                currentVillageKey = detectedVillageKey;
+                currentVillageId = detectedVillageId || currentVillageId;
                 villageKeys.add(detectedVillageKey);
 
                 if (!villagesByKey.has(detectedVillageKey)) {
                     villagesByKey.set(detectedVillageKey, {
                         key: detectedVillageKey,
                         id: detectedVillageId,
-                        totals: createTroopTotals()
+                        totals: createTroopTotals(),
+                        fallbackTotals: createTroopTotals(),
+                        hasTotalRow: false
                     });
                 } else if (detectedVillageId && !villagesByKey.get(detectedVillageKey).id) {
                     villagesByKey.get(detectedVillageKey).id = detectedVillageId;
                 }
             }
 
-            const villageKey = detectedVillageKey;
-
+            const villageKey = detectedVillageKey || currentVillageKey;
             if (!villageKey) return;
 
-            const rowTotals = parseTroopRowTotals(row, bestColumns);
+            const rowTotals = parsePlaceTroopRowTotals(row, bestColumns);
 
             if (!hasTroopValues(rowTotals)) return;
 
             if (!villagesByKey.has(villageKey)) {
                 villagesByKey.set(villageKey, {
                     key: villageKey,
-                    id: detectedVillageId,
-                    totals: createTroopTotals()
+                    id: detectedVillageId || currentVillageId,
+                    totals: createTroopTotals(),
+                    fallbackTotals: createTroopTotals(),
+                    hasTotalRow: false
                 });
             }
 
             const village = villagesByKey.get(villageKey);
 
-            addTroopTotals(totals, rowTotals);
-            addTroopTotals(village.totals, rowTotals);
+            if (detectedVillageId && !village.id) {
+                village.id = detectedVillageId;
+            }
+
+            if (isTotalTroopRow(rowText)) {
+                village.totals = rowTotals;
+                village.hasTotalRow = true;
+                return;
+            }
+
+            if (!village.hasTotalRow) {
+                maxTroopTotals(village.fallbackTotals, rowTotals);
+            }
         });
 
-        const villages = Array.from(villagesByKey.values());
+        const villages = Array.from(villagesByKey.values())
+            .map(village => {
+                if (!village.hasTotalRow && hasTroopValues(village.fallbackTotals)) {
+                    village.totals = village.fallbackTotals;
+                }
+
+                delete village.fallbackTotals;
+                delete village.hasTotalRow;
+
+                addTroopTotals(totals, village.totals);
+                return village;
+            });
 
         return {
             totals,
