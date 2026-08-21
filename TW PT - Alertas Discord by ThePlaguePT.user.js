@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.38
+// @version      1.3.39
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.38 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.39 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -3744,7 +3744,9 @@
             attackVillages: 0,
             completeVillages: 0,
             halfVillages: 0,
-            smallVillages: 0
+            smallVillages: 0,
+            totalVikings: 0,
+            totalLight: 0
         };
 
         (villages || []).forEach(village => {
@@ -3754,23 +3756,40 @@
 
             if (!vikings && !light) return;
 
+            counter.totalVikings += vikings;
+            counter.totalLight += light;
             counter.attackVillages += 1;
 
             if (vikings >= ATTACK_FULL_AXE && light >= ATTACK_FULL_LIGHT) {
-                counter.completeFulls += 1;
                 counter.completeVillages += 1;
                 return;
             }
 
             if (vikings >= ATTACK_HALF_AXE && light >= ATTACK_HALF_LIGHT) {
-                counter.halfFulls += 1;
                 counter.halfVillages += 1;
                 return;
             }
 
-            counter.smallFulls += 1;
             counter.smallVillages += 1;
         });
+
+        counter.completeFulls = Math.min(
+            Math.floor(counter.totalVikings / ATTACK_FULL_AXE),
+            Math.floor(counter.totalLight / ATTACK_FULL_LIGHT)
+        );
+
+        const remainingVikings = Math.max(0, counter.totalVikings - (counter.completeFulls * ATTACK_FULL_AXE));
+        const remainingLight = Math.max(0, counter.totalLight - (counter.completeFulls * ATTACK_FULL_LIGHT));
+
+        counter.halfFulls = Math.min(
+            Math.floor(remainingVikings / ATTACK_HALF_AXE),
+            Math.floor(remainingLight / ATTACK_HALF_LIGHT)
+        );
+
+        counter.smallFulls = Math.max(
+            0,
+            counter.attackVillages - counter.completeFulls - counter.halfFulls
+        );
 
         return counter;
     }
