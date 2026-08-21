@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.44
+// @version      1.3.45
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.44 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.45 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2793,7 +2793,7 @@
             ? valueCells.slice(0, columns.length)
             : cells.slice(Math.max(0, cells.length - columns.length));
 
-        columns.slice(-unitCells.length).forEach((column, index) => {
+        columns.slice(0, unitCells.length).forEach((column, index) => {
             const cell = unitCells[index];
             const value = parseSafeTroopCellNumber(cell ? (cell.innerText || cell.textContent || '') : '');
 
@@ -3805,7 +3805,7 @@
             const vikings = Number(totals.axe || 0);
             const light = Number(totals.light || 0);
 
-            if (!vikings && !light) return;
+            if (!vikings || !light) return;
 
             counter.attackVillages += 1;
 
