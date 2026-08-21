@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.45
+// @version      1.3.46
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.45 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.46 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -3672,7 +3672,7 @@
         return {
             totals,
             villages,
-            attackFullCounter: calculateAttackFullCounter(villages),
+            attackFullCounter: calculateAttackFullCounterFromTotals(totals),
             villageCount: getPlayerVillageCount() || villageKeys.size || rows.length
         };
     }
@@ -3755,7 +3755,7 @@
 
         summary.placeVillageCount = placeVillageCount;
         summary.scavengingVillageCount = movementVillageCount;
-        summary.attackFullCounter = calculateAttackFullCounter(summary.villages);
+        summary.attackFullCounter = calculateAttackFullCounterFromTotals(summary.totals);
 
         return summary;
     }
@@ -3789,7 +3789,47 @@
         return units.reduce((sum, unit) => sum + Number(totals[unit] || 0), 0);
     }
 
+    function calculateAttackFullCounterFromTotals(totals) {
+        const vikings = Number(totals?.axe || 0);
+        const light = Number(totals?.light || 0);
+        const completeFulls = Math.min(
+            Math.floor(vikings / ATTACK_FULL_AXE),
+            Math.floor(light / ATTACK_FULL_LIGHT)
+        );
+        const remainingAfterFullAxe = vikings - (completeFulls * ATTACK_FULL_AXE);
+        const remainingAfterFullLight = light - (completeFulls * ATTACK_FULL_LIGHT);
+        const halfFulls = Math.min(
+            Math.floor(remainingAfterFullAxe / ATTACK_HALF_AXE),
+            Math.floor(remainingAfterFullLight / ATTACK_HALF_LIGHT)
+        );
+        const remainingAfterHalfAxe = remainingAfterFullAxe - (halfFulls * ATTACK_HALF_AXE);
+        const remainingAfterHalfLight = remainingAfterFullLight - (halfFulls * ATTACK_HALF_LIGHT);
+        const smallFulls = remainingAfterHalfAxe > 0 && remainingAfterHalfLight > 0 ? 1 : 0;
+
+        return {
+            completeFulls,
+            halfFulls,
+            smallFulls,
+            attackVillages: completeFulls + halfFulls + smallFulls,
+            completeVillages: completeFulls,
+            halfVillages: halfFulls,
+            smallVillages: smallFulls,
+            vikings,
+            light
+        };
+    }
+
     function calculateAttackFullCounter(villages) {
+        const totals = createTroopTotals();
+
+        (villages || []).forEach(village => {
+            addTroopTotals(totals, village.totals || {});
+        });
+
+        return calculateAttackFullCounterFromTotals(totals);
+    }
+
+    function calculateAttackFullCounterByVillage(villages) {
         const counter = {
             completeFulls: 0,
             halfFulls: 0,
@@ -3949,7 +3989,7 @@
     function buildCombinedCountersEmbed(summary) {
         const attackFulls = summary.attackFulls || {};
         const nobleCounter = summary.nobleCounter || {};
-        const counter = attackFulls.attackFullCounter || calculateAttackFullCounter(attackFulls.villages);
+        const counter = attackFulls.attackFullCounter || calculateAttackFullCounterFromTotals(attackFulls.totals || {});
         const canMakeText = nobleCounter.canMake === null
             ? 'N/A'
             : formatTroopNumber(nobleCounter.canMake);
