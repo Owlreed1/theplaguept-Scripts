@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.46
+// @version      1.0.47
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     const ALERTA_NOBRE_KEY = "tag_incomings_pt_alerta_nobre_v1";
     const ALERTA_NOBRE_STATE_VERSION = 2;
     const ESTADO_CONTADOR_ATAQUES_VERSION = 3;
-    const VERSAO_SCRIPT = "1.0.46";
+    const VERSAO_SCRIPT = "1.0.47";
     const NOME_LANCADOR = "Etiquetador - TheplaguePT";
 
     const CONFIG_PADRAO = {
@@ -1450,8 +1450,8 @@
     }
 
     function obterEtiquetaBaseDaLinha(linha) {
-        if (detectarTipoComando(linha) === "apoio") {
-            return config.etiquetas.apoio;
+        if (!linhaDeAtaque(linha)) {
+            return "";
         }
 
         const unidade = detectarUnidadeMaisLenta(linha);
@@ -1682,6 +1682,10 @@
     }
 
     function nomePermiteEtiqueta(linha, etiquetas) {
+        if (!linhaDeAtaque(linha)) {
+            return false;
+        }
+
         if (linhaJaEstaEtiquetada(linha)) {
             return false;
         }
@@ -2073,6 +2077,7 @@
             }
             const linhas = obterLinhasValidas().filter(linhaAindaPorChegar);
             const linhasAtaque = linhas.filter(linhaDeAtaque);
+            linhas.filter((linha) => !linhaDeAtaque(linha)).forEach(desmarcarParaNaoEtiquetar);
             sincronizarComandosConhecidos(linhasAtaque);
             avisarNovosAtaques(linhasAtaque);
             const gruposRepetidos = funcaoAtiva("agruparPorAldeia")
@@ -2082,11 +2087,11 @@
                 ? contarFullsPorComboioDeNobres(gruposRepetidos.grupos)
                 : 0;
             let renomeados = 0;
-            let selecionados = selecionarLinhasParaEtiquetar(linhas, etiquetas);
+            let selecionados = selecionarLinhasParaEtiquetar(linhasAtaque, etiquetas);
             let edicoesServidor = 0;
 
             if (funcaoAtiva("renomearComandos")) {
-                for (const linha of linhas) {
+                for (const linha of linhasAtaque) {
                     const nomeAtual = obterNome(linha);
                     const infoGrupo = gruposRepetidos.porLinha.get(linha);
 
@@ -2143,7 +2148,7 @@
                     }
                 }
             } else {
-                for (const linha of linhas) {
+                for (const linha of linhasAtaque) {
                     const infoGrupo = gruposRepetidos.porLinha.get(linha);
                     if (infoGrupo) {
                         destacarGrupo(linha, infoGrupo);
@@ -2151,7 +2156,7 @@
                 }
             }
 
-            selecionados = selecionarLinhasParaEtiquetar(linhas, etiquetas);
+            selecionados = selecionarLinhasParaEtiquetar(linhasAtaque, etiquetas);
             if (selecionados > 0 && !config.modoTeste) {
                 registarComandosPendentes(linhasAtaque);
             }
@@ -2159,7 +2164,7 @@
             mostrarResumo({
                 renomeados,
                 selecionados,
-                total: linhas.length,
+                total: linhasAtaque.length,
                 grupos: gruposRepetidos.grupos.length,
                 fullsNobre,
             });
