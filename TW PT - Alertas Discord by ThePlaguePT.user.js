@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.40
+// @version      1.3.41
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.40 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.41 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2796,13 +2796,18 @@
     }
 
     function parsePlaceTroopRowTotals(row, columns) {
+        const normalTotals = parseTroopRowTotals(row, columns);
         const rightTotals = parseTroopRowTotalsFromRight(row, columns);
+        const mergedTotals = createTroopTotals();
 
-        if (hasTroopValues(rightTotals)) {
-            return rightTotals;
-        }
+        Object.keys(mergedTotals).forEach(unitKey => {
+            mergedTotals[unitKey] = Math.max(
+                Number(normalTotals[unitKey] || 0),
+                Number(rightTotals[unitKey] || 0)
+            );
+        });
 
-        return parseTroopRowTotals(row, columns);
+        return mergedTotals;
     }
 
     function createTroopTotals() {
@@ -3661,11 +3666,15 @@
                 const transitTotals = parseTransitTroopTotals(doc);
                 const placeTotals = createTroopTotals();
                 const defenseTotals = createTroopTotals();
+                const overviewTotals = Object.assign(createTroopTotals(), village.totals || {});
 
                 addTroopTotals(defenseTotals, homeTotals);
                 addTroopTotals(placeTotals, homeTotals);
                 addTroopTotals(placeTotals, scavengingTotals);
                 addTroopTotals(placeTotals, transitTotals);
+
+                placeTotals.axe = Math.max(Number(placeTotals.axe || 0), Number(overviewTotals.axe || 0));
+                placeTotals.light = Math.max(Number(placeTotals.light || 0), Number(overviewTotals.light || 0));
 
                 if (hasTroopValues(placeTotals)) {
                     village.totals = placeTotals;
