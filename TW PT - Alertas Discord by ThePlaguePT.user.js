@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.53
+// @version      1.3.54
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.53 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.54 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -3542,6 +3542,50 @@
         return hasPlausibleTroopCount ? troopCount : null;
     }
 
+    function getBestTroopNobleCount(troopsSummary, academyAvailability) {
+        const troopCeiling = getPlausibleTroopNobleCeiling(academyAvailability);
+        const candidates = [
+            Number(troopsSummary?.attackTotals?.snob || 0),
+            Number(troopsSummary?.totals?.snob || 0)
+        ];
+
+        (troopsSummary?.villages || []).forEach(village => {
+            candidates.push(Number(village?.attackTotals?.snob || 0));
+            candidates.push(Number(village?.totals?.snob || 0));
+        });
+
+        const plausible = candidates.filter(value =>
+            Number.isFinite(value) &&
+            value > 0 &&
+            value <= troopCeiling
+        );
+
+        return plausible.length ? Math.max(...plausible) : 0;
+    }
+
+    function getReliableCanMakeNobles(academyAvailability) {
+        const directCanMake = academyAvailability?.canMake;
+
+        if (directCanMake !== null && directCanMake !== undefined) {
+            return Number(directCanMake || 0);
+        }
+
+        const nobleLimit = Number(academyAvailability?.nobleLimit);
+        const conqueredVillages = Number(academyAvailability?.conqueredVillages);
+        const existingNobles = Number(academyAvailability?.existingNobles);
+        const noblesInProduction = Number(academyAvailability?.noblesInProduction || 0);
+
+        if (
+            Number.isFinite(nobleLimit) &&
+            Number.isFinite(conqueredVillages) &&
+            Number.isFinite(existingNobles)
+        ) {
+            return Math.max(0, nobleLimit - conqueredVillages - existingNobles - noblesInProduction);
+        }
+
+        return null;
+    }
+
     async function getAcademyNoblesAvailable() {
         try {
             const currentAcademyDoc = await fetchAcademyDocument();
@@ -3981,13 +4025,13 @@
         }
 
         const academyAvailability = await getAcademyNoblesAvailable();
-        const troopNobles = Number((troopsSummary.attackTotals || troopsSummary.totals).snob || 0);
+        const troopNobles = getBestTroopNobleCount(troopsSummary, academyAvailability);
 
         return {
             currentNobles: getReliableCurrentNobles(academyAvailability, troopNobles),
             villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
             defenderTribe: await getPlayerTribe(getDefenderProfileUrl()),
-            canMake: academyAvailability.canMake,
+            canMake: getReliableCanMakeNobles(academyAvailability),
             academyVillageCount: academyAvailability.academyVillageCount,
             academySource: academyAvailability.source
         };
@@ -4038,7 +4082,7 @@
         ]);
 
         troopsSummary.defenderTribe = defenderTribe;
-        const troopNobles = Number((troopsSummary.attackTotals || troopsSummary.totals).snob || 0);
+        const troopNobles = getBestTroopNobleCount(troopsSummary, academyAvailability);
 
         return {
             attackFulls: troopsSummary,
@@ -4046,7 +4090,7 @@
                 currentNobles: getReliableCurrentNobles(academyAvailability, troopNobles),
                 villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
                 defenderTribe,
-                canMake: academyAvailability.canMake,
+                canMake: getReliableCanMakeNobles(academyAvailability),
                 academyVillageCount: academyAvailability.academyVillageCount,
                 academySource: academyAvailability.source
             }
