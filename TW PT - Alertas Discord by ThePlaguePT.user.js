@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.36
+// @version      1.3.38
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.36 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.38 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2796,13 +2796,13 @@
     }
 
     function parsePlaceTroopRowTotals(row, columns) {
-        const normalTotals = parseTroopRowTotals(row, columns);
+        const rightTotals = parseTroopRowTotalsFromRight(row, columns);
 
-        if (hasTroopValues(normalTotals)) {
-            return normalTotals;
+        if (hasTroopValues(rightTotals)) {
+            return rightTotals;
         }
 
-        return parseTroopRowTotalsFromRight(row, columns);
+        return parseTroopRowTotals(row, columns);
     }
 
     function createTroopTotals() {
@@ -3026,67 +3026,44 @@
 
     function parseScavengingTroopTotals(doc) {
         const totals = createTroopTotals();
-        const table = findScavengingTroopTable(doc);
 
-        if (!table) return totals;
+        getPlaceTroopTables(doc)
+            .filter(tableInfo => tableInfo.rows.some(item => isScavengingTroopOverviewRow(item.text)))
+            .forEach(tableInfo => {
+                const totalRow = tableInfo.rows.find(item => isTotalTroopRow(item.text));
 
-        const columns = getTroopColumns(table);
-        if (!columns.length) return totals;
+                if (totalRow) {
+                    addTroopTotals(totals, parsePlaceTroopRowTotals(totalRow.row, tableInfo.columns));
+                    return;
+                }
 
-        const rows = getDirectTableRows(table)
-            .filter(row => !row.querySelector('th'));
+                tableInfo.rows.forEach(item => {
+                    if (!isScavengingTroopOverviewRow(item.text)) return;
+                    if (rowHasCoords(item.row) || isSupportTroopOverviewRow(item.text)) return;
 
-        const totalRow = rows.find(row => {
-            const rowText = getTroopOverviewRowText(row);
-
-            return isTotalTroopRow(rowText);
-        });
-
-        if (totalRow) {
-            return parsePlaceTroopRowTotals(totalRow, columns);
-        }
-
-        rows.forEach(row => {
-            const rowText = normalizeSearchText(row.innerText || row.textContent || '');
-
-            if (
-                !isScavengingTroopOverviewRow(rowText) &&
-                (rowHasCoords(row) || isTotalTroopRow(rowText) || isSupportTroopOverviewRow(rowText))
-            ) {
-                return;
-            }
-
-            addTroopTotals(totals, parsePlaceTroopRowTotals(row, columns));
-        });
+                    addTroopTotals(totals, item.totals);
+                });
+            });
 
         return totals;
     }
 
     function parseTransitTroopTotals(doc) {
         const totals = createTroopTotals();
-        const table = findTransitTroopTable(doc);
 
-        if (!table) return totals;
+        getPlaceTroopTables(doc)
+            .filter(tableInfo => tableInfo.rows.some(item => rowHasCoords(item.row)))
+            .forEach(tableInfo => {
+                tableInfo.rows.forEach(item => {
+                    if (!rowHasCoords(item.row)) return;
+                    if (isIgnoredTroopOverviewRow(item.text)) return;
+                    if (isTotalTroopRow(item.text)) return;
+                    if (isSupportTroopOverviewRow(item.text)) return;
+                    if (isScavengingTroopOverviewRow(item.text)) return;
 
-        const columns = getTroopColumns(table);
-        if (!columns.length) return totals;
-
-        const rows = getDirectTableRows(table)
-            .filter(row => !row.querySelector('th'));
-
-        rows.forEach(row => {
-            const rowText = getTroopOverviewRowText(row);
-
-            if (isIgnoredTroopOverviewRow(rowText)) return;
-            if (isTotalTroopRow(rowText)) return;
-            if (isSupportTroopOverviewRow(rowText)) return;
-
-            const rowTotals = parsePlaceTroopRowTotals(row, columns);
-
-            if (!hasTroopValues(rowTotals)) return;
-
-            addTroopTotals(totals, rowTotals);
-        });
+                    addTroopTotals(totals, item.totals);
+                });
+            });
 
         return totals;
     }
@@ -3376,6 +3353,29 @@
         return null;
     }
 
+    function parseAcademyNumberByLabels(doc, labels) {
+        if (!doc || !doc.body) return null;
+
+        const rows = Array.from(doc.querySelectorAll('tr'));
+
+        for (const row of rows) {
+            const cells = Array.from(row.children);
+            if (cells.length < 2) continue;
+
+            const label = normalizeSearchText(cells[0].innerText || cells[0].textContent || '');
+            if (!labels.some(item => label.includes(item))) continue;
+
+            const valueText = cleanText(cells[cells.length - 1].innerText || cells[cells.length - 1].textContent || '');
+            const valueMatch = valueText.match(/\d[\d.\s]*/);
+
+            if (valueMatch) {
+                return parseResourceNumber(valueMatch[0]);
+            }
+        }
+
+        return null;
+    }
+
     function parseAcademyNobleCounts(doc) {
         if (!doc || !doc.body) {
             return {
@@ -3385,7 +3385,10 @@
         }
 
         const counts = {
+            nobleLimit: parseAcademyNumberByLabels(doc, ['limite de nobres', 'noble limit']),
             existingNobles: null,
+            noblesInProduction: parseAcademyNumberByLabels(doc, ['nobres em producao', 'nobre em producao', 'nobles in production', 'noble in production']),
+            conqueredVillages: parseAcademyNumberByLabels(doc, ['numero de aldeias conquistadas', 'aldeias conquistadas', 'conquered villages', 'conquered village']),
             canMake: parseAcademyNoblesAvailable(doc)
         };
 
@@ -3435,6 +3438,49 @@
         return counts;
     }
 
+    function getPlausibleAcademyNobleCeiling(academyAvailability) {
+        const nobleLimit = Number(academyAvailability?.nobleLimit);
+        const conqueredVillages = Number(academyAvailability?.conqueredVillages);
+        const existingNobles = Number(academyAvailability?.existingNobles);
+        const noblesInProduction = Number(academyAvailability?.noblesInProduction || 0);
+        const canMake = Number(academyAvailability?.canMake);
+
+        if (Number.isFinite(nobleLimit) && nobleLimit > 0 && Number.isFinite(conqueredVillages) && conqueredVillages >= 0) {
+            return Math.max(0, nobleLimit - conqueredVillages);
+        }
+
+        if (
+            Number.isFinite(existingNobles) && existingNobles >= 0 &&
+            Number.isFinite(canMake) && canMake >= 0
+        ) {
+            return existingNobles + noblesInProduction + canMake;
+        }
+
+        return null;
+    }
+
+    function getReliableCurrentNobles(academyAvailability, troopNobles) {
+        const academyExisting = academyAvailability?.existingNobles;
+        const troopCount = Number(troopNobles || 0);
+
+        if (academyExisting !== null && academyExisting !== undefined) {
+            const academyCount = Number(academyExisting || 0);
+            const ceiling = getPlausibleAcademyNobleCeiling(academyAvailability);
+
+            if (
+                troopCount > academyCount &&
+                troopCount > 0 &&
+                (ceiling === null || troopCount <= Math.max(academyCount, ceiling))
+            ) {
+                return troopCount;
+            }
+
+            return academyCount;
+        }
+
+        return troopCount;
+    }
+
     async function getAcademyNoblesAvailable() {
         try {
             const currentAcademyDoc = await fetchAcademyDocument();
@@ -3444,6 +3490,9 @@
                 return {
                     canMake: currentCounts.canMake,
                     existingNobles: currentCounts.existingNobles,
+                    noblesInProduction: currentCounts.noblesInProduction,
+                    nobleLimit: currentCounts.nobleLimit,
+                    conqueredVillages: currentCounts.conqueredVillages,
                     academyVillageCount: null,
                     source: 'Academia atual'
                 };
@@ -3465,6 +3514,9 @@
                         return {
                             canMake: counts.canMake,
                             existingNobles: counts.existingNobles,
+                            noblesInProduction: counts.noblesInProduction,
+                            nobleLimit: counts.nobleLimit,
+                            conqueredVillages: counts.conqueredVillages,
                             academyVillageCount: academyVillageIds.length,
                             source: 'Academia'
                         };
@@ -3477,6 +3529,9 @@
             return {
                 canMake: null,
                 existingNobles: null,
+                noblesInProduction: null,
+                nobleLimit: null,
+                conqueredVillages: null,
                 academyVillageCount: academyVillageIds.length,
                 source: 'Academia'
             };
@@ -3487,6 +3542,9 @@
         return {
             canMake: null,
             existingNobles: null,
+            noblesInProduction: null,
+            nobleLimit: null,
+            conqueredVillages: null,
             academyVillageCount: null,
             source: 'Academia'
         };
@@ -3584,6 +3642,7 @@
         });
 
         const rebuiltTotals = createTroopTotals();
+        const rebuiltDefenseTotals = createTroopTotals();
         const rebuiltVillages = [];
         let placeVillageCount = 0;
         let movementVillageCount = 0;
@@ -3601,19 +3660,26 @@
                 const scavengingTotals = parseScavengingTroopTotals(doc);
                 const transitTotals = parseTransitTroopTotals(doc);
                 const placeTotals = createTroopTotals();
+                const defenseTotals = createTroopTotals();
 
+                addTroopTotals(defenseTotals, homeTotals);
                 addTroopTotals(placeTotals, homeTotals);
                 addTroopTotals(placeTotals, scavengingTotals);
                 addTroopTotals(placeTotals, transitTotals);
 
                 if (hasTroopValues(placeTotals)) {
                     village.totals = placeTotals;
+                    village.defenseTotals = defenseTotals;
                     rebuiltVillages.push(village);
                     addTroopTotals(rebuiltTotals, placeTotals);
+                    if (hasTroopValues(defenseTotals)) {
+                        addTroopTotals(rebuiltDefenseTotals, defenseTotals);
+                    }
                     placeVillageCount += 1;
                 } else if (hasTroopValues(village.totals)) {
                     rebuiltVillages.push(village);
                     addTroopTotals(rebuiltTotals, village.totals);
+                    addTroopTotals(rebuiltDefenseTotals, village.defenseTotals || village.totals);
                 }
 
                 if (hasTroopValues(scavengingTotals) || hasTroopValues(transitTotals)) {
@@ -3630,6 +3696,7 @@
 
         if (rebuiltVillages.length > 0) {
             summary.totals = rebuiltTotals;
+            summary.defenseTotals = rebuiltDefenseTotals;
             summary.villages = rebuiltVillages;
         }
 
@@ -3717,7 +3784,7 @@
     }
 
     function buildSimpleDefenseTroopSummaryEmbed(summary) {
-        const totals = summary.totals || {};
+        const totals = summary.defenseTotals || summary.totals || {};
         const lines = [
             `🔱 Lanceiros: **${formatTroopNumber(totals.spear)}**`,
             `🗡️ Espadachins: **${formatTroopNumber(totals.sword)}**`
@@ -3757,9 +3824,7 @@
         const troopNobles = Number(troopsSummary.totals.snob || 0);
 
         return {
-            currentNobles: academyAvailability.existingNobles !== null
-                ? Math.max(Number(academyAvailability.existingNobles || 0), troopNobles)
-                : troopNobles,
+            currentNobles: getReliableCurrentNobles(academyAvailability, troopNobles),
             villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
             defenderTribe: await getPlayerTribe(getDefenderProfileUrl()),
             canMake: academyAvailability.canMake,
@@ -3818,9 +3883,7 @@
         return {
             attackFulls: troopsSummary,
             nobleCounter: {
-                currentNobles: academyAvailability.existingNobles !== null
-                    ? Math.max(Number(academyAvailability.existingNobles || 0), troopNobles)
-                    : troopNobles,
+                currentNobles: getReliableCurrentNobles(academyAvailability, troopNobles),
                 villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
                 defenderTribe,
                 canMake: academyAvailability.canMake,
