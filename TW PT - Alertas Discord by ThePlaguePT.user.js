@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.50
+// @version      1.3.51
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.50 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.51 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -101,6 +101,8 @@
     const ATTACK_FULL_LIGHT = 2000;
     const ATTACK_HALF_AXE = 2500;
     const ATTACK_HALF_LIGHT = 1000;
+    const ATTACK_SMALL_AXE = 1250;
+    const ATTACK_SMALL_LIGHT = 500;
     const TROOP_CELL_MAX_VALUE = 5000000;
     const SETTINGS_KEY = `${STORAGE_PREFIX}_settings`;
 
@@ -3893,7 +3895,11 @@
             return 'half';
         }
 
-        return 'small';
+        if (vikings >= ATTACK_SMALL_AXE && light >= ATTACK_SMALL_LIGHT) {
+            return 'small';
+        }
+
+        return '';
     }
 
     function calculateAttackFullCounterByVillage(villages) {
@@ -4094,7 +4100,7 @@
                     value: [
                         `Full: **${formatTroopNumber(ATTACK_FULL_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_FULL_LIGHT)}+ Cavalaria Leve**`,
                         `Meio Full: **${formatTroopNumber(ATTACK_HALF_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)}+ Cavalaria Leve**`,
-                        `Pequeno Full: abaixo de **${formatTroopNumber(ATTACK_HALF_AXE)} Vikings + ${formatTroopNumber(ATTACK_HALF_LIGHT)} Cavalaria Leve**`
+                        `Pequeno Full: **${formatTroopNumber(ATTACK_SMALL_AXE)}+ Vikings + ${formatTroopNumber(ATTACK_SMALL_LIGHT)}+ Cavalaria Leve**`
                     ].join('\n'),
                     inline: false
                 }
