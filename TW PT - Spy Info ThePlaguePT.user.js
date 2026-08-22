@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spy/Info - ThePlaguePT
 // @namespace    theplaguept.tw.spy-info
-// @version      1.0.22
+// @version      1.0.23
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.22",
+        version: "1.0.23",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -492,12 +492,6 @@
                                 <label>
                                     <span>Dias</span>
                                     <input type="number" name="periodDays" min="1" max="30" step="1" value="1" inputmode="numeric" title="Numero de dias a juntar para tras">
-                                </label>
-                                <label>
-                                    <span>Comparar</span>
-                                    <select disabled>
-                                        <option>Historico TWStats horario</option>
-                                    </select>
                                 </label>
                             </div>
                         </div>
@@ -1818,7 +1812,7 @@
         if (dailyPair) {
             return {
                 snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
-                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
+                currentSnapshot: periodInfo && periodInfo.dayOffset === 0 ? null : twStatsRecordToSnapshot(dailyPair.current, current),
                 message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
             };
         }
@@ -2558,14 +2552,14 @@
             </div>
 
             <div class="${APP.id}-grid ${APP.id}-summaryGrid">
-                ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points)}
-                ${metricCard("Aldeias", formatNumber(result.current.villages), result.diffs.villages)}
-                ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true)}
-                ${metricCard("Ganhas / Perdidas", `${formatNumber(result.conquests.gained.length)} / ${formatNumber(result.conquests.lost.length)}`, result.conquests.net)}
-                ${metricCard("OD Total", formatNumber(result.current.od.total && result.current.od.total.score), result.diffs.od.total)}
-                ${metricCard("OD Ofensivo", formatNumber(result.current.od.off && result.current.od.off.score), result.diffs.od.off)}
-                ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def)}
-                ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support)}
+                ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points, false, baselineValue(result.baseline, "points"))}
+                ${metricCard("Aldeias", formatNumber(result.current.villages), result.diffs.villages, false, baselineValue(result.baseline, "villages"))}
+                ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true, baselineRankValue(result.baseline))}
+                ${conquestsMetricCard(result)}
+                ${metricCard("OD Total", formatNumber(result.current.od.total && result.current.od.total.score), result.diffs.od.total, false, baselineOdValue(result.baseline, "total"))}
+                ${metricCard("OD Ofensivo", formatNumber(result.current.od.off && result.current.od.off.score), result.diffs.od.off, false, baselineOdValue(result.baseline, "off"))}
+                ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def, false, baselineOdValue(result.baseline, "def"))}
+                ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support, false, baselineOdValue(result.baseline, "support"))}
             </div>
         `;
 
@@ -3146,18 +3140,57 @@
         return `<div class="${APP.id}-notice ${APP.id}-${type}">${escapeHTML(message)}</div>`;
     }
 
-    function metricCard(label, value, delta, inverse) {
+    function metricCard(label, value, delta, inverse, baselineText) {
         const deltaText = delta === null ? "N/D" : formatSigned(delta);
         const title = inverse && delta !== null
             ? "No rank, valor negativo significa subida."
             : "";
+        const breakdown = arguments.length >= 5 ? `
+                <div class="${APP.id}-metricBreakdown">
+                    <small><b>00h</b><span>${escapeHTML(baselineText)}</span></small>
+                    <small><b>Agora</b><span>${escapeHTML(value)}</span></small>
+                </div>
+        ` : "";
+        const deltaPrefix = arguments.length >= 5 ? "Saldo " : "";
         return `
             <div class="${APP.id}-metric" title="${escapeHTML(title)}">
                 <span>${escapeHTML(label)}</span>
                 <strong>${escapeHTML(value)}</strong>
-                <em class="${deltaClass(delta, inverse)}">${escapeHTML(deltaText)}</em>
+                ${breakdown}
+                <em class="${deltaClass(delta, inverse)}">${escapeHTML(deltaPrefix + deltaText)}</em>
             </div>
         `;
+    }
+
+    function conquestsMetricCard(result) {
+        const gained = result && result.conquests && result.conquests.gained ? result.conquests.gained.length : 0;
+        const lost = result && result.conquests && result.conquests.lost ? result.conquests.lost.length : 0;
+        const value = `${formatNumber(gained)} / ${formatNumber(lost)}`;
+        const net = result && result.conquests ? result.conquests.net : null;
+        return `
+            <div class="${APP.id}-metric">
+                <span>Ganhas / Perdidas</span>
+                <strong>${escapeHTML(value)}</strong>
+                <div class="${APP.id}-metricBreakdown">
+                    <small><b>00h</b><span>0 / 0</span></small>
+                    <small><b>Agora</b><span>${escapeHTML(value)}</span></small>
+                </div>
+                <em class="${deltaClass(net, false)}">${escapeHTML(`Saldo ${formatDelta(net)}`)}</em>
+            </div>
+        `;
+    }
+
+    function baselineValue(snapshot, key) {
+        return snapshot && Number.isFinite(snapshot[key]) ? formatNumber(snapshot[key]) : "N/D";
+    }
+
+    function baselineRankValue(snapshot) {
+        return snapshot && Number.isFinite(snapshot.rank) ? `#${formatNumber(snapshot.rank)}` : "N/D";
+    }
+
+    function baselineOdValue(snapshot, key) {
+        const entry = snapshot && snapshot.od && snapshot.od[key];
+        return entry && Number.isFinite(entry.score) ? formatNumber(entry.score) : "N/D";
     }
 
     function odRow(label, entry, delta) {
@@ -4160,7 +4193,7 @@
 
             .${APP.id}-controlsGrid {
                 display: grid;
-                grid-template-columns: .7fr 1.45fr .95fr .95fr .62fr 1fr;
+                grid-template-columns: .75fr 1.55fr 1fr 1fr .62fr;
                 gap: 8px;
                 align-items: end;
             }
@@ -4366,6 +4399,28 @@
                 margin-top: 2px;
                 font-style: normal;
                 font-weight: 700;
+            }
+
+            .${APP.id}-metricBreakdown {
+                display: grid;
+                gap: 2px;
+                margin-top: 4px;
+                padding-top: 3px;
+                border-top: 1px solid rgba(200, 144, 66, .55);
+            }
+
+            .${APP.id}-metricBreakdown small {
+                display: flex;
+                justify-content: space-between;
+                gap: 6px;
+                color: #5d3514;
+                font-size: 10px;
+                line-height: 1.2;
+            }
+
+            .${APP.id}-metricBreakdown b {
+                color: #8f1b15;
+                text-transform: uppercase;
             }
 
             .${APP.id}-positive {
@@ -4713,7 +4768,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.22",
+        version: "1.0.23",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -5015,12 +5070,6 @@
                                 <label>
                                     <span>Dias</span>
                                     <input type="number" name="periodDays" min="1" max="30" step="1" value="1" inputmode="numeric" title="Numero de dias a juntar para tras">
-                                </label>
-                                <label>
-                                    <span>Comparar</span>
-                                    <select disabled>
-                                        <option>Historico TWStats horario</option>
-                                    </select>
                                 </label>
                             </div>
                         </div>
@@ -6580,7 +6629,7 @@
         if (dailyPair) {
             return {
                 snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
-                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
+                currentSnapshot: periodInfo && periodInfo.dayOffset === 0 ? null : twStatsRecordToSnapshot(dailyPair.current, current),
                 message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
             };
         }
@@ -7330,15 +7379,15 @@
             </div>
 
             <div class="${APP.id}-grid ${APP.id}-summaryGrid">
-                ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points)}
-                ${metricCard("Aldeias", formatNumber(result.current.villages), result.diffs.villages)}
-                ${metricCard("Membros", formatNumber(result.current.members), result.diffs.members)}
-                ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true)}
-                ${metricCard("Ganhas / Perdidas", `${formatNumber(result.conquests.gained.length)} / ${formatNumber(result.conquests.lost.length)}`, result.conquests.net)}
-                ${metricCard("OD Total", formatNumber(result.current.od.total && result.current.od.total.score), result.diffs.od.total)}
-                ${metricCard("OD Ofensivo", formatNumber(result.current.od.off && result.current.od.off.score), result.diffs.od.off)}
-                ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def)}
-                ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support)}
+                ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points, false, baselineValue(result.baseline, "points"))}
+                ${metricCard("Aldeias", formatNumber(result.current.villages), result.diffs.villages, false, baselineValue(result.baseline, "villages"))}
+                ${metricCard("Membros", formatNumber(result.current.members), result.diffs.members, false, baselineValue(result.baseline, "members"))}
+                ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true, baselineRankValue(result.baseline))}
+                ${conquestsMetricCard(result)}
+                ${metricCard("OD Total", formatNumber(result.current.od.total && result.current.od.total.score), result.diffs.od.total, false, baselineOdValue(result.baseline, "total"))}
+                ${metricCard("OD Ofensivo", formatNumber(result.current.od.off && result.current.od.off.score), result.diffs.od.off, false, baselineOdValue(result.baseline, "off"))}
+                ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def, false, baselineOdValue(result.baseline, "def"))}
+                ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support, false, baselineOdValue(result.baseline, "support"))}
             </div>
         `;
 
@@ -7920,18 +7969,57 @@
         return `<div class="${APP.id}-notice ${APP.id}-${type}">${escapeHTML(message)}</div>`;
     }
 
-    function metricCard(label, value, delta, inverse) {
+    function metricCard(label, value, delta, inverse, baselineText) {
         const deltaText = delta === null ? "N/D" : formatSigned(delta);
         const title = inverse && delta !== null
             ? "No rank, valor negativo significa subida."
             : "";
+        const breakdown = arguments.length >= 5 ? `
+                <div class="${APP.id}-metricBreakdown">
+                    <small><b>00h</b><span>${escapeHTML(baselineText)}</span></small>
+                    <small><b>Agora</b><span>${escapeHTML(value)}</span></small>
+                </div>
+        ` : "";
+        const deltaPrefix = arguments.length >= 5 ? "Saldo " : "";
         return `
             <div class="${APP.id}-metric" title="${escapeHTML(title)}">
                 <span>${escapeHTML(label)}</span>
                 <strong>${escapeHTML(value)}</strong>
-                <em class="${deltaClass(delta, inverse)}">${escapeHTML(deltaText)}</em>
+                ${breakdown}
+                <em class="${deltaClass(delta, inverse)}">${escapeHTML(deltaPrefix + deltaText)}</em>
             </div>
         `;
+    }
+
+    function conquestsMetricCard(result) {
+        const gained = result && result.conquests && result.conquests.gained ? result.conquests.gained.length : 0;
+        const lost = result && result.conquests && result.conquests.lost ? result.conquests.lost.length : 0;
+        const value = `${formatNumber(gained)} / ${formatNumber(lost)}`;
+        const net = result && result.conquests ? result.conquests.net : null;
+        return `
+            <div class="${APP.id}-metric">
+                <span>Ganhas / Perdidas</span>
+                <strong>${escapeHTML(value)}</strong>
+                <div class="${APP.id}-metricBreakdown">
+                    <small><b>00h</b><span>0 / 0</span></small>
+                    <small><b>Agora</b><span>${escapeHTML(value)}</span></small>
+                </div>
+                <em class="${deltaClass(net, false)}">${escapeHTML(`Saldo ${formatDelta(net)}`)}</em>
+            </div>
+        `;
+    }
+
+    function baselineValue(snapshot, key) {
+        return snapshot && Number.isFinite(snapshot[key]) ? formatNumber(snapshot[key]) : "N/D";
+    }
+
+    function baselineRankValue(snapshot) {
+        return snapshot && Number.isFinite(snapshot.rank) ? `#${formatNumber(snapshot.rank)}` : "N/D";
+    }
+
+    function baselineOdValue(snapshot, key) {
+        const entry = snapshot && snapshot.od && snapshot.od[key];
+        return entry && Number.isFinite(entry.score) ? formatNumber(entry.score) : "N/D";
     }
 
     function odRow(label, entry, delta) {
@@ -8933,7 +9021,7 @@
 
             .${APP.id}-controlsGrid {
                 display: grid;
-                grid-template-columns: .7fr 1.45fr .95fr .95fr .62fr 1fr;
+                grid-template-columns: .75fr 1.55fr 1fr 1fr .62fr;
                 gap: 8px;
                 align-items: end;
             }
@@ -9139,6 +9227,28 @@
                 margin-top: 2px;
                 font-style: normal;
                 font-weight: 700;
+            }
+
+            .${APP.id}-metricBreakdown {
+                display: grid;
+                gap: 2px;
+                margin-top: 4px;
+                padding-top: 3px;
+                border-top: 1px solid rgba(200, 144, 66, .55);
+            }
+
+            .${APP.id}-metricBreakdown small {
+                display: flex;
+                justify-content: space-between;
+                gap: 6px;
+                color: #5d3514;
+                font-size: 10px;
+                line-height: 1.2;
+            }
+
+            .${APP.id}-metricBreakdown b {
+                color: #8f1b15;
+                text-transform: uppercase;
             }
 
             .${APP.id}-positive {
