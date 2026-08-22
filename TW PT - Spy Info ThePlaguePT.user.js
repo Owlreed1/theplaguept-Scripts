@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spy/Info - ThePlaguePT
 // @namespace    theplaguept.tw.spy-info
-// @version      1.0.23
+// @version      1.0.24
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.23",
+        version: "1.0.24",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -2552,14 +2552,14 @@
             </div>
 
             <div class="${APP.id}-grid ${APP.id}-summaryGrid">
-                ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points, false, baselineValue(result.baseline, "points"))}
-                ${metricCard("Aldeias", formatNumber(result.current.villages), result.diffs.villages, false, baselineValue(result.baseline, "villages"))}
-                ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true, baselineRankValue(result.baseline))}
+                ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points, false, baselineValue(result.baseline, "points"), periodEndLabel(result.period))}
+                ${metricCard("Aldeias", formatNumber(result.current.villages), result.diffs.villages, false, baselineValue(result.baseline, "villages"), periodEndLabel(result.period))}
+                ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true, baselineRankValue(result.baseline), periodEndLabel(result.period))}
                 ${conquestsMetricCard(result)}
-                ${metricCard("OD Total", formatNumber(result.current.od.total && result.current.od.total.score), result.diffs.od.total, false, baselineOdValue(result.baseline, "total"))}
-                ${metricCard("OD Ofensivo", formatNumber(result.current.od.off && result.current.od.off.score), result.diffs.od.off, false, baselineOdValue(result.baseline, "off"))}
-                ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def, false, baselineOdValue(result.baseline, "def"))}
-                ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support, false, baselineOdValue(result.baseline, "support"))}
+                ${metricCard("OD Total", formatNumber(result.current.od.total && result.current.od.total.score), result.diffs.od.total, false, baselineOdValue(result.baseline, "total"), periodEndLabel(result.period))}
+                ${metricCard("OD Ofensivo", formatNumber(result.current.od.off && result.current.od.off.score), result.diffs.od.off, false, baselineOdValue(result.baseline, "off"), periodEndLabel(result.period))}
+                ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def, false, baselineOdValue(result.baseline, "def"), periodEndLabel(result.period))}
+                ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support, false, baselineOdValue(result.baseline, "support"), periodEndLabel(result.period))}
             </div>
         `;
 
@@ -3140,15 +3140,16 @@
         return `<div class="${APP.id}-notice ${APP.id}-${type}">${escapeHTML(message)}</div>`;
     }
 
-    function metricCard(label, value, delta, inverse, baselineText) {
+    function metricCard(label, value, delta, inverse, baselineText, endLabel) {
         const deltaText = delta === null ? "N/D" : formatSigned(delta);
         const title = inverse && delta !== null
             ? "No rank, valor negativo significa subida."
             : "";
+        const finalLabel = endLabel || "Agora";
         const breakdown = arguments.length >= 5 ? `
                 <div class="${APP.id}-metricBreakdown">
                     <small><b>00h</b><span>${escapeHTML(baselineText)}</span></small>
-                    <small><b>Agora</b><span>${escapeHTML(value)}</span></small>
+                    <small><b>${escapeHTML(finalLabel)}</b><span>${escapeHTML(value)}</span></small>
                 </div>
         ` : "";
         const deltaPrefix = arguments.length >= 5 ? "Saldo " : "";
@@ -3167,17 +3168,22 @@
         const lost = result && result.conquests && result.conquests.lost ? result.conquests.lost.length : 0;
         const value = `${formatNumber(gained)} / ${formatNumber(lost)}`;
         const net = result && result.conquests ? result.conquests.net : null;
+        const finalLabel = periodEndLabel(result && result.period);
         return `
             <div class="${APP.id}-metric">
                 <span>Ganhas / Perdidas</span>
                 <strong>${escapeHTML(value)}</strong>
                 <div class="${APP.id}-metricBreakdown">
                     <small><b>00h</b><span>0 / 0</span></small>
-                    <small><b>Agora</b><span>${escapeHTML(value)}</span></small>
+                    <small><b>${escapeHTML(finalLabel)}</b><span>${escapeHTML(value)}</span></small>
                 </div>
                 <em class="${deltaClass(net, false)}">${escapeHTML(`Saldo ${formatDelta(net)}`)}</em>
             </div>
         `;
+    }
+
+    function periodEndLabel(period) {
+        return period && period.dayOffset === 0 ? "Agora" : "24h";
     }
 
     function baselineValue(snapshot, key) {
@@ -4768,7 +4774,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.23",
+        version: "1.0.24",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -7379,15 +7385,15 @@
             </div>
 
             <div class="${APP.id}-grid ${APP.id}-summaryGrid">
-                ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points, false, baselineValue(result.baseline, "points"))}
-                ${metricCard("Aldeias", formatNumber(result.current.villages), result.diffs.villages, false, baselineValue(result.baseline, "villages"))}
-                ${metricCard("Membros", formatNumber(result.current.members), result.diffs.members, false, baselineValue(result.baseline, "members"))}
-                ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true, baselineRankValue(result.baseline))}
+                ${metricCard("Pontos", formatNumber(result.current.points), result.diffs.points, false, baselineValue(result.baseline, "points"), periodEndLabel(result.period))}
+                ${metricCard("Aldeias", formatNumber(result.current.villages), result.diffs.villages, false, baselineValue(result.baseline, "villages"), periodEndLabel(result.period))}
+                ${metricCard("Membros", formatNumber(result.current.members), result.diffs.members, false, baselineValue(result.baseline, "members"), periodEndLabel(result.period))}
+                ${metricCard("Rank", `#${formatNumber(result.current.rank)}`, result.diffs.rank, true, baselineRankValue(result.baseline), periodEndLabel(result.period))}
                 ${conquestsMetricCard(result)}
-                ${metricCard("OD Total", formatNumber(result.current.od.total && result.current.od.total.score), result.diffs.od.total, false, baselineOdValue(result.baseline, "total"))}
-                ${metricCard("OD Ofensivo", formatNumber(result.current.od.off && result.current.od.off.score), result.diffs.od.off, false, baselineOdValue(result.baseline, "off"))}
-                ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def, false, baselineOdValue(result.baseline, "def"))}
-                ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support, false, baselineOdValue(result.baseline, "support"))}
+                ${metricCard("OD Total", formatNumber(result.current.od.total && result.current.od.total.score), result.diffs.od.total, false, baselineOdValue(result.baseline, "total"), periodEndLabel(result.period))}
+                ${metricCard("OD Ofensivo", formatNumber(result.current.od.off && result.current.od.off.score), result.diffs.od.off, false, baselineOdValue(result.baseline, "off"), periodEndLabel(result.period))}
+                ${metricCard("OD Defensivo", formatNumber(result.current.od.def && result.current.od.def.score), result.diffs.od.def, false, baselineOdValue(result.baseline, "def"), periodEndLabel(result.period))}
+                ${metricCard("OD Apoio", formatNumber(result.current.od.support && result.current.od.support.score), result.diffs.od.support, false, baselineOdValue(result.baseline, "support"), periodEndLabel(result.period))}
             </div>
         `;
 
@@ -7969,15 +7975,16 @@
         return `<div class="${APP.id}-notice ${APP.id}-${type}">${escapeHTML(message)}</div>`;
     }
 
-    function metricCard(label, value, delta, inverse, baselineText) {
+    function metricCard(label, value, delta, inverse, baselineText, endLabel) {
         const deltaText = delta === null ? "N/D" : formatSigned(delta);
         const title = inverse && delta !== null
             ? "No rank, valor negativo significa subida."
             : "";
+        const finalLabel = endLabel || "Agora";
         const breakdown = arguments.length >= 5 ? `
                 <div class="${APP.id}-metricBreakdown">
                     <small><b>00h</b><span>${escapeHTML(baselineText)}</span></small>
-                    <small><b>Agora</b><span>${escapeHTML(value)}</span></small>
+                    <small><b>${escapeHTML(finalLabel)}</b><span>${escapeHTML(value)}</span></small>
                 </div>
         ` : "";
         const deltaPrefix = arguments.length >= 5 ? "Saldo " : "";
@@ -7996,17 +8003,22 @@
         const lost = result && result.conquests && result.conquests.lost ? result.conquests.lost.length : 0;
         const value = `${formatNumber(gained)} / ${formatNumber(lost)}`;
         const net = result && result.conquests ? result.conquests.net : null;
+        const finalLabel = periodEndLabel(result && result.period);
         return `
             <div class="${APP.id}-metric">
                 <span>Ganhas / Perdidas</span>
                 <strong>${escapeHTML(value)}</strong>
                 <div class="${APP.id}-metricBreakdown">
                     <small><b>00h</b><span>0 / 0</span></small>
-                    <small><b>Agora</b><span>${escapeHTML(value)}</span></small>
+                    <small><b>${escapeHTML(finalLabel)}</b><span>${escapeHTML(value)}</span></small>
                 </div>
                 <em class="${deltaClass(net, false)}">${escapeHTML(`Saldo ${formatDelta(net)}`)}</em>
             </div>
         `;
+    }
+
+    function periodEndLabel(period) {
+        return period && period.dayOffset === 0 ? "Agora" : "24h";
     }
 
     function baselineValue(snapshot, key) {
