@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spy/Info - ThePlaguePT
 // @namespace    theplaguept.tw.spy-info
-// @version      1.0.27
+// @version      1.0.29
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.27",
+        version: "1.0.29",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -3143,9 +3143,9 @@
         const points = sampleSeries(series || [], 160);
         if (points.length < 2) return chartEmpty(title);
 
-        const width = 520;
-        const height = 180;
-        const pad = 24;
+        const width = 420;
+        const height = 125;
+        const pad = 18;
         const values = points.map((point) => point.value);
         let min = Math.min(...values);
         let max = Math.max(...values);
@@ -3159,6 +3159,11 @@
             const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
             return `${roundChart(x)},${roundChart(y)}`;
         }).join(" ");
+        const chartPoints = points.map((point, index) => {
+            const x = pad + (index / Math.max(1, points.length - 1)) * (width - pad * 2);
+            const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
+            return renderChartPoint(title, point, points[index - 1] || null, x, y, inverse, false);
+        }).join("");
         const first = points[0];
         const last = points[points.length - 1];
         const delta = last.value - first.value;
@@ -3170,6 +3175,7 @@
                     <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
                     <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
                     <polyline points="${polyline}" class="${APP.id}-chartLine"></polyline>
+                    ${chartPoints}
                 </svg>
                 <div class="${APP.id}-chartLegend">
                     <span>${escapeHTML(formatDateTime(new Date(first.ts)))}</span>
@@ -3178,6 +3184,36 @@
                 </div>
             </div>
         `;
+    }
+
+    function renderChartPoint(title, point, previous, x, y, inverse, secondsTs) {
+        const delta = previous && Number.isFinite(previous.value) ? point.value - previous.value : null;
+        const cssClass = deltaClass(delta, inverse);
+        const tooltip = chartPointTooltip(title, point, previous, secondsTs);
+        return `
+            <circle cx="${roundChart(x)}" cy="${roundChart(y)}" r="3.2" class="${APP.id}-chartPoint ${cssClass}" tabindex="0" focusable="true">
+                <title>${escapeHTML(tooltip)}</title>
+            </circle>
+        `;
+    }
+
+    function chartPointTooltip(title, point, previous, secondsTs) {
+        const ts = secondsTs ? point.ts * 1000 : point.ts;
+        const delta = previous && Number.isFinite(previous.value) ? point.value - previous.value : null;
+        const change = chartChangeText(delta);
+        return [
+            title,
+            `Leitura: ${secondsTs ? formatDateOnly(new Date(ts)) : formatDateTime(new Date(ts))}`,
+            `Valor: ${formatNumber(point.value)}`,
+            delta === null ? "Inicio do periodo" : `${change}: ${formatSigned(delta)}`,
+        ].join("\n");
+    }
+
+    function chartChangeText(delta) {
+        if (!Number.isFinite(delta)) return "Inicio";
+        if (delta > 0) return "Aumentou";
+        if (delta < 0) return "Diminuiu";
+        return "Sem alteracao";
     }
 
     function renderTwStatsGraphs(twstats) {
@@ -3216,9 +3252,9 @@
         const points = sampleSeries(series || [], 140);
         if (points.length < 2) return chartEmpty(title);
 
-        const width = 520;
-        const height = 180;
-        const pad = 24;
+        const width = 420;
+        const height = 125;
+        const pad = 18;
         const values = points.map((point) => point.value);
         const min = Math.min(0, ...values);
         const max = Math.max(1, ...values);
@@ -3228,6 +3264,11 @@
             const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
             return `${roundChart(x)},${roundChart(y)}`;
         }).join(" ");
+        const chartPoints = points.map((point, index) => {
+            const x = pad + (index / Math.max(1, points.length - 1)) * (width - pad * 2);
+            const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
+            return renderChartPoint(title, point, points[index - 1] || null, x, y, null, true);
+        }).join("");
 
         return `
             <div class="${APP.id}-chart">
@@ -3236,6 +3277,7 @@
                     <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
                     <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
                     <polyline points="${polyline}" class="${APP.id}-chartLine"></polyline>
+                    ${chartPoints}
                 </svg>
                 <div class="${APP.id}-chartLegend">
                     <span>${escapeHTML(formatDateOnly(new Date(points[0].ts * 1000)))}</span>
@@ -3250,9 +3292,9 @@
         const points = sampleSeries(days || [], 90);
         if (!points.length) return chartEmpty(title);
 
-        const width = 520;
-        const height = 180;
-        const pad = 24;
+        const width = 420;
+        const height = 125;
+        const pad = 18;
         const max = Math.max(1, ...points.map((point) => point.gained + point.lost));
         const innerWidth = width - pad * 2;
         const barWidth = Math.max(2, innerWidth / points.length - 1);
@@ -3263,9 +3305,20 @@
             const x = pad + (index / points.length) * innerWidth;
             const gainedY = height - pad - gainedHeight;
             const lostY = gainedY - lostHeight;
+            const tooltip = [
+                title,
+                `Dia: ${formatDateOnly(new Date(point.ts * 1000))}`,
+                `Ganhas: ${formatNumber(point.gained)}`,
+                `Perdidas: ${formatNumber(point.lost)}`,
+                `Saldo: ${formatSigned(point.gained - point.lost)}`,
+            ].join("\n");
             return `
-                <rect x="${roundChart(x)}" y="${roundChart(gainedY)}" width="${roundChart(barWidth)}" height="${roundChart(gainedHeight)}" class="${APP.id}-barGain"></rect>
-                <rect x="${roundChart(x)}" y="${roundChart(lostY)}" width="${roundChart(barWidth)}" height="${roundChart(lostHeight)}" class="${APP.id}-barLoss"></rect>
+                <rect x="${roundChart(x)}" y="${roundChart(gainedY)}" width="${roundChart(barWidth)}" height="${roundChart(gainedHeight)}" class="${APP.id}-barGain">
+                    <title>${escapeHTML(tooltip)}</title>
+                </rect>
+                <rect x="${roundChart(x)}" y="${roundChart(lostY)}" width="${roundChart(barWidth)}" height="${roundChart(lostHeight)}" class="${APP.id}-barLoss">
+                    <title>${escapeHTML(tooltip)}</title>
+                </rect>
             `;
         }).join("");
 
@@ -4864,21 +4917,21 @@
             .${APP.id}-chartsGrid {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 10px;
-                margin-top: 10px;
+                gap: 6px;
+                margin-top: 6px;
             }
 
             .${APP.id}-chart {
                 border: 1px solid #c89042;
                 background: #fff6d7;
-                padding: 8px;
+                padding: 5px;
                 min-width: 0;
             }
 
             .${APP.id}-chart h4 {
-                margin: 0 0 6px;
+                margin: 0 0 4px;
                 color: #7f1b16;
-                font-size: 12px;
+                font-size: 11px;
             }
 
             .${APP.id}-chart svg {
@@ -4899,12 +4952,42 @@
                 stroke-width: 2.5;
             }
 
+            .${APP.id}-chartPoint {
+                fill: #fff8dc;
+                stroke: #7f1b16;
+                stroke-width: 2;
+                cursor: help;
+                pointer-events: all;
+            }
+
+            .${APP.id}-chartPoint.${APP.id}-positive {
+                fill: #d8efc8;
+                stroke: #176c2d;
+            }
+
+            .${APP.id}-chartPoint.${APP.id}-negative {
+                fill: #f3c1b9;
+                stroke: #a22620;
+            }
+
+            .${APP.id}-chartPoint.${APP.id}-neutral {
+                fill: #fff8dc;
+                stroke: #63452b;
+            }
+
+            .${APP.id}-chartPoint:hover,
+            .${APP.id}-chartPoint:focus {
+                stroke-width: 3;
+            }
+
             .${APP.id}-barGain {
                 fill: #24723a;
+                cursor: help;
             }
 
             .${APP.id}-barLoss {
                 fill: #a22620;
+                cursor: help;
             }
 
             .${APP.id}-chartLegend,
@@ -4912,10 +4995,10 @@
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                gap: 8px;
-                margin-top: 6px;
+                gap: 6px;
+                margin-top: 4px;
                 color: #5a2f13;
-                font-size: 11px;
+                font-size: 10px;
             }
 
             .${APP.id}-twstatsLinks {
@@ -4932,25 +5015,27 @@
             .${APP.id}-twstatsGrid {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 10px;
+                gap: 6px;
             }
 
             .${APP.id}-twstatsGrid figure {
                 margin: 0;
                 border: 1px solid #c89042;
                 background: #fff6d7;
-                padding: 8px;
+                padding: 5px;
                 min-width: 0;
             }
 
             .${APP.id}-twstatsGrid figcaption {
-                margin-bottom: 6px;
+                margin-bottom: 4px;
                 color: #7f1b16;
                 font-weight: 700;
+                font-size: 11px;
             }
 
             .${APP.id}-twstatsGrid img {
                 display: block;
+                width: 330px;
                 max-width: 100%;
                 height: auto;
                 background: #fff2c8;
@@ -5095,7 +5180,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.27",
+        version: "1.0.29",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -8299,9 +8384,9 @@
         const points = sampleSeries(series || [], 160);
         if (points.length < 2) return chartEmpty(title);
 
-        const width = 520;
-        const height = 180;
-        const pad = 24;
+        const width = 420;
+        const height = 125;
+        const pad = 18;
         const values = points.map((point) => point.value);
         let min = Math.min(...values);
         let max = Math.max(...values);
@@ -8315,6 +8400,11 @@
             const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
             return `${roundChart(x)},${roundChart(y)}`;
         }).join(" ");
+        const chartPoints = points.map((point, index) => {
+            const x = pad + (index / Math.max(1, points.length - 1)) * (width - pad * 2);
+            const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
+            return renderChartPoint(title, point, points[index - 1] || null, x, y, inverse, false);
+        }).join("");
         const first = points[0];
         const last = points[points.length - 1];
         const delta = last.value - first.value;
@@ -8326,6 +8416,7 @@
                     <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
                     <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
                     <polyline points="${polyline}" class="${APP.id}-chartLine"></polyline>
+                    ${chartPoints}
                 </svg>
                 <div class="${APP.id}-chartLegend">
                     <span>${escapeHTML(formatDateTime(new Date(first.ts)))}</span>
@@ -8334,6 +8425,36 @@
                 </div>
             </div>
         `;
+    }
+
+    function renderChartPoint(title, point, previous, x, y, inverse, secondsTs) {
+        const delta = previous && Number.isFinite(previous.value) ? point.value - previous.value : null;
+        const cssClass = deltaClass(delta, inverse);
+        const tooltip = chartPointTooltip(title, point, previous, secondsTs);
+        return `
+            <circle cx="${roundChart(x)}" cy="${roundChart(y)}" r="3.2" class="${APP.id}-chartPoint ${cssClass}" tabindex="0" focusable="true">
+                <title>${escapeHTML(tooltip)}</title>
+            </circle>
+        `;
+    }
+
+    function chartPointTooltip(title, point, previous, secondsTs) {
+        const ts = secondsTs ? point.ts * 1000 : point.ts;
+        const delta = previous && Number.isFinite(previous.value) ? point.value - previous.value : null;
+        const change = chartChangeText(delta);
+        return [
+            title,
+            `Leitura: ${secondsTs ? formatDateOnly(new Date(ts)) : formatDateTime(new Date(ts))}`,
+            `Valor: ${formatNumber(point.value)}`,
+            delta === null ? "Inicio do periodo" : `${change}: ${formatSigned(delta)}`,
+        ].join("\n");
+    }
+
+    function chartChangeText(delta) {
+        if (!Number.isFinite(delta)) return "Inicio";
+        if (delta > 0) return "Aumentou";
+        if (delta < 0) return "Diminuiu";
+        return "Sem alteracao";
     }
 
     function renderTwStatsGraphs(twstats) {
@@ -8372,9 +8493,9 @@
         const points = sampleSeries(series || [], 140);
         if (points.length < 2) return chartEmpty(title);
 
-        const width = 520;
-        const height = 180;
-        const pad = 24;
+        const width = 420;
+        const height = 125;
+        const pad = 18;
         const values = points.map((point) => point.value);
         const min = Math.min(0, ...values);
         const max = Math.max(1, ...values);
@@ -8384,6 +8505,11 @@
             const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
             return `${roundChart(x)},${roundChart(y)}`;
         }).join(" ");
+        const chartPoints = points.map((point, index) => {
+            const x = pad + (index / Math.max(1, points.length - 1)) * (width - pad * 2);
+            const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
+            return renderChartPoint(title, point, points[index - 1] || null, x, y, null, true);
+        }).join("");
 
         return `
             <div class="${APP.id}-chart">
@@ -8392,6 +8518,7 @@
                     <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
                     <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
                     <polyline points="${polyline}" class="${APP.id}-chartLine"></polyline>
+                    ${chartPoints}
                 </svg>
                 <div class="${APP.id}-chartLegend">
                     <span>${escapeHTML(formatDateOnly(new Date(points[0].ts * 1000)))}</span>
@@ -8406,9 +8533,9 @@
         const points = sampleSeries(days || [], 90);
         if (!points.length) return chartEmpty(title);
 
-        const width = 520;
-        const height = 180;
-        const pad = 24;
+        const width = 420;
+        const height = 125;
+        const pad = 18;
         const max = Math.max(1, ...points.map((point) => point.gained + point.lost));
         const innerWidth = width - pad * 2;
         const barWidth = Math.max(2, innerWidth / points.length - 1);
@@ -8419,9 +8546,20 @@
             const x = pad + (index / points.length) * innerWidth;
             const gainedY = height - pad - gainedHeight;
             const lostY = gainedY - lostHeight;
+            const tooltip = [
+                title,
+                `Dia: ${formatDateOnly(new Date(point.ts * 1000))}`,
+                `Ganhas: ${formatNumber(point.gained)}`,
+                `Perdidas: ${formatNumber(point.lost)}`,
+                `Saldo: ${formatSigned(point.gained - point.lost)}`,
+            ].join("\n");
             return `
-                <rect x="${roundChart(x)}" y="${roundChart(gainedY)}" width="${roundChart(barWidth)}" height="${roundChart(gainedHeight)}" class="${APP.id}-barGain"></rect>
-                <rect x="${roundChart(x)}" y="${roundChart(lostY)}" width="${roundChart(barWidth)}" height="${roundChart(lostHeight)}" class="${APP.id}-barLoss"></rect>
+                <rect x="${roundChart(x)}" y="${roundChart(gainedY)}" width="${roundChart(barWidth)}" height="${roundChart(gainedHeight)}" class="${APP.id}-barGain">
+                    <title>${escapeHTML(tooltip)}</title>
+                </rect>
+                <rect x="${roundChart(x)}" y="${roundChart(lostY)}" width="${roundChart(barWidth)}" height="${roundChart(lostHeight)}" class="${APP.id}-barLoss">
+                    <title>${escapeHTML(tooltip)}</title>
+                </rect>
             `;
         }).join("");
 
@@ -10019,21 +10157,21 @@
             .${APP.id}-chartsGrid {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 10px;
-                margin-top: 10px;
+                gap: 6px;
+                margin-top: 6px;
             }
 
             .${APP.id}-chart {
                 border: 1px solid #c89042;
                 background: #fff6d7;
-                padding: 8px;
+                padding: 5px;
                 min-width: 0;
             }
 
             .${APP.id}-chart h4 {
-                margin: 0 0 6px;
+                margin: 0 0 4px;
                 color: #7f1b16;
-                font-size: 12px;
+                font-size: 11px;
             }
 
             .${APP.id}-chart svg {
@@ -10054,12 +10192,42 @@
                 stroke-width: 2.5;
             }
 
+            .${APP.id}-chartPoint {
+                fill: #fff8dc;
+                stroke: #7f1b16;
+                stroke-width: 2;
+                cursor: help;
+                pointer-events: all;
+            }
+
+            .${APP.id}-chartPoint.${APP.id}-positive {
+                fill: #d8efc8;
+                stroke: #176c2d;
+            }
+
+            .${APP.id}-chartPoint.${APP.id}-negative {
+                fill: #f3c1b9;
+                stroke: #a22620;
+            }
+
+            .${APP.id}-chartPoint.${APP.id}-neutral {
+                fill: #fff8dc;
+                stroke: #63452b;
+            }
+
+            .${APP.id}-chartPoint:hover,
+            .${APP.id}-chartPoint:focus {
+                stroke-width: 3;
+            }
+
             .${APP.id}-barGain {
                 fill: #24723a;
+                cursor: help;
             }
 
             .${APP.id}-barLoss {
                 fill: #a22620;
+                cursor: help;
             }
 
             .${APP.id}-chartLegend,
@@ -10067,10 +10235,10 @@
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                gap: 8px;
-                margin-top: 6px;
+                gap: 6px;
+                margin-top: 4px;
                 color: #5a2f13;
-                font-size: 11px;
+                font-size: 10px;
             }
 
             .${APP.id}-twstatsLinks {
@@ -10087,25 +10255,27 @@
             .${APP.id}-twstatsGrid {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 10px;
+                gap: 6px;
             }
 
             .${APP.id}-twstatsGrid figure {
                 margin: 0;
                 border: 1px solid #c89042;
                 background: #fff6d7;
-                padding: 8px;
+                padding: 5px;
                 min-width: 0;
             }
 
             .${APP.id}-twstatsGrid figcaption {
-                margin-bottom: 6px;
+                margin-bottom: 4px;
                 color: #7f1b16;
                 font-weight: 700;
+                font-size: 11px;
             }
 
             .${APP.id}-twstatsGrid img {
                 display: block;
+                width: 330px;
                 max-width: 100%;
                 height: auto;
                 background: #fff2c8;
