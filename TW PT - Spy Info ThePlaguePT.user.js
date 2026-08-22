@@ -3167,17 +3167,26 @@
         const gained = result && result.conquests && result.conquests.gained ? result.conquests.gained.length : 0;
         const lost = result && result.conquests && result.conquests.lost ? result.conquests.lost.length : 0;
         const value = `${formatNumber(gained)} / ${formatNumber(lost)}`;
-        const net = result && result.conquests ? result.conquests.net : null;
+        const conquestNet = result && result.conquests ? result.conquests.net : null;
+        const villageNet = result && result.diffs && Number.isFinite(result.diffs.villages)
+            ? result.diffs.villages
+            : null;
+        const mismatch = Number.isFinite(conquestNet) && Number.isFinite(villageNet) && conquestNet !== villageNet;
+        const net = Number.isFinite(villageNet) ? villageNet : conquestNet;
         const finalLabel = periodEndLabel(result && result.period);
+        const sourceNote = mismatch
+            ? `<small title="O histórico de conquistas e as amostras horárias não cobrem exatamente os mesmos eventos."><b>⚠ Fontes</b><span>Conquistas: ${escapeHTML(formatDelta(conquestNet))} · Aldeias: ${escapeHTML(formatDelta(villageNet))}</span></small>`
+            : "";
         return `
-            <div class="${APP.id}-metric">
+            <div class="${APP.id}-metric"${mismatch ? ` title="Existe uma diferença entre o histórico público de conquistas e o saldo horário de aldeias."` : ""}>
                 <span>Ganhas / Perdidas</span>
-                <strong>${escapeHTML(value)}</strong>
+                <strong>${escapeHTML(value)}${mismatch ? " ⚠" : ""}</strong>
                 <div class="${APP.id}-metricBreakdown">
                     <small><b>00h</b><span>0 / 0</span></small>
                     <small><b>${escapeHTML(finalLabel)}</b><span>${escapeHTML(value)}</span></small>
+                    ${sourceNote}
                 </div>
-                <em class="${deltaClass(net, false)}">${escapeHTML(`Saldo ${formatDelta(net)}`)}</em>
+                <em class="${deltaClass(net, false)}">${escapeHTML(`${Number.isFinite(villageNet) ? "Saldo aldeias" : "Saldo"} ${formatDelta(net)}`)}</em>
             </div>
         `;
     }
@@ -8002,17 +8011,26 @@
         const gained = result && result.conquests && result.conquests.gained ? result.conquests.gained.length : 0;
         const lost = result && result.conquests && result.conquests.lost ? result.conquests.lost.length : 0;
         const value = `${formatNumber(gained)} / ${formatNumber(lost)}`;
-        const net = result && result.conquests ? result.conquests.net : null;
+        const conquestNet = result && result.conquests ? result.conquests.net : null;
+        const villageNet = result && result.diffs && Number.isFinite(result.diffs.villages)
+            ? result.diffs.villages
+            : null;
+        const mismatch = Number.isFinite(conquestNet) && Number.isFinite(villageNet) && conquestNet !== villageNet;
+        const net = Number.isFinite(villageNet) ? villageNet : conquestNet;
         const finalLabel = periodEndLabel(result && result.period);
+        const sourceNote = mismatch
+            ? `<small title="O histórico de conquistas e as amostras horárias não cobrem exatamente os mesmos eventos."><b>⚠ Fontes</b><span>Conquistas: ${escapeHTML(formatDelta(conquestNet))} · Aldeias: ${escapeHTML(formatDelta(villageNet))}</span></small>`
+            : "";
         return `
-            <div class="${APP.id}-metric">
+            <div class="${APP.id}-metric"${mismatch ? ` title="Existe uma diferença entre o histórico público de conquistas e o saldo horário de aldeias."` : ""}>
                 <span>Ganhas / Perdidas</span>
-                <strong>${escapeHTML(value)}</strong>
+                <strong>${escapeHTML(value)}${mismatch ? " ⚠" : ""}</strong>
                 <div class="${APP.id}-metricBreakdown">
                     <small><b>00h</b><span>0 / 0</span></small>
                     <small><b>${escapeHTML(finalLabel)}</b><span>${escapeHTML(value)}</span></small>
+                    ${sourceNote}
                 </div>
-                <em class="${deltaClass(net, false)}">${escapeHTML(`Saldo ${formatDelta(net)}`)}</em>
+                <em class="${deltaClass(net, false)}">${escapeHTML(`${Number.isFinite(villageNet) ? "Saldo aldeias" : "Saldo"} ${formatDelta(net)}`)}</em>
             </div>
         `;
     }
