@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spy/Info - ThePlaguePT
 // @namespace    theplaguept.tw.spy-info
-// @version      1.0.25
+// @version      1.0.27
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.25",
+        version: "1.0.27",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -383,12 +383,16 @@
     }
 
     function hydratePanelAfterOpen() {
+        const saved = applySavedPanelConfig();
         const guess = defaultPlayerQuery();
-        if (guess && state.controls.playerInput && !state.controls.playerInput.value.trim()) {
+        if (!saved.remember && guess && state.controls.playerInput && !state.controls.playerInput.value.trim()) {
             state.controls.playerInput.value = guess;
         }
         window.setTimeout(() => {
             if (state.controls.playerInput) state.controls.playerInput.focus();
+            if (saved.remember && saved.autoRun && state.controls.playerInput && state.controls.playerInput.value.trim()) {
+                runSummary(false);
+            }
         }, 20);
     }
 
@@ -494,6 +498,16 @@
                                     <input type="number" name="periodDays" min="1" max="30" step="1" value="1" inputmode="numeric" title="Numero de dias a juntar para tras">
                                 </label>
                             </div>
+                            <div class="${APP.id}-prefsGrid">
+                                <label class="${APP.id}-checkOption">
+                                    <input type="checkbox" name="rememberConfig">
+                                    <span>Memorizar config.</span>
+                                </label>
+                                <label class="${APP.id}-checkOption">
+                                    <input type="checkbox" name="autoRunSaved">
+                                    <span>Atualizar ao abrir</span>
+                                </label>
+                            </div>
                         </div>
                     </form>
 
@@ -548,6 +562,8 @@
         state.controls.body = scope.querySelector(`.${APP.id}-body`);
         state.controls.submit = scope.querySelector('button[type="submit"]');
         state.controls.infoTypeSelect = scope.querySelector('select[name="infoType"]');
+        state.controls.rememberConfig = scope.querySelector('input[name="rememberConfig"]');
+        state.controls.autoRunSaved = scope.querySelector('input[name="autoRunSaved"]');
         state.controls.clear = scope.querySelector('[data-action="clear"]');
 
         const closeButton = scope.querySelector('[data-action="close"]');
@@ -556,6 +572,7 @@
         const form = scope.querySelector("form");
         if (form) form.addEventListener("submit", (event) => {
             event.preventDefault();
+            savePanelConfig();
             runSummary(false);
         });
 
@@ -566,15 +583,31 @@
         syncDateInputFromPeriod();
         if (state.controls.periodSelect) state.controls.periodSelect.addEventListener("change", () => {
             syncDateInputFromPeriod();
+            savePanelConfig();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
         if (state.controls.periodDateInput) state.controls.periodDateInput.addEventListener("change", () => {
             syncPeriodFromDateInput();
+            savePanelConfig();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
         if (state.controls.periodDaysInput) state.controls.periodDaysInput.addEventListener("change", () => {
             normalizePeriodDaysInput();
+            savePanelConfig();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
+        });
+        if (state.controls.playerInput) state.controls.playerInput.addEventListener("change", savePanelConfig);
+        if (state.controls.rememberConfig) state.controls.rememberConfig.addEventListener("change", () => {
+            if (!state.controls.rememberConfig.checked && state.controls.autoRunSaved) {
+                state.controls.autoRunSaved.checked = false;
+            }
+            savePanelConfig();
+        });
+        if (state.controls.autoRunSaved) state.controls.autoRunSaved.addEventListener("change", () => {
+            if (state.controls.autoRunSaved.checked && state.controls.rememberConfig) {
+                state.controls.rememberConfig.checked = true;
+            }
+            savePanelConfig();
         });
 
         if (state.controls.body) state.controls.body.addEventListener("click", (event) => {
@@ -695,6 +728,7 @@
             const result = await buildSummary(query, force);
             state.lastResult = result;
             state.controls.playerInput.value = result.player.name;
+            savePanelConfig();
             renderResult(result);
             setStatus(`Atualizado: ${formatDateTime(new Date(result.generatedAt))} - ${result.period.shortLabel}: ${baselineStatusLabel(result.precision)}`);
         } catch (error) {
@@ -768,6 +802,7 @@
         const diffs = buildDiffs(displayCurrent, baseline);
         const precision = buildPrecisionInfo(periodInfo.endMs, periodHours, baseline, conquests, todayConquests, externalBaseline, localBaseline);
         const dailyStats = buildDailyStats(dailyHistory, displayCurrent);
+        const periodCharts = buildPeriodCharts(externalBaseline, baseline, displayCurrent, conquests, periodInfo);
         saveSnapshot(current);
         saveDailySnapshot(current);
 
@@ -792,6 +827,7 @@
             diffs,
             precision,
             dailyStats,
+            periodCharts,
             conquests,
             allTime,
             villagesSummary,
@@ -851,6 +887,61 @@
     function normalizePeriodDaysInput() {
         if (!state.controls.periodDaysInput) return;
         state.controls.periodDaysInput.value = String(selectedPeriodDays());
+    }
+
+    function applySavedPanelConfig() {
+        const config = loadPanelConfig();
+        if (state.controls.rememberConfig) state.controls.rememberConfig.checked = !!config.remember;
+        if (state.controls.autoRunSaved) state.controls.autoRunSaved.checked = !!(config.remember && config.autoRun);
+        if (!config.remember) return config;
+
+        if (state.controls.playerInput && config.query) state.controls.playerInput.value = config.query;
+        if (state.controls.periodSelect && config.period) {
+            state.controls.periodSelect.value = config.period;
+        }
+        if (state.controls.periodSelect && state.controls.periodSelect.value === "custom" && state.controls.periodDateInput && config.periodDate) {
+            state.controls.periodDateInput.value = config.periodDate;
+        } else {
+            syncDateInputFromPeriod();
+        }
+        if (state.controls.periodDaysInput && Number.isFinite(config.periodDays)) {
+            state.controls.periodDaysInput.value = String(config.periodDays);
+            normalizePeriodDaysInput();
+        }
+
+        return config;
+    }
+
+    function savePanelConfig() {
+        const config = {
+            remember: !!(state.controls.rememberConfig && state.controls.rememberConfig.checked),
+            autoRun: !!(state.controls.autoRunSaved && state.controls.autoRunSaved.checked),
+            query: state.controls.playerInput ? state.controls.playerInput.value.trim() : "",
+            period: state.controls.periodSelect ? state.controls.periodSelect.value : "0",
+            periodDate: state.controls.periodDateInput ? state.controls.periodDateInput.value : "",
+            periodDays: selectedPeriodDays(),
+        };
+        if (!config.remember) config.autoRun = false;
+
+        try {
+            window.localStorage.setItem(panelConfigKey(), JSON.stringify(config));
+        } catch (_) {
+            // O painel continua funcional mesmo sem localStorage.
+        }
+    }
+
+    function loadPanelConfig() {
+        try {
+            const raw = window.localStorage.getItem(panelConfigKey());
+            const parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === "object" ? parsed : {};
+        } catch (_) {
+            return {};
+        }
+    }
+
+    function panelConfigKey() {
+        return `${APP.id}:config:${window.location.host}`;
     }
 
     function parsePeriodDateInputMs(todayStart) {
@@ -1572,6 +1663,7 @@
                         url,
                         snapshot: parsed.snapshot,
                         currentSnapshot: parsed.currentSnapshot || null,
+                        records: parsed.records || [],
                         message: parsed.message,
                     };
                 }
@@ -1615,6 +1707,7 @@
             url: payload.href || "",
             snapshot: parsed.snapshot,
             currentSnapshot: parsed.currentSnapshot || null,
+            records: parsed.records || [],
             message: `${parsed.message} Fonte: pagina TWStats aberta no browser.`,
         };
     }
@@ -1648,6 +1741,7 @@
                 url: payload.href || url,
                 snapshot: parsed.snapshot,
                 currentSnapshot: parsed.currentSnapshot || null,
+                records: parsed.records || [],
                 message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
             };
         } finally {
@@ -1804,6 +1898,7 @@
             return {
                 snapshot: twStatsRecordToSnapshot(hourlyPair.baseline, current),
                 currentSnapshot: twStatsRecordToSnapshot(hourlyPair.current, current),
+                records: twStatsChartRecords(records, periodInfo, [hourlyPair.baseline, hourlyPair.current]),
                 message: `Horario TWStats: ${formatDateTime(new Date(hourlyPair.baseline.ts))} ate ${formatDateTime(new Date(hourlyPair.current.ts))} (${records.length} linhas lidas).`,
             };
         }
@@ -1813,6 +1908,7 @@
             return {
                 snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
                 currentSnapshot: periodInfo && periodInfo.dayOffset === 0 ? null : twStatsRecordToSnapshot(dailyPair.current, current),
+                records: twStatsChartRecords(records, periodInfo, [dailyPair.baseline, dailyPair.current]),
                 message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
             };
         }
@@ -1836,6 +1932,19 @@
 
         if (!baseline || !current || current.ts <= baseline.ts) return null;
         return { baseline, current };
+    }
+
+    function twStatsChartRecords(records, periodInfo, extraRecords) {
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs) || !Number.isFinite(periodInfo.endMs)) return [];
+        const start = periodInfo.startMs - 90 * 60 * 1000;
+        const end = periodInfo.endMs + 90 * 60 * 1000;
+        const byTs = new Map();
+        [...(records || []), ...(extraRecords || [])]
+            .filter((record) => record && Number.isFinite(record.ts))
+            .filter((record) => record.ts >= start && record.ts <= end)
+            .filter((record) => twStatsRecordScore(record) >= 2)
+            .forEach((record) => byTs.set(record.ts, record));
+        return Array.from(byTs.values()).sort((a, b) => a.ts - b.ts).slice(-300);
     }
 
     function recordsLookDaily(records) {
@@ -2586,6 +2695,7 @@
 
         state.controls.body.innerHTML = `
             ${panelRow("RESUMO", `Totais do periodo selecionado: ${result.period.label}.`, summaryContent, "summaryRow", true)}
+            ${panelRow("GRAFICOS", "Evolucao das stats no periodo selecionado.", renderPeriodCharts(result.periodCharts), "periodChartsRow", false)}
             ${panelRow("ALDEIAS", "Coordenadas atuais do jogador, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow", false)}
             ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow", false)}
             ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow", false)}
@@ -2907,6 +3017,166 @@
             </div>
             ${renderAllTimeConquestTable(allTime.rows)}
             ${renderOpponentTable(allTime.opponents)}
+        `;
+    }
+
+    function buildPeriodCharts(externalBaseline, baseline, current, conquests, periodInfo) {
+        const records = Array.isArray(externalBaseline && externalBaseline.records) ? externalBaseline.records : [];
+        const pointsByTs = new Map();
+        const addRecord = (record) => {
+            const normalized = normalizeChartRecord(record);
+            if (!normalized || !Number.isFinite(normalized.ts)) return;
+            if (periodInfo && Number.isFinite(periodInfo.startMs) && normalized.ts < periodInfo.startMs - 90 * 60 * 1000) return;
+            if (periodInfo && Number.isFinite(periodInfo.endMs) && normalized.ts > periodInfo.endMs + 90 * 60 * 1000) return;
+            pointsByTs.set(normalized.ts, { ...(pointsByTs.get(normalized.ts) || {}), ...normalized });
+        };
+
+        records.forEach(addRecord);
+        addRecord(snapshotToChartRecord(baseline, periodInfo && periodInfo.startMs));
+        addRecord(snapshotToChartRecord(current, periodInfo && periodInfo.endMs));
+
+        const list = Array.from(pointsByTs.values()).sort((a, b) => a.ts - b.ts);
+        const metrics = [
+            ["points", "Pontos"],
+            ["villages", "Aldeias"],
+            ["members", "Membros"],
+            ["rank", "Rank"],
+            ["odTotal", "OD Total"],
+            ["odOff", "OD Ofensivo"],
+            ["odDef", "OD Defensivo"],
+            ["odSupport", "OD Apoio"],
+        ];
+
+        return {
+            label: periodInfo && periodInfo.label ? periodInfo.label : "",
+            source: records.length ? "TWStats" : "Resumo",
+            lines: metrics
+                .map(([key, label]) => ({
+                    key,
+                    label,
+                    inverse: key === "rank",
+                    series: list
+                        .map((record) => ({ ts: record.ts, value: chartMetricValue(record, key) }))
+                        .filter((point) => Number.isFinite(point.value)),
+                }))
+                .filter((line) => line.series.length >= 2),
+            conquests: buildConquestChartSeries(conquests, periodInfo),
+        };
+    }
+
+    function normalizeChartRecord(record) {
+        if (!record) return null;
+        if (record.od) return snapshotToChartRecord(record, record.ts);
+        return {
+            ts: record.ts,
+            points: record.points,
+            villages: record.villages,
+            members: record.members,
+            rank: record.rank,
+            odTotal: record.odTotal,
+            odOff: record.odOff,
+            odDef: record.odDef,
+            odSupport: record.odSupport,
+        };
+    }
+
+    function snapshotToChartRecord(snapshot, tsOverride) {
+        if (!snapshot) return null;
+        return {
+            ts: Number.isFinite(tsOverride) ? tsOverride : snapshot.ts,
+            points: snapshot.points,
+            villages: snapshot.villages,
+            members: snapshot.members,
+            rank: snapshot.rank,
+            odTotal: snapshot.od && snapshot.od.total && snapshot.od.total.score,
+            odOff: snapshot.od && snapshot.od.off && snapshot.od.off.score,
+            odDef: snapshot.od && snapshot.od.def && snapshot.od.def.score,
+            odSupport: snapshot.od && snapshot.od.support && snapshot.od.support.score,
+        };
+    }
+
+    function chartMetricValue(record, key) {
+        const value = record && record[key];
+        return Number.isFinite(value) ? value : null;
+    }
+
+    function buildConquestChartSeries(conquests, periodInfo) {
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs) || !Number.isFinite(periodInfo.endMs)) return [];
+        const events = [
+            ...((conquests && conquests.gained) || []).map((row) => ({ ts: row.timestamp * 1000, delta: 1 })),
+            ...((conquests && conquests.lost) || []).map((row) => ({ ts: row.timestamp * 1000, delta: -1 })),
+        ]
+            .filter((event) => Number.isFinite(event.ts) && event.ts >= periodInfo.startMs && event.ts <= periodInfo.endMs)
+            .sort((a, b) => a.ts - b.ts);
+
+        let running = 0;
+        const series = [{ ts: periodInfo.startMs, value: 0 }];
+        events.forEach((event) => {
+            running += event.delta;
+            series.push({ ts: event.ts, value: running });
+        });
+        series.push({ ts: periodInfo.endMs, value: running });
+        return series;
+    }
+
+    function renderPeriodCharts(charts) {
+        if (!charts || (!charts.lines.length && (!charts.conquests || charts.conquests.length < 2))) {
+            return `<div class="${APP.id}-emptyList">Sem dados suficientes para graficos neste periodo.</div>`;
+        }
+
+        const conquestChart = charts.conquests && charts.conquests.length >= 2
+            ? renderMetricLineChart("Saldo conquistas", charts.conquests)
+            : "";
+        return `
+            <div class="${APP.id}-chartMeta">
+                <span>${escapeHTML(charts.label)}</span>
+                <strong>${escapeHTML(charts.source)}</strong>
+            </div>
+            <div class="${APP.id}-chartsGrid">
+                ${charts.lines.map((line) => renderMetricLineChart(line.label, line.series, line.inverse)).join("")}
+                ${conquestChart}
+            </div>
+        `;
+    }
+
+    function renderMetricLineChart(title, series, inverse) {
+        const points = sampleSeries(series || [], 160);
+        if (points.length < 2) return chartEmpty(title);
+
+        const width = 520;
+        const height = 180;
+        const pad = 24;
+        const values = points.map((point) => point.value);
+        let min = Math.min(...values);
+        let max = Math.max(...values);
+        if (min === max) {
+            min -= 1;
+            max += 1;
+        }
+        const range = Math.max(1, max - min);
+        const polyline = points.map((point, index) => {
+            const x = pad + (index / Math.max(1, points.length - 1)) * (width - pad * 2);
+            const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
+            return `${roundChart(x)},${roundChart(y)}`;
+        }).join(" ");
+        const first = points[0];
+        const last = points[points.length - 1];
+        const delta = last.value - first.value;
+
+        return `
+            <div class="${APP.id}-chart">
+                <h4>${escapeHTML(title)}</h4>
+                <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHTML(title)}">
+                    <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
+                    <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
+                    <polyline points="${polyline}" class="${APP.id}-chartLine"></polyline>
+                </svg>
+                <div class="${APP.id}-chartLegend">
+                    <span>${escapeHTML(formatDateTime(new Date(first.ts)))}</span>
+                    <strong class="${deltaClass(delta, inverse)}">${escapeHTML(formatSigned(delta))}</strong>
+                    <span>${escapeHTML(formatDateTime(new Date(last.ts)))}</span>
+                </div>
+            </div>
         `;
     }
 
@@ -4252,6 +4522,27 @@
                 color: #4d250f;
             }
 
+            .${APP.id}-prefsGrid {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                margin-top: 7px;
+            }
+
+            .${APP.id}-checkOption {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                color: #3f210e;
+                font: 700 11px Verdana, Arial, sans-serif;
+            }
+
+            .${APP.id}-checkOption input {
+                width: 13px;
+                height: 13px;
+                margin: 0;
+            }
+
             .${APP.id}-body {
                 display: flex;
                 flex-direction: column;
@@ -4557,6 +4848,19 @@
                 gap: 8px;
             }
 
+            .${APP.id}-chartMeta {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                padding: 5px 7px;
+                border: 1px solid #c89042;
+                background: #fff1bd;
+                color: #5a2f13;
+                font-size: 11px;
+                font-weight: 700;
+            }
+
             .${APP.id}-chartsGrid {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4791,7 +5095,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.25",
+        version: "1.0.27",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -4984,12 +5288,16 @@
     }
 
     function hydratePanelAfterOpen() {
+        const saved = applySavedPanelConfig();
         const guess = defaultPlayerQuery();
-        if (guess && state.controls.playerInput && !state.controls.playerInput.value.trim()) {
+        if (!saved.remember && guess && state.controls.playerInput && !state.controls.playerInput.value.trim()) {
             state.controls.playerInput.value = guess;
         }
         window.setTimeout(() => {
             if (state.controls.playerInput) state.controls.playerInput.focus();
+            if (saved.remember && saved.autoRun && state.controls.playerInput && state.controls.playerInput.value.trim()) {
+                runSummary(false);
+            }
         }, 20);
     }
 
@@ -5095,6 +5403,16 @@
                                     <input type="number" name="periodDays" min="1" max="30" step="1" value="1" inputmode="numeric" title="Numero de dias a juntar para tras">
                                 </label>
                             </div>
+                            <div class="${APP.id}-prefsGrid">
+                                <label class="${APP.id}-checkOption">
+                                    <input type="checkbox" name="rememberConfig">
+                                    <span>Memorizar config.</span>
+                                </label>
+                                <label class="${APP.id}-checkOption">
+                                    <input type="checkbox" name="autoRunSaved">
+                                    <span>Atualizar ao abrir</span>
+                                </label>
+                            </div>
                         </div>
                     </form>
 
@@ -5149,6 +5467,8 @@
         state.controls.body = scope.querySelector(`.${APP.id}-body`);
         state.controls.submit = scope.querySelector('button[type="submit"]');
         state.controls.infoTypeSelect = scope.querySelector('select[name="infoType"]');
+        state.controls.rememberConfig = scope.querySelector('input[name="rememberConfig"]');
+        state.controls.autoRunSaved = scope.querySelector('input[name="autoRunSaved"]');
         state.controls.clear = scope.querySelector('[data-action="clear"]');
 
         const closeButton = scope.querySelector('[data-action="close"]');
@@ -5157,6 +5477,7 @@
         const form = scope.querySelector("form");
         if (form) form.addEventListener("submit", (event) => {
             event.preventDefault();
+            savePanelConfig();
             runSummary(false);
         });
 
@@ -5167,15 +5488,31 @@
         syncDateInputFromPeriod();
         if (state.controls.periodSelect) state.controls.periodSelect.addEventListener("change", () => {
             syncDateInputFromPeriod();
+            savePanelConfig();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
         if (state.controls.periodDateInput) state.controls.periodDateInput.addEventListener("change", () => {
             syncPeriodFromDateInput();
+            savePanelConfig();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
         if (state.controls.periodDaysInput) state.controls.periodDaysInput.addEventListener("change", () => {
             normalizePeriodDaysInput();
+            savePanelConfig();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
+        });
+        if (state.controls.playerInput) state.controls.playerInput.addEventListener("change", savePanelConfig);
+        if (state.controls.rememberConfig) state.controls.rememberConfig.addEventListener("change", () => {
+            if (!state.controls.rememberConfig.checked && state.controls.autoRunSaved) {
+                state.controls.autoRunSaved.checked = false;
+            }
+            savePanelConfig();
+        });
+        if (state.controls.autoRunSaved) state.controls.autoRunSaved.addEventListener("change", () => {
+            if (state.controls.autoRunSaved.checked && state.controls.rememberConfig) {
+                state.controls.rememberConfig.checked = true;
+            }
+            savePanelConfig();
         });
 
         if (state.controls.body) state.controls.body.addEventListener("click", (event) => {
@@ -5296,6 +5633,7 @@
             const result = await buildSummary(query, force);
             state.lastResult = result;
             state.controls.playerInput.value = result.player.tag || result.player.name;
+            savePanelConfig();
             renderResult(result);
             setStatus(`Atualizado: ${formatDateTime(new Date(result.generatedAt))} - ${result.period.shortLabel}: ${baselineStatusLabel(result.precision)}`);
         } catch (error) {
@@ -5373,6 +5711,7 @@
         const diffs = buildDiffs(displayCurrent, baseline);
         const precision = buildPrecisionInfo(periodInfo.endMs, periodHours, baseline, conquests, todayConquests, externalBaseline, localBaseline);
         const dailyStats = buildDailyStats(dailyHistory, displayCurrent);
+        const periodCharts = buildPeriodCharts(externalBaseline, baseline, displayCurrent, conquests, periodInfo);
         saveSnapshot(current);
         saveDailySnapshot(current);
 
@@ -5397,6 +5736,7 @@
             diffs,
             precision,
             dailyStats,
+            periodCharts,
             conquests,
             allTime,
             villagesSummary,
@@ -5456,6 +5796,61 @@
     function normalizePeriodDaysInput() {
         if (!state.controls.periodDaysInput) return;
         state.controls.periodDaysInput.value = String(selectedPeriodDays());
+    }
+
+    function applySavedPanelConfig() {
+        const config = loadPanelConfig();
+        if (state.controls.rememberConfig) state.controls.rememberConfig.checked = !!config.remember;
+        if (state.controls.autoRunSaved) state.controls.autoRunSaved.checked = !!(config.remember && config.autoRun);
+        if (!config.remember) return config;
+
+        if (state.controls.playerInput && config.query) state.controls.playerInput.value = config.query;
+        if (state.controls.periodSelect && config.period) {
+            state.controls.periodSelect.value = config.period;
+        }
+        if (state.controls.periodSelect && state.controls.periodSelect.value === "custom" && state.controls.periodDateInput && config.periodDate) {
+            state.controls.periodDateInput.value = config.periodDate;
+        } else {
+            syncDateInputFromPeriod();
+        }
+        if (state.controls.periodDaysInput && Number.isFinite(config.periodDays)) {
+            state.controls.periodDaysInput.value = String(config.periodDays);
+            normalizePeriodDaysInput();
+        }
+
+        return config;
+    }
+
+    function savePanelConfig() {
+        const config = {
+            remember: !!(state.controls.rememberConfig && state.controls.rememberConfig.checked),
+            autoRun: !!(state.controls.autoRunSaved && state.controls.autoRunSaved.checked),
+            query: state.controls.playerInput ? state.controls.playerInput.value.trim() : "",
+            period: state.controls.periodSelect ? state.controls.periodSelect.value : "0",
+            periodDate: state.controls.periodDateInput ? state.controls.periodDateInput.value : "",
+            periodDays: selectedPeriodDays(),
+        };
+        if (!config.remember) config.autoRun = false;
+
+        try {
+            window.localStorage.setItem(panelConfigKey(), JSON.stringify(config));
+        } catch (_) {
+            // O painel continua funcional mesmo sem localStorage.
+        }
+    }
+
+    function loadPanelConfig() {
+        try {
+            const raw = window.localStorage.getItem(panelConfigKey());
+            const parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === "object" ? parsed : {};
+        } catch (_) {
+            return {};
+        }
+    }
+
+    function panelConfigKey() {
+        return `${APP.id}:config:${window.location.host}`;
     }
 
     function parsePeriodDateInputMs(todayStart) {
@@ -6412,6 +6807,7 @@
                         url,
                         snapshot: parsed.snapshot,
                         currentSnapshot: parsed.currentSnapshot || null,
+                        records: parsed.records || [],
                         message: parsed.message,
                     };
                 }
@@ -6455,6 +6851,7 @@
             url: payload.href || "",
             snapshot: parsed.snapshot,
             currentSnapshot: parsed.currentSnapshot || null,
+            records: parsed.records || [],
             message: `${parsed.message} Fonte: pagina TWStats aberta no browser.`,
         };
     }
@@ -6488,6 +6885,7 @@
                 url: payload.href || url,
                 snapshot: parsed.snapshot,
                 currentSnapshot: parsed.currentSnapshot || null,
+                records: parsed.records || [],
                 message: `${parsed.message} Fonte: TWStats aberto automaticamente.`,
             };
         } finally {
@@ -6644,6 +7042,7 @@
             return {
                 snapshot: twStatsRecordToSnapshot(hourlyPair.baseline, current),
                 currentSnapshot: twStatsRecordToSnapshot(hourlyPair.current, current),
+                records: twStatsChartRecords(records, periodInfo, [hourlyPair.baseline, hourlyPair.current]),
                 message: `Horario TWStats: ${formatDateTime(new Date(hourlyPair.baseline.ts))} ate ${formatDateTime(new Date(hourlyPair.current.ts))} (${records.length} linhas lidas).`,
             };
         }
@@ -6653,6 +7052,7 @@
             return {
                 snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
                 currentSnapshot: periodInfo && periodInfo.dayOffset === 0 ? null : twStatsRecordToSnapshot(dailyPair.current, current),
+                records: twStatsChartRecords(records, periodInfo, [dailyPair.baseline, dailyPair.current]),
                 message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
             };
         }
@@ -6676,6 +7076,19 @@
 
         if (!baseline || !current || current.ts <= baseline.ts) return null;
         return { baseline, current };
+    }
+
+    function twStatsChartRecords(records, periodInfo, extraRecords) {
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs) || !Number.isFinite(periodInfo.endMs)) return [];
+        const start = periodInfo.startMs - 90 * 60 * 1000;
+        const end = periodInfo.endMs + 90 * 60 * 1000;
+        const byTs = new Map();
+        [...(records || []), ...(extraRecords || [])]
+            .filter((record) => record && Number.isFinite(record.ts))
+            .filter((record) => record.ts >= start && record.ts <= end)
+            .filter((record) => twStatsRecordScore(record) >= 2)
+            .forEach((record) => byTs.set(record.ts, record));
+        return Array.from(byTs.values()).sort((a, b) => a.ts - b.ts).slice(-300);
     }
 
     function recordsLookDaily(records) {
@@ -7437,6 +7850,7 @@
 
         state.controls.body.innerHTML = `
             ${panelRow("RESUMO", `Totais do periodo selecionado: ${result.period.label}.`, summaryContent, "summaryRow", true)}
+            ${panelRow("GRAFICOS", "Evolucao das stats no periodo selecionado.", renderPeriodCharts(result.periodCharts), "periodChartsRow", false)}
             ${panelRow("ALDEIAS", "Coordenadas atuais da tribo, todas e por continente.", renderVillageCoordinates(result.villagesSummary), "villagesRow", false)}
             ${panelRow("MUNDO", "Stats desde o inicio do mundo pelo historico publico de conquistas.", renderAllTimeStats(result.allTime), "worldStatsRow", false)}
             ${panelRow("TWSTATS", "Graficos historicos externos, quando o mundo existe no TWStats.", renderTwStatsGraphs(result.twstats), "chartsRow", false)}
@@ -7759,6 +8173,166 @@
             </div>
             ${renderAllTimeConquestTable(allTime.rows)}
             ${renderOpponentTable(allTime.opponents)}
+        `;
+    }
+
+    function buildPeriodCharts(externalBaseline, baseline, current, conquests, periodInfo) {
+        const records = Array.isArray(externalBaseline && externalBaseline.records) ? externalBaseline.records : [];
+        const pointsByTs = new Map();
+        const addRecord = (record) => {
+            const normalized = normalizeChartRecord(record);
+            if (!normalized || !Number.isFinite(normalized.ts)) return;
+            if (periodInfo && Number.isFinite(periodInfo.startMs) && normalized.ts < periodInfo.startMs - 90 * 60 * 1000) return;
+            if (periodInfo && Number.isFinite(periodInfo.endMs) && normalized.ts > periodInfo.endMs + 90 * 60 * 1000) return;
+            pointsByTs.set(normalized.ts, { ...(pointsByTs.get(normalized.ts) || {}), ...normalized });
+        };
+
+        records.forEach(addRecord);
+        addRecord(snapshotToChartRecord(baseline, periodInfo && periodInfo.startMs));
+        addRecord(snapshotToChartRecord(current, periodInfo && periodInfo.endMs));
+
+        const list = Array.from(pointsByTs.values()).sort((a, b) => a.ts - b.ts);
+        const metrics = [
+            ["points", "Pontos"],
+            ["villages", "Aldeias"],
+            ["members", "Membros"],
+            ["rank", "Rank"],
+            ["odTotal", "OD Total"],
+            ["odOff", "OD Ofensivo"],
+            ["odDef", "OD Defensivo"],
+            ["odSupport", "OD Apoio"],
+        ];
+
+        return {
+            label: periodInfo && periodInfo.label ? periodInfo.label : "",
+            source: records.length ? "TWStats" : "Resumo",
+            lines: metrics
+                .map(([key, label]) => ({
+                    key,
+                    label,
+                    inverse: key === "rank",
+                    series: list
+                        .map((record) => ({ ts: record.ts, value: chartMetricValue(record, key) }))
+                        .filter((point) => Number.isFinite(point.value)),
+                }))
+                .filter((line) => line.series.length >= 2),
+            conquests: buildConquestChartSeries(conquests, periodInfo),
+        };
+    }
+
+    function normalizeChartRecord(record) {
+        if (!record) return null;
+        if (record.od) return snapshotToChartRecord(record, record.ts);
+        return {
+            ts: record.ts,
+            points: record.points,
+            villages: record.villages,
+            members: record.members,
+            rank: record.rank,
+            odTotal: record.odTotal,
+            odOff: record.odOff,
+            odDef: record.odDef,
+            odSupport: record.odSupport,
+        };
+    }
+
+    function snapshotToChartRecord(snapshot, tsOverride) {
+        if (!snapshot) return null;
+        return {
+            ts: Number.isFinite(tsOverride) ? tsOverride : snapshot.ts,
+            points: snapshot.points,
+            villages: snapshot.villages,
+            members: snapshot.members,
+            rank: snapshot.rank,
+            odTotal: snapshot.od && snapshot.od.total && snapshot.od.total.score,
+            odOff: snapshot.od && snapshot.od.off && snapshot.od.off.score,
+            odDef: snapshot.od && snapshot.od.def && snapshot.od.def.score,
+            odSupport: snapshot.od && snapshot.od.support && snapshot.od.support.score,
+        };
+    }
+
+    function chartMetricValue(record, key) {
+        const value = record && record[key];
+        return Number.isFinite(value) ? value : null;
+    }
+
+    function buildConquestChartSeries(conquests, periodInfo) {
+        if (!periodInfo || !Number.isFinite(periodInfo.startMs) || !Number.isFinite(periodInfo.endMs)) return [];
+        const events = [
+            ...((conquests && conquests.gained) || []).map((row) => ({ ts: row.timestamp * 1000, delta: 1 })),
+            ...((conquests && conquests.lost) || []).map((row) => ({ ts: row.timestamp * 1000, delta: -1 })),
+        ]
+            .filter((event) => Number.isFinite(event.ts) && event.ts >= periodInfo.startMs && event.ts <= periodInfo.endMs)
+            .sort((a, b) => a.ts - b.ts);
+
+        let running = 0;
+        const series = [{ ts: periodInfo.startMs, value: 0 }];
+        events.forEach((event) => {
+            running += event.delta;
+            series.push({ ts: event.ts, value: running });
+        });
+        series.push({ ts: periodInfo.endMs, value: running });
+        return series;
+    }
+
+    function renderPeriodCharts(charts) {
+        if (!charts || (!charts.lines.length && (!charts.conquests || charts.conquests.length < 2))) {
+            return `<div class="${APP.id}-emptyList">Sem dados suficientes para graficos neste periodo.</div>`;
+        }
+
+        const conquestChart = charts.conquests && charts.conquests.length >= 2
+            ? renderMetricLineChart("Saldo conquistas", charts.conquests)
+            : "";
+        return `
+            <div class="${APP.id}-chartMeta">
+                <span>${escapeHTML(charts.label)}</span>
+                <strong>${escapeHTML(charts.source)}</strong>
+            </div>
+            <div class="${APP.id}-chartsGrid">
+                ${charts.lines.map((line) => renderMetricLineChart(line.label, line.series, line.inverse)).join("")}
+                ${conquestChart}
+            </div>
+        `;
+    }
+
+    function renderMetricLineChart(title, series, inverse) {
+        const points = sampleSeries(series || [], 160);
+        if (points.length < 2) return chartEmpty(title);
+
+        const width = 520;
+        const height = 180;
+        const pad = 24;
+        const values = points.map((point) => point.value);
+        let min = Math.min(...values);
+        let max = Math.max(...values);
+        if (min === max) {
+            min -= 1;
+            max += 1;
+        }
+        const range = Math.max(1, max - min);
+        const polyline = points.map((point, index) => {
+            const x = pad + (index / Math.max(1, points.length - 1)) * (width - pad * 2);
+            const y = height - pad - ((point.value - min) / range) * (height - pad * 2);
+            return `${roundChart(x)},${roundChart(y)}`;
+        }).join(" ");
+        const first = points[0];
+        const last = points[points.length - 1];
+        const delta = last.value - first.value;
+
+        return `
+            <div class="${APP.id}-chart">
+                <h4>${escapeHTML(title)}</h4>
+                <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHTML(title)}">
+                    <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
+                    <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" class="${APP.id}-chartAxis"></line>
+                    <polyline points="${polyline}" class="${APP.id}-chartLine"></polyline>
+                </svg>
+                <div class="${APP.id}-chartLegend">
+                    <span>${escapeHTML(formatDateTime(new Date(first.ts)))}</span>
+                    <strong class="${deltaClass(delta, inverse)}">${escapeHTML(formatSigned(delta))}</strong>
+                    <span>${escapeHTML(formatDateTime(new Date(last.ts)))}</span>
+                </div>
+            </div>
         `;
     }
 
@@ -9103,6 +9677,27 @@
                 color: #4d250f;
             }
 
+            .${APP.id}-prefsGrid {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                margin-top: 7px;
+            }
+
+            .${APP.id}-checkOption {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                color: #3f210e;
+                font: 700 11px Verdana, Arial, sans-serif;
+            }
+
+            .${APP.id}-checkOption input {
+                width: 13px;
+                height: 13px;
+                margin: 0;
+            }
+
             .${APP.id}-body {
                 display: flex;
                 flex-direction: column;
@@ -9406,6 +10001,19 @@
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
                 gap: 8px;
+            }
+
+            .${APP.id}-chartMeta {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                padding: 5px 7px;
+                border: 1px solid #c89042;
+                background: #fff1bd;
+                color: #5a2f13;
+                font-size: 11px;
+                font-weight: 700;
             }
 
             .${APP.id}-chartsGrid {
