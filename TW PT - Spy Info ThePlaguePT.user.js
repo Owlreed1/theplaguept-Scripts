@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spy/Info - ThePlaguePT
 // @namespace    theplaguept.tw.spy-info
-// @version      1.0.24
+// @version      1.0.25
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.24",
+        version: "1.0.25",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -3166,27 +3166,35 @@
     function conquestsMetricCard(result) {
         const gained = result && result.conquests && result.conquests.gained ? result.conquests.gained.length : 0;
         const lost = result && result.conquests && result.conquests.lost ? result.conquests.lost.length : 0;
-        const value = `${formatNumber(gained)} / ${formatNumber(lost)}`;
         const conquestNet = result && result.conquests ? result.conquests.net : null;
         const villageNet = result && result.diffs && Number.isFinite(result.diffs.villages)
             ? result.diffs.villages
             : null;
         const mismatch = Number.isFinite(conquestNet) && Number.isFinite(villageNet) && conquestNet !== villageNet;
-        const net = Number.isFinite(villageNet) ? villageNet : conquestNet;
+        const inferred = mismatch && gained + lost === 0 && Number.isFinite(villageNet) && villageNet !== 0;
+        const shownGained = inferred ? Math.max(0, villageNet) : gained;
+        const shownLost = inferred ? Math.max(0, -villageNet) : lost;
+        const value = `${formatNumber(shownGained)} / ${formatNumber(shownLost)}${inferred ? " *" : ""}`;
+        const net = shownGained - shownLost;
         const finalLabel = periodEndLabel(result && result.period);
-        const sourceNote = mismatch
-            ? `<small title="O histórico de conquistas e as amostras horárias não cobrem exatamente os mesmos eventos."><b>⚠ Fontes</b><span>Conquistas: ${escapeHTML(formatDelta(conquestNet))} · Aldeias: ${escapeHTML(formatDelta(villageNet))}</span></small>`
-            : "";
+        const sourceNote = inferred
+            ? `<small title="Sem linhas no historico de conquistas para este saldo; valor estimado pelo saldo horario de aldeias."><b>Base</b><span>Estimado por aldeias ${escapeHTML(formatDelta(villageNet))}</span></small>`
+            : (mismatch
+                ? `<small title="O historico de conquistas e as amostras horarias nao cobrem exatamente os mesmos eventos."><b>Fontes</b><span>Conquistas: ${escapeHTML(formatDelta(conquestNet))} | Aldeias: ${escapeHTML(formatDelta(villageNet))}</span></small>`
+                : "");
+        const title = inferred
+            ? "Ganhas/perdidas estimadas pelo saldo horario de aldeias."
+            : (mismatch ? "Existe uma diferenca entre o historico publico de conquistas e o saldo horario de aldeias." : "");
         return `
-            <div class="${APP.id}-metric"${mismatch ? ` title="Existe uma diferença entre o histórico público de conquistas e o saldo horário de aldeias."` : ""}>
+            <div class="${APP.id}-metric"${title ? ` title="${escapeHTML(title)}"` : ""}>
                 <span>Ganhas / Perdidas</span>
-                <strong>${escapeHTML(value)}${mismatch ? " ⚠" : ""}</strong>
+                <strong>${escapeHTML(value)}</strong>
                 <div class="${APP.id}-metricBreakdown">
                     <small><b>00h</b><span>0 / 0</span></small>
                     <small><b>${escapeHTML(finalLabel)}</b><span>${escapeHTML(value)}</span></small>
                     ${sourceNote}
                 </div>
-                <em class="${deltaClass(net, false)}">${escapeHTML(`${Number.isFinite(villageNet) ? "Saldo aldeias" : "Saldo"} ${formatDelta(net)}`)}</em>
+                <em class="${deltaClass(net, false)}">${escapeHTML(`Saldo ${formatDelta(net)}`)}</em>
             </div>
         `;
     }
@@ -4783,7 +4791,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.24",
+        version: "1.0.25",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -8010,27 +8018,35 @@
     function conquestsMetricCard(result) {
         const gained = result && result.conquests && result.conquests.gained ? result.conquests.gained.length : 0;
         const lost = result && result.conquests && result.conquests.lost ? result.conquests.lost.length : 0;
-        const value = `${formatNumber(gained)} / ${formatNumber(lost)}`;
         const conquestNet = result && result.conquests ? result.conquests.net : null;
         const villageNet = result && result.diffs && Number.isFinite(result.diffs.villages)
             ? result.diffs.villages
             : null;
         const mismatch = Number.isFinite(conquestNet) && Number.isFinite(villageNet) && conquestNet !== villageNet;
-        const net = Number.isFinite(villageNet) ? villageNet : conquestNet;
+        const inferred = mismatch && gained + lost === 0 && Number.isFinite(villageNet) && villageNet !== 0;
+        const shownGained = inferred ? Math.max(0, villageNet) : gained;
+        const shownLost = inferred ? Math.max(0, -villageNet) : lost;
+        const value = `${formatNumber(shownGained)} / ${formatNumber(shownLost)}${inferred ? " *" : ""}`;
+        const net = shownGained - shownLost;
         const finalLabel = periodEndLabel(result && result.period);
-        const sourceNote = mismatch
-            ? `<small title="O histórico de conquistas e as amostras horárias não cobrem exatamente os mesmos eventos."><b>⚠ Fontes</b><span>Conquistas: ${escapeHTML(formatDelta(conquestNet))} · Aldeias: ${escapeHTML(formatDelta(villageNet))}</span></small>`
-            : "";
+        const sourceNote = inferred
+            ? `<small title="Sem linhas no historico de conquistas para este saldo; valor estimado pelo saldo horario de aldeias."><b>Base</b><span>Estimado por aldeias ${escapeHTML(formatDelta(villageNet))}</span></small>`
+            : (mismatch
+                ? `<small title="O historico de conquistas e as amostras horarias nao cobrem exatamente os mesmos eventos."><b>Fontes</b><span>Conquistas: ${escapeHTML(formatDelta(conquestNet))} | Aldeias: ${escapeHTML(formatDelta(villageNet))}</span></small>`
+                : "");
+        const title = inferred
+            ? "Ganhas/perdidas estimadas pelo saldo horario de aldeias."
+            : (mismatch ? "Existe uma diferenca entre o historico publico de conquistas e o saldo horario de aldeias." : "");
         return `
-            <div class="${APP.id}-metric"${mismatch ? ` title="Existe uma diferença entre o histórico público de conquistas e o saldo horário de aldeias."` : ""}>
+            <div class="${APP.id}-metric"${title ? ` title="${escapeHTML(title)}"` : ""}>
                 <span>Ganhas / Perdidas</span>
-                <strong>${escapeHTML(value)}${mismatch ? " ⚠" : ""}</strong>
+                <strong>${escapeHTML(value)}</strong>
                 <div class="${APP.id}-metricBreakdown">
                     <small><b>00h</b><span>0 / 0</span></small>
                     <small><b>${escapeHTML(finalLabel)}</b><span>${escapeHTML(value)}</span></small>
                     ${sourceNote}
                 </div>
-                <em class="${deltaClass(net, false)}">${escapeHTML(`${Number.isFinite(villageNet) ? "Saldo aldeias" : "Saldo"} ${formatDelta(net)}`)}</em>
+                <em class="${deltaClass(net, false)}">${escapeHTML(`Saldo ${formatDelta(net)}`)}</em>
             </div>
         `;
     }
