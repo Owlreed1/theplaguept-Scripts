@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spy/Info - ThePlaguePT
 // @namespace    theplaguept.tw.spy-info
-// @version      1.0.21
+// @version      1.0.22
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.20",
+        version: "1.0.22",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoJogador",
@@ -490,6 +490,10 @@
                                     <input type="date" name="periodDate">
                                 </label>
                                 <label>
+                                    <span>Dias</span>
+                                    <input type="number" name="periodDays" min="1" max="30" step="1" value="1" inputmode="numeric" title="Numero de dias a juntar para tras">
+                                </label>
+                                <label>
                                     <span>Comparar</span>
                                     <select disabled>
                                         <option>Historico TWStats horario</option>
@@ -545,6 +549,7 @@
         state.controls.playerInput = scope.querySelector('input[name="player"]');
         state.controls.periodSelect = scope.querySelector('select[name="period"]');
         state.controls.periodDateInput = scope.querySelector('input[name="periodDate"]');
+        state.controls.periodDaysInput = scope.querySelector('input[name="periodDays"]');
         state.controls.status = scope.querySelector(`.${APP.id}-status`);
         state.controls.body = scope.querySelector(`.${APP.id}-body`);
         state.controls.submit = scope.querySelector('button[type="submit"]');
@@ -571,6 +576,10 @@
         });
         if (state.controls.periodDateInput) state.controls.periodDateInput.addEventListener("change", () => {
             syncPeriodFromDateInput();
+            if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
+        });
+        if (state.controls.periodDaysInput) state.controls.periodDaysInput.addEventListener("change", () => {
+            normalizePeriodDaysInput();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
 
@@ -778,6 +787,8 @@
                 label: periodInfo.label,
                 shortLabel: periodInfo.shortLabel,
                 dayOffset: periodInfo.dayOffset,
+                aggregateDays: periodInfo.aggregateDays,
+                selectedDateStartMs: periodInfo.selectedDateStartMs,
                 startMs: periodInfo.startMs,
                 endMs: periodInfo.endMs,
             },
@@ -800,21 +811,32 @@
         const todayStart = startOfLocalDayMs(now);
         const selectedDateStart = selectedPeriodStartMs(todayStart);
         const dayOffset = Math.max(0, Math.round((todayStart - selectedDateStart) / APP.dayMs));
-        const startMs = todayStart - dayOffset * APP.dayMs;
-        const endMs = dayOffset === 0 ? now : startMs + APP.dayMs;
+        const aggregateDays = selectedPeriodDays();
+        const startMs = selectedDateStart - (aggregateDays - 1) * APP.dayMs;
+        const endMs = dayOffset === 0 ? now : selectedDateStart + APP.dayMs;
         const ms = Math.max(60 * 1000, endMs - startMs);
         const hours = ms / (60 * 60 * 1000);
-        const dateText = formatDateOnly(new Date(startMs));
-        const label = dayOffset === 0 ? `Hoje (${dateText}, 00:00-agora)` : `${dateText} (00:00-24:00)`;
+        const startDateText = formatDateOnly(new Date(startMs));
+        const selectedDateText = formatDateOnly(new Date(selectedDateStart));
+        const label = aggregateDays > 1
+            ? (dayOffset === 0
+                ? `Ultimos ${aggregateDays} dias (${startDateText}, 00:00-${selectedDateText}, agora)`
+                : `${aggregateDays} dias (${startDateText}, 00:00-${selectedDateText}, 24:00)`)
+            : (dayOffset === 0 ? `Hoje (${selectedDateText}, 00:00-agora)` : `${selectedDateText} (00:00-24:00)`);
+        const shortLabel = aggregateDays > 1
+            ? (dayOffset === 0 ? `${aggregateDays}D ate agora` : `${aggregateDays}D ate ${selectedDateText}`)
+            : (dayOffset === 0 ? "Hoje" : selectedDateText);
 
         return {
             dayOffset,
+            aggregateDays,
+            selectedDateStartMs: selectedDateStart,
             startMs,
             endMs,
             ms,
             hours,
             label,
-            shortLabel: dayOffset === 0 ? "Hoje" : dateText,
+            shortLabel,
         };
     }
 
@@ -825,6 +847,16 @@
 
         const dayOffset = clampDayOffset(Number.parseInt(selectValue, 10));
         return todayStart - dayOffset * APP.dayMs;
+    }
+
+    function selectedPeriodDays() {
+        const value = Number.parseInt(state.controls.periodDaysInput && state.controls.periodDaysInput.value, 10);
+        return clampAggregateDays(value);
+    }
+
+    function normalizePeriodDaysInput() {
+        if (!state.controls.periodDaysInput) return;
+        state.controls.periodDaysInput.value = String(selectedPeriodDays());
     }
 
     function parsePeriodDateInputMs(todayStart) {
@@ -866,6 +898,10 @@
 
     function clampDayOffset(value) {
         return Number.isFinite(value) && value >= 0 && value <= 30 ? value : 0;
+    }
+
+    function clampAggregateDays(value) {
+        return Number.isFinite(value) && value >= 1 ? Math.min(30, Math.floor(value)) : 1;
     }
 
     function startOfLocalDayMs(time) {
@@ -1431,7 +1467,7 @@
             playerId: info.playerId,
             href: window.location.href,
             savedAt: Date.now(),
-            records: records.slice(-240),
+            records: records.slice(-1200),
         });
 
         showTwStatsBridgeNotice(records.length);
@@ -1769,21 +1805,21 @@
     }
 
     function chooseTwStatsBaselineFromRecords(records, current, now, periodInfo) {
-        const dailyPair = chooseTwStatsDailyDatePair(records, periodInfo);
-        if (dailyPair) {
-            return {
-                snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
-                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
-                message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
-            };
-        }
-
         const hourlyPair = chooseTwStatsHourlyPair(records, periodInfo);
         if (hourlyPair) {
             return {
                 snapshot: twStatsRecordToSnapshot(hourlyPair.baseline, current),
                 currentSnapshot: twStatsRecordToSnapshot(hourlyPair.current, current),
                 message: `Horario TWStats: ${formatDateTime(new Date(hourlyPair.baseline.ts))} ate ${formatDateTime(new Date(hourlyPair.current.ts))} (${records.length} linhas lidas).`,
+            };
+        }
+
+        const dailyPair = chooseTwStatsDailyDatePair(records, periodInfo);
+        if (dailyPair) {
+            return {
+                snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
+                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
+                message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
             };
         }
 
@@ -1800,7 +1836,8 @@
         if (ordered.length < 2 || !recordsLookDaily(ordered)) return null;
 
         const tolerance = 12 * 60 * 60 * 1000;
-        const current = pickTwStatsRecordClosest(ordered, periodInfo.startMs, tolerance);
+        const currentTarget = Number.isFinite(periodInfo.selectedDateStartMs) ? periodInfo.selectedDateStartMs : periodInfo.startMs;
+        const current = pickTwStatsRecordClosest(ordered, currentTarget, tolerance);
         const baseline = pickTwStatsRecordClosest(ordered, periodInfo.startMs - APP.dayMs, tolerance);
 
         if (!baseline || !current || current.ts <= baseline.ts) return null;
@@ -4123,7 +4160,7 @@
 
             .${APP.id}-controlsGrid {
                 display: grid;
-                grid-template-columns: .75fr 1.4fr 1fr 1fr;
+                grid-template-columns: .7fr 1.45fr .95fr .95fr .62fr 1fr;
                 gap: 8px;
                 align-items: end;
             }
@@ -4676,7 +4713,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.20",
+        version: "1.0.22",
         title: "Spy/Info",
         displayTitle: "Spy/Info - ThePlaguePT",
         dialogId: "tpResumo24hInfoTribo",
@@ -4976,6 +5013,10 @@
                                     <input type="date" name="periodDate">
                                 </label>
                                 <label>
+                                    <span>Dias</span>
+                                    <input type="number" name="periodDays" min="1" max="30" step="1" value="1" inputmode="numeric" title="Numero de dias a juntar para tras">
+                                </label>
+                                <label>
                                     <span>Comparar</span>
                                     <select disabled>
                                         <option>Historico TWStats horario</option>
@@ -5031,6 +5072,7 @@
         state.controls.playerInput = scope.querySelector('input[name="player"]');
         state.controls.periodSelect = scope.querySelector('select[name="period"]');
         state.controls.periodDateInput = scope.querySelector('input[name="periodDate"]');
+        state.controls.periodDaysInput = scope.querySelector('input[name="periodDays"]');
         state.controls.status = scope.querySelector(`.${APP.id}-status`);
         state.controls.body = scope.querySelector(`.${APP.id}-body`);
         state.controls.submit = scope.querySelector('button[type="submit"]');
@@ -5057,6 +5099,10 @@
         });
         if (state.controls.periodDateInput) state.controls.periodDateInput.addEventListener("change", () => {
             syncPeriodFromDateInput();
+            if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
+        });
+        if (state.controls.periodDaysInput) state.controls.periodDaysInput.addEventListener("change", () => {
+            normalizePeriodDaysInput();
             if (state.lastResult && (state.controls.playerInput.value || "").trim()) runSummary(false);
         });
 
@@ -5268,6 +5314,8 @@
                 label: periodInfo.label,
                 shortLabel: periodInfo.shortLabel,
                 dayOffset: periodInfo.dayOffset,
+                aggregateDays: periodInfo.aggregateDays,
+                selectedDateStartMs: periodInfo.selectedDateStartMs,
                 startMs: periodInfo.startMs,
                 endMs: periodInfo.endMs,
             },
@@ -5290,21 +5338,32 @@
         const todayStart = startOfLocalDayMs(now);
         const selectedDateStart = selectedPeriodStartMs(todayStart);
         const dayOffset = Math.max(0, Math.round((todayStart - selectedDateStart) / APP.dayMs));
-        const startMs = todayStart - dayOffset * APP.dayMs;
-        const endMs = dayOffset === 0 ? now : startMs + APP.dayMs;
+        const aggregateDays = selectedPeriodDays();
+        const startMs = selectedDateStart - (aggregateDays - 1) * APP.dayMs;
+        const endMs = dayOffset === 0 ? now : selectedDateStart + APP.dayMs;
         const ms = Math.max(60 * 1000, endMs - startMs);
         const hours = ms / (60 * 60 * 1000);
-        const dateText = formatDateOnly(new Date(startMs));
-        const label = dayOffset === 0 ? `Hoje (${dateText}, 00:00-agora)` : `${dateText} (00:00-24:00)`;
+        const startDateText = formatDateOnly(new Date(startMs));
+        const selectedDateText = formatDateOnly(new Date(selectedDateStart));
+        const label = aggregateDays > 1
+            ? (dayOffset === 0
+                ? `Ultimos ${aggregateDays} dias (${startDateText}, 00:00-${selectedDateText}, agora)`
+                : `${aggregateDays} dias (${startDateText}, 00:00-${selectedDateText}, 24:00)`)
+            : (dayOffset === 0 ? `Hoje (${selectedDateText}, 00:00-agora)` : `${selectedDateText} (00:00-24:00)`);
+        const shortLabel = aggregateDays > 1
+            ? (dayOffset === 0 ? `${aggregateDays}D ate agora` : `${aggregateDays}D ate ${selectedDateText}`)
+            : (dayOffset === 0 ? "Hoje" : selectedDateText);
 
         return {
             dayOffset,
+            aggregateDays,
+            selectedDateStartMs: selectedDateStart,
             startMs,
             endMs,
             ms,
             hours,
             label,
-            shortLabel: dayOffset === 0 ? "Hoje" : dateText,
+            shortLabel,
         };
     }
 
@@ -5315,6 +5374,16 @@
 
         const dayOffset = clampDayOffset(Number.parseInt(selectValue, 10));
         return todayStart - dayOffset * APP.dayMs;
+    }
+
+    function selectedPeriodDays() {
+        const value = Number.parseInt(state.controls.periodDaysInput && state.controls.periodDaysInput.value, 10);
+        return clampAggregateDays(value);
+    }
+
+    function normalizePeriodDaysInput() {
+        if (!state.controls.periodDaysInput) return;
+        state.controls.periodDaysInput.value = String(selectedPeriodDays());
     }
 
     function parsePeriodDateInputMs(todayStart) {
@@ -5356,6 +5425,10 @@
 
     function clampDayOffset(value) {
         return Number.isFinite(value) && value >= 0 && value <= 30 ? value : 0;
+    }
+
+    function clampAggregateDays(value) {
+        return Number.isFinite(value) && value >= 1 ? Math.min(30, Math.floor(value)) : 1;
     }
 
     function startOfLocalDayMs(time) {
@@ -6156,7 +6229,7 @@
             playerId: info.playerId,
             href: window.location.href,
             savedAt: Date.now(),
-            records: records.slice(-240),
+            records: records.slice(-1200),
         });
 
         showTwStatsBridgeNotice(records.length);
@@ -6494,21 +6567,21 @@
     }
 
     function chooseTwStatsBaselineFromRecords(records, current, now, periodInfo) {
-        const dailyPair = chooseTwStatsDailyDatePair(records, periodInfo);
-        if (dailyPair) {
-            return {
-                snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
-                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
-                message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
-            };
-        }
-
         const hourlyPair = chooseTwStatsHourlyPair(records, periodInfo);
         if (hourlyPair) {
             return {
                 snapshot: twStatsRecordToSnapshot(hourlyPair.baseline, current),
                 currentSnapshot: twStatsRecordToSnapshot(hourlyPair.current, current),
                 message: `Horario TWStats: ${formatDateTime(new Date(hourlyPair.baseline.ts))} ate ${formatDateTime(new Date(hourlyPair.current.ts))} (${records.length} linhas lidas).`,
+            };
+        }
+
+        const dailyPair = chooseTwStatsDailyDatePair(records, periodInfo);
+        if (dailyPair) {
+            return {
+                snapshot: twStatsRecordToSnapshot(dailyPair.baseline, current),
+                currentSnapshot: twStatsRecordToSnapshot(dailyPair.current, current),
+                message: `Diario TWStats: ${formatDateOnly(new Date(dailyPair.current.ts))} comparado com ${formatDateOnly(new Date(dailyPair.baseline.ts))} (${records.length} linhas lidas).`,
             };
         }
 
@@ -6525,7 +6598,8 @@
         if (ordered.length < 2 || !recordsLookDaily(ordered)) return null;
 
         const tolerance = 12 * 60 * 60 * 1000;
-        const current = pickTwStatsRecordClosest(ordered, periodInfo.startMs, tolerance);
+        const currentTarget = Number.isFinite(periodInfo.selectedDateStartMs) ? periodInfo.selectedDateStartMs : periodInfo.startMs;
+        const current = pickTwStatsRecordClosest(ordered, currentTarget, tolerance);
         const baseline = pickTwStatsRecordClosest(ordered, periodInfo.startMs - APP.dayMs, tolerance);
 
         if (!baseline || !current || current.ts <= baseline.ts) return null;
@@ -8859,7 +8933,7 @@
 
             .${APP.id}-controlsGrid {
                 display: grid;
-                grid-template-columns: .75fr 1.4fr 1fr 1fr;
+                grid-template-columns: .7fr 1.45fr .95fr .95fr .62fr 1fr;
                 gap: 8px;
                 align-items: end;
             }
