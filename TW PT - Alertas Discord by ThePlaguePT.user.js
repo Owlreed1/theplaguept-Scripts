@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.56
+// @version      1.3.58
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
-// @match        https://*.tribalwars.com.pt/*
-// @include      /^https:\/\/[a-z0-9-]+\.(tribalwars\.[^\/]+|die-staemme\.de|plemiona\.pl|divokekmeny\.cz|divoke-kmene\.sk|guerretribale\.fr|guerrastribales\.es|triburile\.ro|fyletikesmaxes\.gr|klanhaboru\.hu|klanlar\.org)\/.*$/
+// @match        https://*.tribalwars.com.pt/game.php*
+// @include      /^https:\/\/[a-z0-9-]+\.(tribalwars\.[^\/]+|die-staemme\.de|plemiona\.pl|divokekmeny\.cz|divoke-kmene\.sk|guerretribale\.fr|guerrastribales\.es|triburile\.ro|fyletikesmaxes\.gr|klanhaboru\.hu|klanlar\.org)\/game\.php(?:\?.*)?$/
 // @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.56 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.58 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -1625,6 +1625,38 @@
         return null;
     }
 
+    function isLoggedInGamePage() {
+        try {
+            const url = new URL(window.location.href);
+            const player = getGameDataPlayer();
+
+            return /\/game\.php$/i.test(url.pathname) &&
+                Boolean(player && player.id && player.name);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function removeSettingsUi() {
+        let uiDoc = document;
+
+        try {
+            if (window.top && window.top.document) {
+                uiDoc = window.top.document;
+            }
+        } catch (_) {}
+
+        [
+            'tw-discord-alerts-ui',
+            'tw-discord-alerts-backdrop',
+            'tw-discord-alerts-frame',
+            'tp-theplaguept-script-bar-tooltip'
+        ].forEach(id => {
+            const element = uiDoc.getElementById(id);
+            if (element) element.remove();
+        });
+    }
+
     function getDefenderName() {
         const player = getGameDataPlayer();
 
@@ -2921,6 +2953,41 @@
         ].some(label => rowText.includes(label));
     }
 
+    function isHomeAvailableTroopOverviewRow(rowText) {
+        return isKnownHomeTroopRow(rowText) || [
+            'na aldeia',
+            'na vila',
+            'nesta aldeia',
+            'nesta vila',
+            'in the village',
+            'in village',
+            'at home',
+            'home village',
+            'hier',
+            'im dorf',
+            'in diesem dorf',
+            'in dit dorp',
+            'dans ce village',
+            'dans le village',
+            'en esta aldea',
+            'en este pueblo',
+            'nel villaggio',
+            'in questo villaggio',
+            'w wiosce',
+            'w tej wiosce',
+            've vesnici',
+            'v teto vesnici',
+            'v dedine',
+            'v tejto dedine',
+            'in sat',
+            'in acest sat',
+            'a faluban',
+            'ebben a faluban',
+            'koyde',
+            'bu koyde'
+        ].some(label => rowText.includes(label));
+    }
+
     function getPlaceTroopColumns(table) {
         return getTroopColumns(table);
     }
@@ -3250,7 +3317,6 @@
     function isTroopSummaryDefenseReliable(summary) {
         return Boolean(
             isTroopSummaryOverviewReliable(summary) &&
-            !summary.placeScanIncomplete &&
             hasTroopValues(summary.defenseTotals || {})
         );
     }
@@ -3722,6 +3788,7 @@
 
         const totals = createTroopTotals();
         const attackTotals = createTroopTotals();
+        const defenseTotals = createTroopTotals();
         const rows = getDirectTableRows(bestTable)
             .filter(row => !row.querySelector('th'));
 
@@ -3749,8 +3816,10 @@
                         id: detectedVillageId,
                         totals: createTroopTotals(),
                         attackTotals: createTroopTotals(),
+                        defenseTotals: createTroopTotals(),
                         fallbackTotals: createTroopTotals(),
                         hasAttackRow: false,
+                        hasDefenseRow: false,
                         hasTotalRow: false
                     });
                 } else if (detectedVillageId && !villagesByKey.get(detectedVillageKey).id) {
@@ -3771,8 +3840,10 @@
                     id: detectedVillageId || currentVillageId,
                     totals: createTroopTotals(),
                     attackTotals: createTroopTotals(),
+                    defenseTotals: createTroopTotals(),
                     fallbackTotals: createTroopTotals(),
                     hasAttackRow: false,
+                    hasDefenseRow: false,
                     hasTotalRow: false
                 });
             }
@@ -3789,6 +3860,11 @@
                 village.hasAttackRow = true;
                 village.hasTotalRow = true;
                 return;
+            }
+
+            if (!village.hasDefenseRow && isHomeAvailableTroopOverviewRow(rowText)) {
+                village.defenseTotals = rowTotals;
+                village.hasDefenseRow = true;
             }
 
             if (
@@ -3816,10 +3892,12 @@
 
                 delete village.fallbackTotals;
                 delete village.hasAttackRow;
+                delete village.hasDefenseRow;
                 delete village.hasTotalRow;
 
                 addTroopTotals(totals, village.totals);
                 addTroopTotals(attackTotals, village.attackTotals);
+                addTroopTotals(defenseTotals, village.defenseTotals);
                 return village;
             });
 
@@ -3828,6 +3906,7 @@
         return {
             totals,
             attackTotals,
+            defenseTotals,
             villages,
             attackFullCounter: calculateAttackFullCounterByVillage(villages),
             villageCount: getPlayerVillageCount() || parsedVillageCount || rows.length,
@@ -3866,6 +3945,8 @@
                     : undefined
             });
         });
+        const overviewDefenseTotals = cloneTroopTotals(summary.defenseTotals);
+        const hasOverviewDefenseTotals = hasTroopValues(overviewDefenseTotals);
         const expectedVillageCount = getTroopScanExpectedVillageCount(summary, originalVillages.length);
 
         summary.parsedVillageCount = originalVillages.length;
@@ -3874,6 +3955,7 @@
         if (!hasReliableTroopCoverage(originalVillages.length, expectedVillageCount)) {
             summary.overviewScanIncomplete = true;
             summary.placeScanIncomplete = true;
+            summary.defenseTotals = overviewDefenseTotals;
             summary.placeVillageCount = 0;
             summary.scavengingVillageCount = 0;
             summary.attackFullCounter = calculateAttackFullCounterByVillage(originalVillages);
@@ -3960,12 +4042,15 @@
         if (hasCompletePlaceScan) {
             summary.totals = rebuiltTotals;
             summary.attackTotals = rebuiltAttackTotals;
-            summary.defenseTotals = rebuiltDefenseTotals;
+            summary.defenseTotals = hasOverviewDefenseTotals
+                ? overviewDefenseTotals
+                : rebuiltDefenseTotals;
             summary.villages = rebuiltVillages;
             summary.placeScanIncomplete = false;
         } else {
             summary.totals = cloneTroopTotals(summary.totals);
             summary.attackTotals = cloneTroopTotals(summary.attackTotals);
+            summary.defenseTotals = overviewDefenseTotals;
             summary.villages = originalVillages;
             summary.placeScanIncomplete = true;
             console.warn('[TW] Leitura da Praca de Reunioes ignorada por estar incompleta:', rebuiltVillages.length, '/', expectedVillageCount);
@@ -4634,6 +4719,11 @@
     }
 
     function createSettingsUi() {
+        if (!isLoggedInGamePage()) {
+            removeSettingsUi();
+            return;
+        }
+
         let uiDoc = document;
 
         try {
@@ -6441,6 +6531,11 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
         restorePendingNobleTrains();
         await runCheckLoop();
         setTimeout(scheduleCheckLoop, getCurrentCheckInterval());
+    }
+
+    if (!isLoggedInGamePage()) {
+        removeSettingsUi();
+        return;
     }
 
     setInterval(() => {
