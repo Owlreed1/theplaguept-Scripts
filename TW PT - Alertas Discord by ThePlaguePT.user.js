@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.54
+// @version      1.3.56
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.54 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.56 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -56,15 +56,14 @@
     const ATTACK_FULLS_DAILY_SENT_KEY = `${STORAGE_PREFIX}_attack_fulls_daily_sent`;
     const NOBLE_COUNTER_LAST_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_last_sent`;
     const NOBLE_COUNTER_DAILY_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_daily_sent`;
-    const PLAYER_TRIBE_CACHE_KEY = `${STORAGE_PREFIX}_player_tribes`;
     const VERIFICATION_ALERT_KEY = `${STORAGE_PREFIX}_verification_alert_last_sent`;
     const GENERIC_INCOMING_STATE_KEY = `${STORAGE_PREFIX}_generic_incoming_state`;
 
-    const PLAYER_TRIBE_CACHE_MS = 1000 * 60 * 60 * 8;
     const VERIFICATION_ALERT_COOLDOWN_MS = 1000 * 60 * 30;
     const HOUR_MS = 1000 * 60 * 60;
     const STARTUP_GRACE_MS = 1000 * 60 * 2;
     const SCRIPT_STARTED_AT = Date.now();
+    const TROOP_SCAN_MIN_COVERAGE = 0.8;
 
     const DEFAULT_SUMMARY_INTERVAL_HOURS = 8;
     const DEFAULT_TROOPS_INTERVAL_HOURS = 8;
@@ -328,6 +327,15 @@
         return true;
     }
 
+    function resetScheduleAttempt(lastSentKey, dailySentKey) {
+        localStorage.removeItem(lastSentKey);
+
+        const todayKey = getLocalDateKey(new Date());
+        if (localStorage.getItem(dailySentKey) === todayKey) {
+            localStorage.removeItem(dailySentKey);
+        }
+    }
+
     function getCurrentWorldValue() {
         const hostname = window.location.hostname;
         const world = hostname.split('.')[0].toUpperCase();
@@ -343,6 +351,55 @@
     function getAbsoluteUrl(href) {
         if (!href) return null;
         return new URL(href, window.location.origin).toString();
+    }
+
+    let cleanReadSequence = 0;
+
+    function getCleanReadUrl(urlValue) {
+        const url = new URL(urlValue, window.location.origin);
+        cleanReadSequence += 1;
+        url.searchParams.set('_tw_clean_read', `${Date.now()}_${cleanReadSequence}_${Math.random().toString(36).slice(2)}`);
+        return url.toString();
+    }
+
+    function sanitizeFetchedDocument(doc) {
+        if (!doc) return doc;
+
+        Array.from(doc.querySelectorAll([
+            'script',
+            'style',
+            'link[rel="stylesheet"]',
+            '#tw-discord-alerts-ui',
+            '#tw-discord-alerts-shared-bar',
+            '[data-tw-discord-alerts-ui]',
+            '[data-tw-script-button]'
+        ].join(','))).forEach(element => element.remove());
+
+        return doc;
+    }
+
+    async function fetchCleanText(urlValue) {
+        const response = await fetch(getCleanReadUrl(urlValue), {
+            credentials: 'include',
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache, no-store, max-age=0',
+                Pragma: 'no-cache'
+            }
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        return response.text();
+    }
+
+    async function fetchCleanDocument(urlValue, type = 'text/html') {
+        const text = await fetchCleanText(urlValue);
+        const doc = new DOMParser().parseFromString(text, type);
+
+        return type === 'text/html'
+            ? sanitizeFetchedDocument(doc)
+            : doc;
     }
 
     function isTwVerificationPage(doc) {
@@ -625,15 +682,7 @@
     }
 
     async function fetchIncomingAttacksDocument() {
-        const response = await fetch(getIncomingAttacksUrl(), {
-            credentials: 'include',
-            cache: 'no-store'
-        });
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const html = await response.text();
-        return new DOMParser().parseFromString(html, 'text/html');
+        return fetchCleanDocument(getIncomingAttacksUrl());
     }
 
     function getCommandLink(root) {
@@ -874,13 +923,7 @@
         if (cachedUnitSpeed !== null) return cachedUnitSpeed;
 
         try {
-            const response = await fetch('/interface.php?func=get_config', {
-                credentials: 'include',
-                cache: 'no-store'
-            });
-
-            const xml = await response.text();
-            const doc = new DOMParser().parseFromString(xml, 'text/xml');
+            const doc = await fetchCleanDocument('/interface.php?func=get_config', 'text/xml');
             const unitSpeedNode = doc.querySelector('unit_speed');
             const unitSpeedText = unitSpeedNode ? unitSpeedNode.textContent : '';
             const unitSpeed = Number(unitSpeedText);
@@ -1637,33 +1680,11 @@
         return null;
     }
 
-    function getPlayerCacheKey(playerUrl) {
-        try {
-            return new URL(playerUrl).searchParams.get('id') || playerUrl;
-        } catch (_) {
-            return playerUrl || 'unknown';
-        }
-    }
-
     async function getPlayerTribe(playerUrl) {
         if (!playerUrl) return { name: 'Desconhecida', url: null };
 
-        const cache = readJson(PLAYER_TRIBE_CACHE_KEY, {});
-        const cacheKey = getPlayerCacheKey(playerUrl);
-        const cached = cache[cacheKey];
-
-        if (cached && Date.now() - cached.time < PLAYER_TRIBE_CACHE_MS) {
-            return cached.tribe;
-        }
-
         try {
-            const response = await fetch(playerUrl, {
-                credentials: 'include',
-                cache: 'no-store'
-            });
-
-            const html = await response.text();
-            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const doc = await fetchCleanDocument(playerUrl);
             const tribeLink = doc.querySelector('a[href*="screen=info_ally"][href*="id="]');
             const tribe = tribeLink
                 ? {
@@ -1675,8 +1696,6 @@
                     url: null
                 };
 
-            cache[cacheKey] = { tribe, time: Date.now() };
-            writeJson(PLAYER_TRIBE_CACHE_KEY, cache);
             return tribe;
         } catch (error) {
             console.warn('[TW] Erro ao carregar tribo:', error);
@@ -2311,8 +2330,11 @@
                 if (sent) {
                     markNobleCounterScheduleSynced();
                     console.log('[TW] Contador automatico de fulls de ataque e nobres enviado.');
+                } else {
+                    resetScheduleAttempt(ATTACK_FULLS_LAST_SENT_KEY, ATTACK_FULLS_DAILY_SENT_KEY);
                 }
             } catch (error) {
+                resetScheduleAttempt(ATTACK_FULLS_LAST_SENT_KEY, ATTACK_FULLS_DAILY_SENT_KEY);
                 console.warn('[TW] Erro ao enviar contador automatico de fulls de ataque e nobres:', error);
             }
 
@@ -2349,9 +2371,7 @@
             syncFallbackCountsToVisibleAttacks(attacks);
 
             if (!attacks.length) {
-                const genericSignal =
-                    detectGenericIncomingSignal(doc) ||
-                    detectGenericIncomingSignal(document);
+                const genericSignal = detectGenericIncomingSignal(doc);
 
                 maybeNotifyGenericIncoming(genericSignal);
 
@@ -2360,9 +2380,14 @@
 
                 if (getSettings().notifyDefenseTroops && shouldSendTroopSummary()) {
                     try {
-                        await sendTroopSummary();
-                        console.log('[TW] Defesa disponivel automatica enviada.');
+                        const sent = await sendTroopSummary();
+                        if (sent) {
+                            console.log('[TW] Defesa disponivel automatica enviada.');
+                        } else {
+                            resetScheduleAttempt(TROOPS_LAST_SENT_KEY, TROOPS_DAILY_SENT_KEY);
+                        }
                     } catch (error) {
+                        resetScheduleAttempt(TROOPS_LAST_SENT_KEY, TROOPS_DAILY_SENT_KEY);
                         console.warn('[TW] Erro ao enviar defesa disponivel automatica:', error);
                     }
                 }
@@ -2439,9 +2464,14 @@
 
             if (getSettings().notifyDefenseTroops && shouldSendTroopSummary()) {
                 try {
-                    await sendTroopSummary();
-                    console.log('[TW] Defesa disponivel automatica enviada.');
+                    const sent = await sendTroopSummary();
+                    if (sent) {
+                        console.log('[TW] Defesa disponivel automatica enviada.');
+                    } else {
+                        resetScheduleAttempt(TROOPS_LAST_SENT_KEY, TROOPS_DAILY_SENT_KEY);
+                    }
                 } catch (error) {
+                    resetScheduleAttempt(TROOPS_LAST_SENT_KEY, TROOPS_DAILY_SENT_KEY);
                     console.warn('[TW] Erro ao enviar defesa disponivel automatica:', error);
                 }
             }
@@ -2479,15 +2509,7 @@
     }
 
     async function fetchTroopsOverviewDocument() {
-        const response = await fetch(getTroopsOverviewUrl(), {
-            credentials: 'include',
-            cache: 'no-store'
-        });
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const html = await response.text();
-        return new DOMParser().parseFromString(html, 'text/html');
+        return fetchCleanDocument(getTroopsOverviewUrl());
     }
 
     function getPlaceUnitsUrl(villageId) {
@@ -2507,15 +2529,7 @@
     }
 
     async function fetchPlaceUnitsDocument(villageId) {
-        const response = await fetch(getPlaceUnitsUrl(villageId), {
-            credentials: 'include',
-            cache: 'no-store'
-        });
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const html = await response.text();
-        return new DOMParser().parseFromString(html, 'text/html');
+        return fetchCleanDocument(getPlaceUnitsUrl(villageId));
     }
 
     function getVillagesOverviewUrl(mode) {
@@ -2530,15 +2544,7 @@
     }
 
     async function fetchVillagesOverviewDocument(mode) {
-        const response = await fetch(getVillagesOverviewUrl(mode), {
-            credentials: 'include',
-            cache: 'no-store'
-        });
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const html = await response.text();
-        return new DOMParser().parseFromString(html, 'text/html');
+        return fetchCleanDocument(getVillagesOverviewUrl(mode));
     }
 
     function getAcademyUrl(villageId) {
@@ -2557,15 +2563,7 @@
     }
 
     async function fetchAcademyDocument(villageId) {
-        const response = await fetch(getAcademyUrl(villageId), {
-            credentials: 'include',
-            cache: 'no-store'
-        });
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const html = await response.text();
-        return new DOMParser().parseFromString(html, 'text/html');
+        return fetchCleanDocument(getAcademyUrl(villageId));
     }
 
     function detectTroopUnitKey(cell) {
@@ -2833,6 +2831,12 @@
 
             target[unitKey] = Number(target[unitKey] || 0) + value;
         });
+    }
+
+    function cloneTroopTotals(source) {
+        const totals = createTroopTotals();
+        addTroopTotals(totals, source || {});
+        return totals;
     }
 
     function maxTroopTotals(target, source) {
@@ -3206,6 +3210,49 @@
 
     function hasTroopValues(rowTotals) {
         return Object.keys(rowTotals || {}).some(unitKey => Number(rowTotals[unitKey] || 0) > 0);
+    }
+
+    function getTroopScanExpectedVillageCount(summary, parsedCount) {
+        return Math.max(
+            Number(getPlayerVillageCount() || 0),
+            Number(summary?.villageCount || 0),
+            Number(parsedCount || 0)
+        );
+    }
+
+    function getMinimumTroopScanCount(expectedCount) {
+        const expected = Number(expectedCount || 0);
+
+        if (expected <= 1) return Math.max(1, expected);
+        if (expected <= 4) return expected;
+
+        return Math.max(1, Math.ceil(expected * TROOP_SCAN_MIN_COVERAGE));
+    }
+
+    function hasReliableTroopCoverage(scannedCount, expectedCount) {
+        const scanned = Number(scannedCount || 0);
+        const expected = Number(expectedCount || 0);
+
+        if (!expected) return scanned > 0;
+
+        return scanned >= getMinimumTroopScanCount(expected);
+    }
+
+    function isTroopSummaryOverviewReliable(summary) {
+        if (!summary || summary.overviewScanIncomplete) return false;
+
+        const parsedCount = Number(summary.parsedVillageCount || summary.villages?.length || 0);
+        const expectedCount = Number(summary.expectedVillageCount || summary.villageCount || parsedCount);
+
+        return hasReliableTroopCoverage(parsedCount, expectedCount);
+    }
+
+    function isTroopSummaryDefenseReliable(summary) {
+        return Boolean(
+            isTroopSummaryOverviewReliable(summary) &&
+            !summary.placeScanIncomplete &&
+            hasTroopValues(summary.defenseTotals || {})
+        );
     }
 
     function parseBuildingLevel(value) {
@@ -3776,12 +3823,16 @@
                 return village;
             });
 
+        const parsedVillageCount = villageKeys.size || villages.length;
+
         return {
             totals,
             attackTotals,
             villages,
             attackFullCounter: calculateAttackFullCounterByVillage(villages),
-            villageCount: getPlayerVillageCount() || villageKeys.size || rows.length
+            villageCount: getPlayerVillageCount() || parsedVillageCount || rows.length,
+            parsedVillageCount,
+            expectedVillageCount: getTroopScanExpectedVillageCount(null, parsedVillageCount)
         };
     }
 
@@ -3796,7 +3847,39 @@
 
             seenVillageIds.add(id);
             return true;
+        }).map(village => {
+            return Object.assign({}, village, {
+                totals: cloneTroopTotals(village.totals),
+                attackTotals: cloneTroopTotals(village.attackTotals),
+                defenseTotals: village.defenseTotals
+                    ? cloneTroopTotals(village.defenseTotals)
+                    : undefined
+            });
         });
+
+        const originalVillages = summary.villages.map(village => {
+            return Object.assign({}, village, {
+                totals: cloneTroopTotals(village.totals),
+                attackTotals: cloneTroopTotals(village.attackTotals),
+                defenseTotals: village.defenseTotals
+                    ? cloneTroopTotals(village.defenseTotals)
+                    : undefined
+            });
+        });
+        const expectedVillageCount = getTroopScanExpectedVillageCount(summary, originalVillages.length);
+
+        summary.parsedVillageCount = originalVillages.length;
+        summary.expectedVillageCount = expectedVillageCount;
+
+        if (!hasReliableTroopCoverage(originalVillages.length, expectedVillageCount)) {
+            summary.overviewScanIncomplete = true;
+            summary.placeScanIncomplete = true;
+            summary.placeVillageCount = 0;
+            summary.scavengingVillageCount = 0;
+            summary.attackFullCounter = calculateAttackFullCounterByVillage(originalVillages);
+            console.warn('[TW] Leitura de tropas ignorada por estar incompleta:', originalVillages.length, '/', expectedVillageCount);
+            return summary;
+        }
 
         const rebuiltTotals = createTroopTotals();
         const rebuiltAttackTotals = createTroopTotals();
@@ -3843,16 +3926,20 @@
                     if (hasTroopValues(defenseTotals)) {
                         addTroopTotals(rebuiltDefenseTotals, defenseTotals);
                     }
-                    placeVillageCount += 1;
-                } else if (hasTroopValues(village.totals)) {
+                } else {
                     village.attackTotals = hasTroopValues(overviewAttackTotals)
                         ? overviewAttackTotals
                         : village.totals;
+                    village.defenseTotals = defenseTotals;
                     rebuiltVillages.push(village);
                     addTroopTotals(rebuiltTotals, village.totals);
                     addTroopTotals(rebuiltAttackTotals, village.attackTotals);
-                    addTroopTotals(rebuiltDefenseTotals, village.defenseTotals || village.totals);
+                    if (hasTroopValues(defenseTotals)) {
+                        addTroopTotals(rebuiltDefenseTotals, defenseTotals);
+                    }
                 }
+
+                placeVillageCount += 1;
 
                 if (hasTroopValues(scavengingTotals) || hasTroopValues(transitTotals)) {
                     movementVillageCount += 1;
@@ -3866,11 +3953,22 @@
             }
         }
 
-        if (rebuiltVillages.length > 0) {
+        const hasCompletePlaceScan =
+            rebuiltVillages.length >= originalVillages.length &&
+            hasReliableTroopCoverage(rebuiltVillages.length, expectedVillageCount);
+
+        if (hasCompletePlaceScan) {
             summary.totals = rebuiltTotals;
             summary.attackTotals = rebuiltAttackTotals;
             summary.defenseTotals = rebuiltDefenseTotals;
             summary.villages = rebuiltVillages;
+            summary.placeScanIncomplete = false;
+        } else {
+            summary.totals = cloneTroopTotals(summary.totals);
+            summary.attackTotals = cloneTroopTotals(summary.attackTotals);
+            summary.villages = originalVillages;
+            summary.placeScanIncomplete = true;
+            console.warn('[TW] Leitura da Praca de Reunioes ignorada por estar incompleta:', rebuiltVillages.length, '/', expectedVillageCount);
         }
 
         summary.placeVillageCount = placeVillageCount;
@@ -3988,7 +4086,7 @@
     }
 
     function buildSimpleDefenseTroopSummaryEmbed(summary) {
-        const totals = summary.defenseTotals || summary.totals || {};
+        const totals = summary.defenseTotals || {};
         const lines = [
             `🔱 Lanceiros: **${formatTroopNumber(totals.spear)}**`,
             `🗡️ Espadachins: **${formatTroopNumber(totals.sword)}**`
@@ -4020,7 +4118,7 @@
     async function buildNobleCounterSummary() {
         const troopsSummary = await buildTroopsOverviewSummary();
 
-        if (!troopsSummary || !troopsSummary.villageCount) {
+        if (!troopsSummary || !troopsSummary.villageCount || !isTroopSummaryOverviewReliable(troopsSummary)) {
             return null;
         }
 
@@ -4072,7 +4170,8 @@
     async function buildCombinedCountersSummary() {
         const troopsSummary = await buildTroopsOverviewSummary();
 
-        if (!troopsSummary || !troopsSummary.villageCount) {
+        if (!troopsSummary || !troopsSummary.villageCount || !isTroopSummaryOverviewReliable(troopsSummary)) {
+            console.warn('[TW] Contador de fulls/nobres ignorado por leitura incompleta de tropas.');
             return null;
         }
 
@@ -4207,7 +4306,7 @@
     async function sendTroopSummary() {
         const summary = await buildTroopsOverviewSummary();
 
-        if (!summary || !summary.villageCount) {
+        if (!summary || !summary.villageCount || !isTroopSummaryDefenseReliable(summary)) {
             console.log('[TW] Sem defesa disponivel para enviar.');
             return false;
         }
