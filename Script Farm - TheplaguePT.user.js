@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.3.6
+// @version      1.4.0
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,8 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.3.6';
+    var SCRIPT_VERSION = '1.4.0';
+    var WORLD_SCOPE = obterEscopoMundo();
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -37,23 +38,28 @@
     window.__autoFarmAController = {
         nome: SCRIPT_NAME,
         versao: SCRIPT_VERSION,
+        mundo: WORLD_SCOPE,
         iniciadoEm: Date.now()
     };
 
-    var STORAGE_KEY = 'autoFarmA.enabled';
-    var SETTINGS_KEY = 'autoFarmA.settings.v1';
+    var LEGACY_STORAGE_KEY = 'autoFarmA.enabled';
+    var LEGACY_SETTINGS_KEY = 'autoFarmA.settings.v1';
+    var STORAGE_KEY = chaveDoMundo(LEGACY_STORAGE_KEY);
+    var SETTINGS_KEY = chaveDoMundo(LEGACY_SETTINGS_KEY);
     var BUTTON_ID = 'auto-farm-a-toggle';
     var TOOLBAR_ID = 'tp-theplaguept-script-bar';
     var TOOLBAR_STYLE_ID = 'auto-farm-a-toolbar-style';
-    var WORKER_KEY = 'autoFarmA.workerHeartbeat';
-    var WORKER_TAB_NAME = 'autoFarmAWorker';
+    var WORKER_KEY = chaveDoMundo('autoFarmA.workerHeartbeat');
+    var WORKER_TAB_NAME = 'autoFarmAWorker_' + WORLD_SCOPE;
     var WORKER_TIMEOUT = 12000;
-    var MAP_CACHE_KEY = 'autoFarmA.mapBarbarians.v1';
-    var MAP_SCOUTED_KEY = 'autoFarmA.mapScouted.v1';
-    var WALL_ATTACKED_KEY = 'autoFarmA.wallAttacked.v1';
-    var FARM_KNOWN_CACHE_KEY = 'autoFarmA.knownFarmTargets.v1';
-    var PLAYER_TARGETS_KEY = 'autoFarmA.playerTargets.v1';
-    var ROUND_STATE_KEY = 'scriptFarm.roundState.v1';
+    var MAP_CACHE_KEY = chaveDoMundo('autoFarmA.mapBarbarians.v1');
+    var MAP_SCOUTED_KEY = chaveDoMundo('autoFarmA.mapScouted.v1');
+    var WALL_ATTACKED_KEY = chaveDoMundo('autoFarmA.wallAttacked.v1');
+    var FARM_KNOWN_CACHE_KEY = chaveDoMundo(
+        'autoFarmA.knownFarmTargets.v1'
+    );
+    var PLAYER_TARGETS_KEY = chaveDoMundo('autoFarmA.playerTargets.v1');
+    var ROUND_STATE_KEY = chaveDoMundo('scriptFarm.roundState.v1');
     var MAP_CACHE_DURATION = 60 * 1000;
     var FARM_KNOWN_CACHE_DURATION = 15 * 60 * 1000;
     var MAP_SCOUTED_DURATION = 365 * 24 * 60 * 60 * 1000;
@@ -128,6 +134,7 @@
         esperaNavegacao: 6000,
         esperaProximaAldeia: 150
     };
+    migrarPreferenciasAntigas();
     var CONFIG = carregarConfiguracao();
 
     var tiposDeUnidade = [
@@ -162,11 +169,56 @@
 
     iniciar();
 
+    function obterEscopoMundo() {
+        var dados = window.game_data || {};
+        var mundoUrl = null;
+        try {
+            mundoUrl = new URL(window.location.href).searchParams.get('world');
+        } catch (erro) {
+            mundoUrl = null;
+        }
+
+        var valor = dados.world || mundoUrl || window.location.hostname ||
+            'mundo-desconhecido';
+        var normalizado = String(valor).toLowerCase().replace(
+            /[^a-z0-9_-]+/g,
+            '-'
+        ).replace(/^-+|-+$/g, '');
+        return normalizado || 'mundo-desconhecido';
+    }
+
+    function chaveDoMundo(chaveBase) {
+        return String(chaveBase) + '.world.' + WORLD_SCOPE;
+    }
+
+    function migrarPreferenciasAntigas() {
+        [
+            [LEGACY_STORAGE_KEY, STORAGE_KEY],
+            [LEGACY_SETTINGS_KEY, SETTINGS_KEY]
+        ].forEach(function (par) {
+            try {
+                if (
+                    localStorage.getItem(par[1]) === null &&
+                    localStorage.getItem(par[0]) !== null
+                ) {
+                    localStorage.setItem(par[1], localStorage.getItem(par[0]));
+                }
+            } catch (erro) {
+                console.warn(
+                    '[Script Farm] Não foi possível migrar preferências para ' +
+                    WORLD_SCOPE + '.',
+                    erro
+                );
+            }
+        });
+    }
+
     function iniciar() {
         console.info(
             '[Script Farm] v' + SCRIPT_VERSION + ' carregado — ' +
             (estaLigado() ? 'LIGADO' : 'DESLIGADO') +
             '; página=' + (estaNoAssistenteFarm() ? 'assistente' : 'jogo') +
+            '; mundo=' + WORLD_SCOPE +
             '; grupo=' + String(CONFIG.grupoFarmId)
         );
         criarBotao();
