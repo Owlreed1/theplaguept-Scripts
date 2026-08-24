@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.63
+// @version      1.3.64
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -13,6 +13,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      discord.com
+// @connect      raw.githubusercontent.com
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
 // @noframes
 // ==/UserScript==
@@ -20,7 +21,10 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.63 carregada');
+    const SCRIPT_VERSION = '1.3.64';
+    const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
+
+    console.log(`[TW Discord Alerts] Versao ${SCRIPT_VERSION} carregada`);
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -58,6 +62,8 @@
     const NOBLE_COUNTER_DAILY_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_daily_sent`;
     const VERIFICATION_ALERT_KEY = `${STORAGE_PREFIX}_verification_alert_last_sent`;
     const GENERIC_INCOMING_STATE_KEY = `${STORAGE_PREFIX}_generic_incoming_state`;
+    const SCRIPT_UPDATE_LAST_CHECK_KEY = `${STORAGE_PREFIX}_script_update_last_check`;
+    const SCRIPT_UPDATE_NOTICE_KEY = `${STORAGE_PREFIX}_script_update_notice`;
 
     const VERIFICATION_ALERT_COOLDOWN_MS = 1000 * 60 * 30;
     const HOUR_MS = 1000 * 60 * 60;
@@ -94,6 +100,7 @@
     };
 
     const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'spy', 'heavy'];
+    const TROOP_DEFENSE_DISPLAY_UNITS = ['spear', 'sword', 'archer', 'heavy', 'spy'];
     const TROOP_ATTACK_UNITS = ['axe', 'light', 'marcher', 'ram', 'catapult', 'snob'];
     const TROOP_UNIT_ORDER = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'];
     const ATTACK_FULL_AXE = 5000;
@@ -400,6 +407,91 @@
         return type === 'text/html'
             ? sanitizeFetchedDocument(doc)
             : doc;
+    }
+
+    function compareVersions(left, right) {
+        const leftParts = String(left || '').split('.').map(part => Number(part) || 0);
+        const rightParts = String(right || '').split('.').map(part => Number(part) || 0);
+        const length = Math.max(leftParts.length, rightParts.length);
+
+        for (let index = 0; index < length; index++) {
+            const diff = (leftParts[index] || 0) - (rightParts[index] || 0);
+            if (diff !== 0) return diff > 0 ? 1 : -1;
+        }
+
+        return 0;
+    }
+
+    function fetchExternalText(url) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `${url}${url.includes('?') ? '&' : '?'}_=${Date.now()}`,
+                headers: {
+                    'Cache-Control': 'no-cache'
+                },
+                onload: response => {
+                    if (response.status >= 200 && response.status < 300) {
+                        resolve(response.responseText || '');
+                        return;
+                    }
+
+                    reject(new Error(`HTTP ${response.status}`));
+                },
+                onerror: reject
+            });
+        });
+    }
+
+    function getVersionFromUserScript(text) {
+        const match = String(text || '').match(/@version\s+([^\s]+)/);
+        return match ? cleanText(match[1]) : '';
+    }
+
+    function showScriptUpdateNotice(latestVersion) {
+        localStorage.setItem(SCRIPT_UPDATE_NOTICE_KEY, latestVersion);
+
+        let uiDoc = document;
+        try {
+            if (window.top && window.top.document) {
+                uiDoc = window.top.document;
+            }
+        } catch (_) {}
+
+        const status = uiDoc.querySelector('#tw-alerts-status');
+        if (status) {
+            status.textContent = `Nova versao ${latestVersion} disponivel no GitHub. Atualiza no Tampermonkey.`;
+        }
+
+        const launcher = uiDoc.querySelector('#tw-discord-alerts-toggle');
+        if (launcher) {
+            launcher.setAttribute('title', `Nova versao ${latestVersion} disponivel no GitHub`);
+        }
+    }
+
+    async function checkScriptUpdate(force = false) {
+        const now = Date.now();
+        const lastCheck = Number(localStorage.getItem(SCRIPT_UPDATE_LAST_CHECK_KEY) || 0);
+
+        if (!force && now - lastCheck < HOUR_MS) return;
+
+        localStorage.setItem(SCRIPT_UPDATE_LAST_CHECK_KEY, String(now));
+
+        try {
+            const latestText = await fetchExternalText(SCRIPT_UPDATE_URL);
+            const latestVersion = getVersionFromUserScript(latestText);
+
+            if (latestVersion && compareVersions(latestVersion, SCRIPT_VERSION) > 0) {
+                console.warn('[TW] Nova versao do script disponivel:', latestVersion, 'atual:', SCRIPT_VERSION);
+                showScriptUpdateNotice(latestVersion);
+                return;
+            }
+
+            localStorage.removeItem(SCRIPT_UPDATE_NOTICE_KEY);
+            console.log('[TW] Script atualizado:', SCRIPT_VERSION);
+        } catch (error) {
+            console.warn('[TW] Erro ao verificar update do script:', error);
+        }
     }
 
     function isTwVerificationPage(doc) {
@@ -3088,6 +3180,33 @@
         return totals;
     }
 
+    function subtractDefenseTroopTotals(baseTotals, ...subtractTotals) {
+        const totals = getDefenseTroopTotals(baseTotals || {});
+
+        TROOP_DEFENSE_UNITS.forEach(unitKey => {
+            const subtraction = subtractTotals.reduce((sum, source) => {
+                return sum + Number(source && source[unitKey] || 0);
+            }, 0);
+
+            totals[unitKey] = Math.max(0, Number(totals[unitKey] || 0) - subtraction);
+        });
+
+        return totals;
+    }
+
+    function updateAvailableDefenseTotals(summary) {
+        summary.totalDefenseTotals = getDefenseTroopTotals(summary.defenseTotals || {});
+        summary.supportDefenseTotals = getDefenseTroopTotals(summary.supportTotals || {});
+        summary.scavengingDefenseTotals = getDefenseTroopTotals(summary.scavengingTotals || {});
+        summary.availableDefenseTotals = subtractDefenseTroopTotals(
+            summary.totalDefenseTotals,
+            summary.supportDefenseTotals,
+            summary.scavengingDefenseTotals
+        );
+
+        return summary;
+    }
+
     function rowHasCoords(row) {
         return Boolean(parseCoords(row ? (row.innerText || row.textContent || '') : ''));
     }
@@ -3339,6 +3458,25 @@
                 tableInfo.rows.forEach(item => {
                     if (!isScavengingTroopOverviewRow(item.text)) return;
                     if (rowHasCoords(item.row) || isSupportTroopOverviewRow(item.text)) return;
+
+                    addTroopTotals(totals, item.totals);
+                });
+            });
+
+        return totals;
+    }
+
+    function parseSupportTroopTotals(doc) {
+        const totals = createTroopTotals();
+
+        getPlaceTroopTables(doc)
+            .filter(tableInfo => tableInfo.rows.some(item => isSupportTroopOverviewRow(item.text)))
+            .forEach(tableInfo => {
+                tableInfo.rows.forEach(item => {
+                    if (!isSupportTroopOverviewRow(item.text)) return;
+                    if (isIgnoredTroopOverviewRow(item.text)) return;
+                    if (isTotalTroopRow(item.text)) return;
+                    if (isScavengingTroopOverviewRow(item.text)) return;
 
                     addTroopTotals(totals, item.totals);
                 });
@@ -3997,6 +4135,8 @@
         const totals = createTroopTotals();
         const attackTotals = createTroopTotals();
         const defenseTotals = createTroopTotals();
+        const supportTotals = createTroopTotals();
+        const scavengingTotals = createTroopTotals();
         const rows = getDirectTableRows(bestTable)
             .filter(row => !row.querySelector('th'));
 
@@ -4011,7 +4151,6 @@
             const rowText = getTroopOverviewRowText(row);
 
             if (isIgnoredTroopOverviewRow(rowText)) return;
-            if (isSupportTroopOverviewRow(rowText)) return;
 
             if (detectedVillageKey) {
                 currentVillageKey = detectedVillageKey;
@@ -4036,11 +4175,21 @@
             }
 
             const villageKey = detectedVillageKey || currentVillageKey;
-            if (!villageKey) return;
-
             const rowTotals = parsePlaceTroopRowTotals(row, bestColumns);
 
             if (!hasTroopValues(rowTotals)) return;
+
+            if (isSupportTroopOverviewRow(rowText)) {
+                addTroopTotals(supportTotals, getDefenseTroopTotals(rowTotals));
+                return;
+            }
+
+            if (isScavengingTroopOverviewRow(rowText)) {
+                addTroopTotals(scavengingTotals, getDefenseTroopTotals(rowTotals));
+                return;
+            }
+
+            if (!villageKey) return;
 
             if (!villagesByKey.has(villageKey)) {
                 villagesByKey.set(villageKey, {
@@ -4115,6 +4264,8 @@
             totals,
             attackTotals,
             defenseTotals,
+            supportTotals,
+            scavengingTotals,
             villages,
             attackFullCounter: calculateAttackFullCounterByVillage(villages),
             villageCount: getPlayerVillageCount() || parsedVillageCount || rows.length,
@@ -4155,6 +4306,8 @@
             });
         });
         const overviewDefenseTotals = getDefenseTroopTotals(summary.defenseTotals);
+        const overviewSupportTotals = getDefenseTroopTotals(summary.supportTotals);
+        const overviewScavengingTotals = getDefenseTroopTotals(summary.scavengingTotals);
         const hasOverviewDefenseTotals = hasTroopValues(overviewDefenseTotals);
         const expectedVillageCount = getTroopScanExpectedVillageCount(summary, originalVillages.length);
 
@@ -4165,16 +4318,20 @@
             summary.overviewScanIncomplete = true;
             summary.placeScanIncomplete = true;
             summary.defenseTotals = overviewDefenseTotals;
+            summary.supportTotals = overviewSupportTotals;
+            summary.scavengingTotals = overviewScavengingTotals;
             summary.placeVillageCount = 0;
             summary.scavengingVillageCount = 0;
             summary.attackFullCounter = calculateAttackFullCounterByVillage(originalVillages);
             console.warn('[TW] Leitura de tropas ignorada por estar incompleta:', originalVillages.length, '/', expectedVillageCount);
-            return summary;
+            return updateAvailableDefenseTotals(summary);
         }
 
         const rebuiltTotals = createTroopTotals();
         const rebuiltAttackTotals = createTroopTotals();
         const rebuiltDefenseTotals = createTroopTotals();
+        const rebuiltSupportTotals = createTroopTotals();
+        const rebuiltScavengingTotals = createTroopTotals();
         const rebuiltVillages = [];
         let placeVillageCount = 0;
         let movementVillageCount = 0;
@@ -4191,6 +4348,9 @@
                 const homeTotals = parseHomeDefenseTroopTotals(doc);
                 const homeDefenseTotals = getDefenseTroopTotals(homeTotals);
                 const scavengingTotals = parseScavengingTroopTotals(doc);
+                const scavengingDefenseTotals = getDefenseTroopTotals(scavengingTotals);
+                const supportTotals = parseSupportTroopTotals(doc);
+                const supportDefenseTotals = getDefenseTroopTotals(supportTotals);
                 const transitTotals = parseTransitTroopTotals(doc);
                 const placeTotals = createTroopTotals();
                 const defenseTotals = createTroopTotals();
@@ -4203,6 +4363,8 @@
                 addTroopTotals(placeTotals, homeTotals);
                 addTroopTotals(placeTotals, scavengingTotals);
                 addTroopTotals(placeTotals, transitTotals);
+                addTroopTotals(rebuiltSupportTotals, supportDefenseTotals);
+                addTroopTotals(rebuiltScavengingTotals, scavengingDefenseTotals);
 
                 const attackTotals = hasTroopValues(overviewAttackTotals)
                     ? overviewAttackTotals
@@ -4255,12 +4417,20 @@
             summary.defenseTotals = hasOverviewDefenseTotals
                 ? mergeDefenseTroopTotalsByMax(overviewDefenseTotals, rebuiltDefenseTotals)
                 : getDefenseTroopTotals(rebuiltDefenseTotals);
+            summary.supportTotals = hasTroopValues(rebuiltSupportTotals)
+                ? getDefenseTroopTotals(rebuiltSupportTotals)
+                : overviewSupportTotals;
+            summary.scavengingTotals = hasTroopValues(rebuiltScavengingTotals)
+                ? getDefenseTroopTotals(rebuiltScavengingTotals)
+                : overviewScavengingTotals;
             summary.villages = rebuiltVillages;
             summary.placeScanIncomplete = false;
         } else {
             summary.totals = cloneTroopTotals(summary.totals);
             summary.attackTotals = cloneTroopTotals(summary.attackTotals);
             summary.defenseTotals = getDefenseTroopTotals(overviewDefenseTotals);
+            summary.supportTotals = overviewSupportTotals;
+            summary.scavengingTotals = overviewScavengingTotals;
             summary.villages = originalVillages;
             summary.placeScanIncomplete = true;
             console.warn('[TW] Leitura da Praca de Reunioes ignorada por estar incompleta:', rebuiltVillages.length, '/', expectedVillageCount);
@@ -4270,7 +4440,7 @@
         summary.scavengingVillageCount = movementVillageCount;
         summary.attackFullCounter = calculateAttackFullCounterByVillage(summary.villages);
 
-        return summary;
+        return updateAvailableDefenseTotals(summary);
     }
 
     async function buildTroopsOverviewSummary() {
@@ -4380,17 +4550,27 @@
         return lines.length ? lines.join('\n') : 'Sem tropas detectadas.';
     }
 
+    function formatDefenseTroopLines(totals, options = {}) {
+        const source = getDefenseTroopTotals(totals || {});
+        const reference = getDefenseTroopTotals(options.referenceTotals || {});
+        const includeZeroForReference = Boolean(options.includeZeroForReference);
+        const lines = TROOP_DEFENSE_DISPLAY_UNITS
+            .filter(unit => {
+                if (Number(source[unit] || 0) > 0) return true;
+                return includeZeroForReference && Number(reference[unit] || 0) > 0;
+            })
+            .map(unit => `${TROOP_UNIT_LABELS[unit]}: **${formatTroopNumber(source[unit])}**`);
+
+        return lines.length ? lines.join('\n') : 'Sem tropas.';
+    }
+
     function buildSimpleDefenseTroopSummaryEmbed(summary) {
-        const totals = getDefenseTroopTotals(summary.defenseTotals || {});
-        const lines = [
-            `🔱 Lanceiros: **${formatTroopNumber(totals.spear)}**`,
-            `🗡️ Espadachins: **${formatTroopNumber(totals.sword)}**`
-        ];
-
-        if (Number(totals.archer || 0) > 0) lines.push(`🏹 Arqueiros: **${formatTroopNumber(totals.archer)}**`);
-        if (Number(totals.heavy || 0) > 0) lines.push(`🐴 Cavalaria Pesada: **${formatTroopNumber(totals.heavy)}**`);
-
-        if (Number(totals.spy || 0) > 0) lines.push(`${TROOP_UNIT_LABELS.spy}: **${formatTroopNumber(totals.spy)}**`);
+        const totalDefense = getDefenseTroopTotals(summary.totalDefenseTotals || summary.defenseTotals || {});
+        const supportDefense = getDefenseTroopTotals(summary.supportDefenseTotals || summary.supportTotals || {});
+        const scavengingDefense = getDefenseTroopTotals(summary.scavengingDefenseTotals || summary.scavengingTotals || {});
+        const availableDefense = getDefenseTroopTotals(
+            summary.availableDefenseTotals || subtractDefenseTroopTotals(totalDefense, supportDefense, scavengingDefense)
+        );
 
         return {
             title: '🛡️ ━━ DEFESA DISPONÍVEL ━━ 🛡️',
@@ -4401,8 +4581,20 @@
                 `**${getDefenderValue()}**`,
                 `Tribo: ${formatTribe(summary.defenderTribe)}`,
                 '',
-                '🛡️ **Defesa**',
-                lines.join('\n')
+                '🛡️ **Defesa Total**',
+                formatDefenseTroopLines(totalDefense),
+                '',
+                '🤝 **Em Apoios**',
+                formatDefenseTroopLines(supportDefense),
+                '',
+                '🌾 **Em Coleta**',
+                formatDefenseTroopLines(scavengingDefense),
+                '',
+                '✅ **Disponível**',
+                formatDefenseTroopLines(availableDefense, {
+                    referenceTotals: totalDefense,
+                    includeZeroForReference: true
+                })
             ].join('\n'),
             footer: { text: 'Tribal Wars' },
             timestamp: new Date().toISOString()
@@ -4613,7 +4805,10 @@
             aldeiasVisaoGeral: summary.parsedVillageCount,
             aldeiasPraca: summary.placeVillageCount,
             colunas: summary.troopColumns,
-            unidades: getDefenseTroopTotals(summary.defenseTotals || {})
+            total: getDefenseTroopTotals(summary.totalDefenseTotals || summary.defenseTotals || {}),
+            apoios: getDefenseTroopTotals(summary.supportDefenseTotals || summary.supportTotals || {}),
+            coleta: getDefenseTroopTotals(summary.scavengingDefenseTotals || summary.scavengingTotals || {}),
+            disponivel: getDefenseTroopTotals(summary.availableDefenseTotals || {})
         });
 
         const embed = buildSimpleDefenseTroopSummaryEmbed(summary);
@@ -6772,6 +6967,11 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
     });
 
     createSettingsUi();
+    setTimeout(() => {
+        checkScriptUpdate().catch(error => {
+            console.warn('[TW] Verificacao de update falhou:', error);
+        });
+    }, 4000);
     restorePendingNobleTrains();
     checkCurrentPageVerification();
     setInterval(checkCurrentPageVerification, 5000);
