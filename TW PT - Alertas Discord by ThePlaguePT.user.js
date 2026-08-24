@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.58
+// @version      1.3.59
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.58 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.59 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -96,6 +96,7 @@
 
     const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'spy', 'heavy', 'militia'];
     const TROOP_ATTACK_UNITS = ['axe', 'light', 'marcher', 'ram', 'catapult', 'snob'];
+    const TROOP_UNIT_ORDER = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob', 'militia'];
     const ATTACK_FULL_AXE = 5000;
     const ATTACK_FULL_LIGHT = 2000;
     const ATTACK_HALF_AXE = 2500;
@@ -2598,42 +2599,110 @@
         return fetchCleanDocument(getAcademyUrl(villageId));
     }
 
-    function detectTroopUnitKey(cell) {
-        const imgTexts = Array.from(cell.querySelectorAll('img'))
-            .map(img => [
-                img.getAttribute('src') || '',
-                img.getAttribute('title') || '',
-                img.getAttribute('alt') || '',
-                img.className || ''
-            ].join(' '))
-            .join(' ');
+    function normalizeUnitHaystack(value) {
+        return normalizeSearchText(value || '')
+            .replace(/[_-]+/g, ' ');
+    }
 
-        const haystack = [
-            cell.innerText || '',
-            cell.innerHTML || '',
-            cell.className || '',
-            imgTexts
-        ].join(' ').toLowerCase();
-
-        const aliases = {
-            spear: ['unit_spear', 'unit-spear', 'unit-item-spear', 'spear.png', 'lanceiro'],
-            sword: ['unit_sword', 'unit-sword', 'unit-item-sword', 'sword.png', 'espadachim'],
-            axe: ['unit_axe', 'unit-axe', 'unit-item-axe', 'axe.png', 'barbaro', 'bárbaro', 'viking', 'vikings', 'machado', 'machados'],
-            archer: ['unit_archer', 'unit-archer', 'unit-item-archer', 'archer.png', 'arqueiro'],
-            spy: ['unit_spy', 'unit-spy', 'unit-item-spy', 'spy.png', 'explorador', 'batedor'],
-            light: ['unit_light', 'unit-light', 'unit-item-light', 'light.png', 'cavalaria leve'],
-            marcher: ['unit_marcher', 'unit-marcher', 'unit-item-marcher', 'marcher.png', 'arqueiro a cavalo', 'arqueiros a cavalo', 'mounted archer', 'mounted archers'],
-            heavy: ['unit_heavy', 'unit-heavy', 'unit-item-heavy', 'heavy.png', 'cavalaria pesada'],
-            ram: ['unit_ram', 'unit-ram', 'unit-item-ram', 'ram.png', 'ariete'],
-            catapult: ['unit_catapult', 'unit-catapult', 'unit-item-catapult', 'catapult.png', 'catapulta'],
-            knight: ['unit_knight', 'unit-knight', 'unit-item-knight', 'knight.png', 'paladino'],
-            snob: ['unit_snob', 'unit-snob', 'unit-item-snob', 'snob.png', 'nobre'],
-            militia: ['unit_militia', 'unit-militia', 'unit-item-militia', 'militia.png', 'milicia', 'milícia']
+    function detectTroopUnitKeyFromTechnicalText(value) {
+        const text = normalizeUnitHaystack(value);
+        const technicalAliases = {
+            spear: ['unit spear', 'unit item spear', 'spear.png', '/spear'],
+            sword: ['unit sword', 'unit item sword', 'sword.png', '/sword'],
+            axe: ['unit axe', 'unit item axe', 'axe.png', '/axe'],
+            archer: ['unit archer', 'unit item archer', 'archer.png', '/archer'],
+            spy: ['unit spy', 'unit item spy', 'spy.png', '/spy'],
+            light: ['unit light', 'unit item light', 'light.png', '/light'],
+            marcher: ['unit marcher', 'unit item marcher', 'marcher.png', '/marcher'],
+            heavy: ['unit heavy', 'unit item heavy', 'heavy.png', '/heavy'],
+            ram: ['unit ram', 'unit item ram', 'ram.png', '/ram'],
+            catapult: ['unit catapult', 'unit item catapult', 'catapult.png', '/catapult'],
+            knight: ['unit knight', 'unit item knight', 'knight.png', '/knight'],
+            snob: ['unit snob', 'unit item snob', 'snob.png', '/snob'],
+            militia: ['unit militia', 'unit item militia', 'militia.png', '/militia']
         };
 
-        return Object.keys(aliases).find(key =>
-            aliases[key].some(alias => haystack.includes(alias))
+        return TROOP_UNIT_ORDER.find(key =>
+            technicalAliases[key].some(alias => text.includes(alias))
         ) || null;
+    }
+
+    function detectTroopUnitKeyFromLabel(value) {
+        const text = normalizeUnitHaystack(value);
+        const labelAliases = [
+            ['marcher', ['arqueiro a cavalo', 'arqueiros a cavalo', 'mounted archer', 'mounted archers']],
+            ['light', ['cavalaria leve', 'light cavalry']],
+            ['heavy', ['cavalaria pesada', 'heavy cavalry']],
+            ['catapult', ['catapulta', 'catapult']],
+            ['spear', ['lanceiro', 'lanceiros', 'spear fighter', 'spear fighters']],
+            ['sword', ['espadachim', 'espadachins', 'swordsman', 'swordsmen']],
+            ['axe', ['barbaro', 'barbaros', 'barbarian', 'barbarians', 'viking', 'vikings', 'axeman', 'axemen', 'machado', 'machados']],
+            ['archer', ['arqueiro', 'arqueiros', 'archer', 'archers']],
+            ['spy', ['explorador', 'exploradores', 'batedor', 'batedores', 'scout', 'scouts', 'spy']],
+            ['ram', ['ariete', 'arietes', 'ram', 'rams']],
+            ['knight', ['paladino', 'paladinos', 'paladin', 'knight']],
+            ['snob', ['nobre', 'nobres', 'noble', 'nobles']],
+            ['militia', ['milicia', 'militia']]
+        ];
+
+        for (const [key, aliases] of labelAliases) {
+            if (aliases.some(alias => text.includes(alias))) {
+                return key;
+            }
+        }
+
+        return null;
+    }
+
+    function detectTroopUnitKey(cell) {
+        if (!cell) return null;
+
+        const technicalParts = [
+            cell.className || '',
+            cell.getAttribute && (cell.getAttribute('data-unit') || '')
+        ];
+
+        Array.from(cell.querySelectorAll('img,[class*="unit"],[data-unit]')).forEach(element => {
+            technicalParts.push(
+                element.getAttribute('src') || '',
+                element.getAttribute('class') || '',
+                element.getAttribute('data-unit') || ''
+            );
+        });
+
+        const technicalMatches = new Set(
+            technicalParts
+                .map(detectTroopUnitKeyFromTechnicalText)
+                .filter(Boolean)
+        );
+
+        if (technicalMatches.size === 1) {
+            return Array.from(technicalMatches)[0];
+        }
+
+        if (technicalMatches.size > 1) {
+            return null;
+        }
+
+        const labelParts = [];
+        Array.from(cell.querySelectorAll('img,[title],[alt]')).forEach(element => {
+            labelParts.push(
+                element.getAttribute('title') || '',
+                element.getAttribute('alt') || ''
+            );
+        });
+
+        labelParts.push(cell.getAttribute && (cell.getAttribute('title') || ''));
+
+        const labelMatches = new Set(
+            labelParts
+                .map(detectTroopUnitKeyFromLabel)
+                .filter(Boolean)
+        );
+
+        return labelMatches.size === 1
+            ? Array.from(labelMatches)[0]
+            : null;
     }
 
     function getCellAtColumn(row, columnIndex) {
@@ -2653,6 +2722,7 @@
 
     function getTroopColumns(table) {
         let bestColumns = [];
+        let bestScore = -Infinity;
         const rows = getDirectTableRows(table);
 
         rows.forEach(row => {
@@ -2668,10 +2738,23 @@
                 columnIndex += Number(cell.getAttribute('colspan') || 1);
             });
 
-            if (columns.length > bestColumns.length) bestColumns = columns;
+            const uniqueKeys = new Set(columns.map(column => column.key));
+            const duplicateCount = columns.length - uniqueKeys.size;
+            const orderIndexes = columns.map(column => TROOP_UNIT_ORDER.indexOf(column.key));
+            const orderedPairs = orderIndexes.slice(1).filter((index, pairIndex) =>
+                index >= orderIndexes[pairIndex]
+            ).length;
+            const score = uniqueKeys.size * 10 + orderedPairs - duplicateCount * 25;
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestColumns = columns.filter((column, index) =>
+                    columns.findIndex(existing => existing.key === column.key) === index
+                );
+            }
         });
 
-        return bestColumns;
+        return bestColumns.sort((a, b) => a.index - b.index);
     }
 
     function getDirectTableRows(table) {
@@ -2803,6 +2886,22 @@
         return rowTotals;
     }
 
+    function parseTroopRowTotalsByUnitCells(row) {
+        const rowTotals = createTroopTotals();
+
+        Array.from(row ? row.children : []).forEach(cell => {
+            const unitKey = detectTroopUnitKey(cell);
+            if (!unitKey) return;
+
+            const value = parseSafeTroopCellNumber(cell.innerText || cell.textContent || '');
+            if (value > 0) {
+                rowTotals[unitKey] += value;
+            }
+        });
+
+        return rowTotals;
+    }
+
     function isLikelyTroopValueCell(cell) {
         const text = cleanText(cell ? (cell.innerText || cell.textContent || '') : '');
 
@@ -2836,6 +2935,11 @@
     }
 
     function parsePlaceTroopRowTotals(row, columns) {
+        const unitCellTotals = parseTroopRowTotalsByUnitCells(row);
+        if (hasTroopValues(unitCellTotals)) {
+            return unitCellTotals;
+        }
+
         const normalTotals = parseTroopRowTotals(row, columns);
         const rightTotals = parseTroopRowTotalsFromRight(row, columns);
 
