@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.3.3
+// @version      1.3.4
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.3.3';
+    var SCRIPT_VERSION = '1.3.4';
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -3683,7 +3683,11 @@
         }
 
         try {
-            botaoAtual.click();
+            if (typeof window.jQuery === 'function') {
+                window.jQuery(botaoAtual).trigger('click');
+            } else {
+                botaoAtual.click();
+            }
             marcarEnvioNesteCiclo(botaoAtual);
         } catch (erro) {
             return Promise.reject(erro);
@@ -3723,7 +3727,6 @@
             return;
         }
 
-        item.classList.add('farm_icon_disabled');
         var linha = item.closest('tr');
         if (linha) {
             linha.setAttribute('data-auto-farm-sent', '1');
