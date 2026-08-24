@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.2.5
+// @version      1.2.6
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.2.5';
+    var SCRIPT_VERSION = '1.2.6';
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -385,7 +385,7 @@
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
                 '<span>As alterações ficam guardadas neste mundo.</span></div>',
-                '<span class="af-version">v1.2.5</span>',
+                '<span class="af-version">v1.2.6</span>',
             '</div>',
             '<div class="af-settings-grid">',
                 '<fieldset class="af-card">',
@@ -2712,6 +2712,7 @@
             '#plunder_list tr[id^="village_"], ' +
             '#am_widget_Farm tr[id^="village_"]'
         ));
+        linhas.sort(compararAlvosPorDistancia);
 
         vikingsDisponiveis = vikingsDisponiveis === null
             ? 0
@@ -3275,6 +3276,45 @@
             : limpa;
     }
 
+    function obterDistanciaAlvo(item) {
+        var linha = item && item.matches && item.matches('tr')
+            ? item
+            : item && item.closest
+                ? item.closest('tr')
+                : null;
+        var origem = obterCoordenadasOrigem();
+        var destino = linha && obterCoordenadas(linha.textContent);
+
+        if (!origem || !destino) {
+            return Number.POSITIVE_INFINITY;
+        }
+
+        var diferencaX = destino.x - origem.x;
+        var diferencaY = destino.y - origem.y;
+        return Math.sqrt(
+            (diferencaX * diferencaX) + (diferencaY * diferencaY)
+        );
+    }
+
+    function compararAlvosPorDistancia(primeiro, segundo) {
+        return obterDistanciaAlvo(primeiro) - obterDistanciaAlvo(segundo);
+    }
+
+    function ordenarTarefasPorDistancia(tarefas) {
+        return tarefas.map(function (tarefa, ordem) {
+            return {
+                tarefa: tarefa,
+                ordem: ordem,
+                distancia: obterDistanciaAlvo(tarefa.botao)
+            };
+        }).sort(function (primeira, segunda) {
+            return primeira.distancia - segunda.distancia ||
+                primeira.ordem - segunda.ordem;
+        }).map(function (item) {
+            return item.tarefa;
+        });
+    }
+
     function criarPlanoFarm() {
         var modelosNecessarios = [];
         var modeloAAtivo = CONFIG.modeloAtivo && CONFIG.modeloAAtivo;
@@ -3308,6 +3348,7 @@
                 alvos.push(alvo);
             }
         });
+        alvos.sort(compararAlvosPorDistancia);
 
         var tarefasModeloC = [];
         var tarefasModeloA = [];
@@ -3401,11 +3442,15 @@
             }
         });
 
-        return {
-            tarefas: tarefasModeloC.concat(
+        var tarefasOrdenadas = ordenarTarefasPorDistancia(
+            tarefasModeloC.concat(
                 tarefasModeloA,
                 tarefasModeloB
-            ),
+            )
+        );
+
+        return {
+            tarefas: tarefasOrdenadas,
             temBotoes: botoesRelevantes.length > 0,
             temBotoesAtivos: botoesRelevantes.some(function (item) {
                 return !botaoEstaDesativado(item);
