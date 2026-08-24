@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.2.0
+// @version      1.2.1
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -19,10 +19,26 @@
 (function () {
     'use strict';
 
+    var SCRIPT_NAME = 'Script Farm - TheplaguePT';
+    var SCRIPT_VERSION = '1.2.1';
+
     if (window.__autoFarmAController) {
+        var controladorExistente = window.__autoFarmAController;
+        var versaoExistente = typeof controladorExistente === 'object'
+            ? controladorExistente.versao
+            : null;
+        console.warn(
+            '[Script Farm] Outra cópia já foi carregada nesta página' +
+            (versaoExistente ? ' (v' + versaoExistente + ')' : '') +
+            '. Desativa versões duplicadas no gestor de userscripts.'
+        );
         return;
     }
-    window.__autoFarmAController = true;
+    window.__autoFarmAController = {
+        nome: SCRIPT_NAME,
+        versao: SCRIPT_VERSION,
+        iniciadoEm: Date.now()
+    };
 
     var STORAGE_KEY = 'autoFarmA.enabled';
     var SETTINGS_KEY = 'autoFarmA.settings.v1';
@@ -111,6 +127,12 @@
     iniciar();
 
     function iniciar() {
+        console.info(
+            '[Script Farm] v' + SCRIPT_VERSION + ' carregado — ' +
+            (estaLigado() ? 'LIGADO' : 'DESLIGADO') +
+            '; página=' + (estaNoAssistenteFarm() ? 'assistente' : 'jogo') +
+            '; grupo=' + String(CONFIG.grupoFarmId)
+        );
         criarBotao();
         instalarRecuperacaoGlobal();
 
@@ -288,7 +310,7 @@
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
                 '<span>As alterações ficam guardadas neste mundo.</span></div>',
-                '<span class="af-version">v1.2.0</span>',
+                '<span class="af-version">v1.2.1</span>',
             '</div>',
             '<div class="af-settings-grid">',
                 '<fieldset class="af-card">',
@@ -631,12 +653,18 @@
         return dados.grupos;
     }
 
-    function criarUrlVisaoGeralGrupo(grupoId) {
+    function criarUrlVisaoGeralGrupo(grupoId, modo) {
         var url = new URL(window.location.href);
+        var modoEscolhido = modo || 'units';
         url.searchParams.set('screen', 'overview_villages');
-        url.searchParams.set('mode', 'units');
-        url.searchParams.set('type', 'complete');
-        url.searchParams.set('units_type', 'complete');
+        url.searchParams.set('mode', modoEscolhido);
+        if (modoEscolhido === 'units') {
+            url.searchParams.set('type', 'complete');
+            url.searchParams.set('units_type', 'complete');
+        } else {
+            url.searchParams.delete('type');
+            url.searchParams.delete('units_type');
+        }
         url.searchParams.set('group', String(grupoId));
         url.searchParams.set('page', '-1');
         ['action', 'ajax', 'h'].forEach(function (chave) {
@@ -647,32 +675,73 @@
     }
 
     async function obterDadosGrupo(grupoId) {
-        var pagina = await requisitarPagina(
-            criarUrlVisaoGeralGrupo(grupoId),
-            { method: 'GET', cache: 'no-store' },
-            30000
-        );
-        var documento = new DOMParser().parseFromString(
-            pagina.texto,
-            'text/html'
-        );
+        var modos = ['units', 'combined'];
+        var grupos = [];
+        var idsGrupos = new Set();
+        var ultimoErro = null;
+        var houveResposta = false;
 
-        if (documento.querySelector('#bot_check, .g-recaptcha, [id*="captcha"]')) {
-            throw new Error('O jogo pediu verificação antes de listar os grupos');
+        for (var indice = 0; indice < modos.length; indice += 1) {
+            try {
+                var pagina = await requisitarPagina(
+                    criarUrlVisaoGeralGrupo(grupoId, modos[indice]),
+                    { method: 'GET', cache: 'no-store' },
+                    30000
+                );
+                var documento = new DOMParser().parseFromString(
+                    pagina.texto,
+                    'text/html'
+                );
+
+                if (documento.querySelector('#bot_check, .g-recaptcha, [id*="captcha"]')) {
+                    throw new Error(
+                        'O jogo pediu verificação antes de listar os grupos'
+                    );
+                }
+
+                houveResposta = true;
+                extrairGruposDoDocumento(documento).forEach(function (item) {
+                    if (!idsGrupos.has(item.id)) {
+                        idsGrupos.add(item.id);
+                        grupos.push(item);
+                    }
+                });
+
+                var aldeias = extrairAldeiasDoDocumento(documento);
+                if (aldeias.length) {
+                    var grupoEncontrado = grupos.find(function (item) {
+                        return item.id === String(grupoId);
+                    });
+                    return {
+                        grupos: grupos,
+                        aldeias: aldeias,
+                        nome: grupoEncontrado
+                            ? grupoEncontrado.nome
+                            : 'Grupo #' + grupoId
+                    };
+                }
+            } catch (erro) {
+                ultimoErro = erro;
+                if (/verificação/i.test(obterMensagemErro(erro))) {
+                    throw erro;
+                }
+            }
         }
 
-        var grupos = extrairGruposDoDocumento(documento);
+        if (!houveResposta && ultimoErro) {
+            throw ultimoErro;
+        }
+
         var grupo = grupos.find(function (item) {
             return item.id === String(grupoId);
         });
-
         if (String(grupoId) !== '0' && !grupo) {
-            throw new Error('o grupo escolhido já não existe');
+            throw new Error('o grupo escolhido já não existe ou não pôde ser lido');
         }
 
         return {
             grupos: grupos,
-            aldeias: extrairAldeiasDoDocumento(documento),
+            aldeias: [],
             nome: grupo ? grupo.nome : 'Grupo #' + grupoId
         };
     }
@@ -743,6 +812,27 @@
                 id = comId && numeroPositivo(comId.getAttribute('data-id'));
             }
 
+            if (id && !vistos.has(String(id))) {
+                vistos.add(String(id));
+                ids.push(id);
+            }
+        });
+
+        documento.querySelectorAll(
+            '.quickedit-vn[data-id], .quickedit-label[data-id], [data-village-id]'
+        ).forEach(function (elemento) {
+            var contexto = elemento.closest('tr') || elemento.parentElement;
+            if (
+                !contexto ||
+                !/\d{1,3}\s*\|\s*\d{1,3}/.test(contexto.textContent || '')
+            ) {
+                return;
+            }
+
+            var id = numeroPositivo(
+                elemento.getAttribute('data-village-id') ||
+                elemento.getAttribute('data-id')
+            );
             if (id && !vistos.has(String(id))) {
                 vistos.add(String(id));
                 ids.push(id);
@@ -938,7 +1028,10 @@
             if (/(?:grupo).*(?:não contém aldeias|sem aldeias|não existe)/i.test(mensagem)) {
                 limparTimers();
                 desligarObservador();
-                atualizarBotao('Grupo sem aldeias disponíveis — em pausa');
+                atualizarBotao(
+                    'Grupo sem aldeias disponíveis — nova tentativa em 60 s'
+                );
+                agendar(executarControlador, 60 * 1000);
                 return;
             }
             recuperar(
@@ -1159,7 +1252,19 @@
             return false;
         }
 
+        if (!sinalWorkerCompativel(sinal)) {
+            console.warn(
+                '[Script Farm] A libertar o controlo deixado por uma versão anterior.'
+            );
+            localStorage.removeItem(WORKER_KEY);
+            return false;
+        }
+
         return true;
+    }
+
+    function sinalWorkerCompativel(sinal) {
+        return Boolean(sinal && String(sinal.versao || '') === SCRIPT_VERSION);
     }
 
     function lerSinalWorker() {
@@ -1175,9 +1280,19 @@
         if (
             existente &&
             existente.id !== tabId &&
-            Date.now() - Number(existente.momento) <= WORKER_TIMEOUT
+            Date.now() - Number(existente.momento) <= WORKER_TIMEOUT &&
+            sinalWorkerCompativel(existente)
         ) {
+            console.warn(
+                '[Script Farm] O trabalho já está ativo noutro separador.'
+            );
             return false;
+        }
+
+        if (existente && !sinalWorkerCompativel(existente)) {
+            console.warn(
+                '[Script Farm] A assumir o trabalho de uma versão anterior.'
+            );
         }
 
         pararSinalWorker(false);
@@ -1198,7 +1313,8 @@
         if (
             existente &&
             existente.id !== tabId &&
-            Date.now() - Number(existente.momento) <= WORKER_TIMEOUT
+            Date.now() - Number(existente.momento) <= WORKER_TIMEOUT &&
+            sinalWorkerCompativel(existente)
         ) {
             pararSinalWorker(false);
             atualizarBotao('Em pausa — outro separador AF está ativo');
@@ -1207,6 +1323,7 @@
 
         localStorage.setItem(WORKER_KEY, JSON.stringify({
             id: tabId,
+            versao: SCRIPT_VERSION,
             momento: Date.now(),
             aldeia: window.game_data && window.game_data.village
                 ? window.game_data.village.id
@@ -3391,13 +3508,22 @@
         });
 
         window.addEventListener('error', function (evento) {
-            if (evento.error && estaLigado() && !temProtecaoBot()) {
+            if (
+                evento.error &&
+                erroPertenceAoScriptFarm(evento) &&
+                estaLigado() &&
+                !temProtecaoBot()
+            ) {
                 recuperar('Erro de JavaScript');
             }
         });
 
-        window.addEventListener('unhandledrejection', function () {
-            if (estaLigado() && !temProtecaoBot()) {
+        window.addEventListener('unhandledrejection', function (evento) {
+            if (
+                erroPertenceAoScriptFarm(evento) &&
+                estaLigado() &&
+                !temProtecaoBot()
+            ) {
                 recuperar('Operação interrompida');
             }
         });
@@ -3408,13 +3534,19 @@
             }
         });
 
-        if (window.jQuery) {
-            window.jQuery(document).ajaxError(function () {
-                if (estaLigado() && estaNoAssistenteFarm() && !temProtecaoBot()) {
-                    recuperar('Falha de comunicação com o jogo');
-                }
-            });
-        }
+    }
+
+    function erroPertenceAoScriptFarm(evento) {
+        var erro = evento && (evento.error || evento.reason);
+        var origem = [
+            evento && evento.filename,
+            erro && erro.stack,
+            erro && erro.message
+        ].filter(Boolean).join(' ');
+
+        return /script(?:\+|%20|[\s_-])*farm|theplaguept\.tw\.script-farm/i.test(
+            origem
+        );
     }
 
     function armarWatchdog() {

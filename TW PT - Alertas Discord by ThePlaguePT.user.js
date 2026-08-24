@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.67
+// @version      1.3.68
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.67';
+    const SCRIPT_VERSION = '1.3.68';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
 
     console.log(`[TW Discord Alerts] Versao ${SCRIPT_VERSION} carregada`);
@@ -2639,8 +2639,64 @@
         return url.toString();
     }
 
+    function normalizeTroopsOverviewUrl(urlValue) {
+        const url = new URL(urlValue || window.location.href, window.location.origin);
+
+        url.searchParams.set('screen', 'overview_villages');
+        url.searchParams.set('mode', 'units');
+        url.searchParams.set('page', '-1');
+        url.searchParams.delete('group');
+        url.searchParams.delete('action');
+        url.searchParams.delete('ajax');
+        url.searchParams.delete('h');
+
+        return url.toString();
+    }
+
+    function isSupportOverviewTabText(value) {
+        const text = normalizeSearchText(value);
+
+        return [
+            'suporte',
+            'support',
+            'supports',
+            'supporting',
+            'apoio',
+            'apoios',
+            'apoyo',
+            'apoyos',
+            'soutien',
+            'renfort',
+            'rinforzo',
+            'rinforzi',
+            'wsparcie',
+            'podpora',
+            'sprijin',
+            'suport'
+        ].includes(text);
+    }
+
+    function findTroopsOverviewSupportUrl(doc) {
+        const sources = [doc, document].filter(Boolean);
+
+        for (const sourceDoc of sources) {
+            const links = Array.from(sourceDoc.querySelectorAll('a[href*="screen=overview_villages"][href*="mode=units"]'));
+            const supportLink = links.find(link => isSupportOverviewTabText(link.innerText || link.textContent || ''));
+
+            if (supportLink) {
+                return normalizeTroopsOverviewUrl(supportLink.getAttribute('href'));
+            }
+        }
+
+        return getTroopsOverviewUrl('support');
+    }
+
     async function fetchTroopsOverviewDocument(type) {
         return fetchCleanDocument(getTroopsOverviewUrl(type));
+    }
+
+    async function fetchTroopsSupportOverviewDocument(baseDoc) {
+        return fetchCleanDocument(findTroopsOverviewSupportUrl(baseDoc));
     }
 
     function getPlaceUnitsUrl(villageId) {
@@ -3825,6 +3881,9 @@
                 if (!row.querySelector('input[type="checkbox"]')) return;
 
                 const rowTotals = parsePlaceTroopRowTotals(row, bestColumns);
+
+                if (!hasTroopValues(rowTotals)) return;
+
                 addTroopTotals(totals, getDefenseTroopTotals(rowTotals));
             });
 
@@ -4726,7 +4785,8 @@
         if (!summary) return null;
 
         try {
-            const supportDoc = await fetchTroopsOverviewDocument('support');
+            const supportUrl = findTroopsOverviewSupportUrl(doc);
+            const supportDoc = await fetchCleanDocument(supportUrl);
 
             if (isTwVerificationPage(supportDoc)) {
                 pauseForVerification('Visao de suporte');
@@ -4734,6 +4794,11 @@
             }
 
             const supportStationedTotals = parseSupportOverviewStationedTroopTotals(supportDoc);
+
+            console.log('[TW] Apoios estacionados lidos da visao de suporte:', {
+                url: supportUrl,
+                totais: supportStationedTotals
+            });
 
             if (hasTroopValues(supportStationedTotals)) {
                 summary.supportStationedTotals = mergeDefenseTroopTotalsByMax(
