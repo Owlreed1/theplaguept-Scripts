@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.2.8
+// @version      1.3.0
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.2.8';
+    var SCRIPT_VERSION = '1.3.0';
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -399,7 +399,7 @@
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
                 '<span>As alterações ficam guardadas neste mundo.</span></div>',
-                '<span class="af-version">v1.2.8</span>',
+                '<span class="af-version">v' + SCRIPT_VERSION + '</span>',
             '</div>',
             '<div class="af-settings-grid">',
                 '<fieldset class="af-card">',
@@ -1825,6 +1825,16 @@
         var fila = plano.tarefas;
 
         if (fila.length === 0) {
+            if (planoMuralhas.bloqueadasSemTropas > 0) {
+                tratarSemTrabalho(
+                    'Muralhas: disponíveis ' +
+                    planoMuralhas.vikingsDisponiveis + ' Vikings e ' +
+                    planoMuralhas.arietesDisponiveis + ' aríetes',
+                    CONFIG.mudarSemTropas
+                );
+                return;
+            }
+
             if (
                 plano.jogadoresIgnorados > 0 &&
                 plano.alvosBarbaros === 0
@@ -1880,6 +1890,7 @@
             var tarefa = null;
             while (indice < fila.length && !tarefa) {
                 var candidata = fila[indice++];
+                var botaoAtual = obterBotaoAtualTarefa(candidata);
                 var semBatedores =
                     candidata.tipo === 'batedor' &&
                     quantidadeUnidade('spy') === 0;
@@ -1890,9 +1901,11 @@
 
                 if (
                     !tiposSemTropas[candidata.tipo] &&
-                    candidata.botao.isConnected &&
-                    !botaoEstaDesativado(candidata.botao)
+                    botaoAtual &&
+                    botaoAtual.isConnected &&
+                    !botaoEstaDesativado(botaoAtual)
                 ) {
+                    candidata.botao = botaoAtual;
                     tarefa = candidata;
                 }
             }
@@ -1905,13 +1918,15 @@
                 return;
             }
 
-            try {
-                ultimoTipoEnviado = tarefa.tipo;
-                ultimoAlvoEnviado = obterIdAlvoLinha(
-                    tarefa.botao.closest('tr')
-                );
-                tarefa.botao.click();
-                marcarEnvioNesteCiclo(tarefa.botao);
+            ultimoTipoEnviado = tarefa.tipo;
+            ultimoAlvoEnviado = tarefa.alvoId || obterIdAlvoLinha(
+                tarefa.botao.closest('tr')
+            );
+
+            enviarTarefaFarm(tarefa).then(function () {
+                if (!estaLigado() || aMudarAldeia || aRecuperar) {
+                    return;
+                }
 
                 if (tarefa.tipo === 'batedor') {
                     batedoresEnviados += 1;
@@ -1924,16 +1939,27 @@
                     ' | Batedores: ' + batedoresEnviados
                 );
                 armarWatchdog();
-            } catch (erro) {
+                agendar(enviarProximo, CONFIG.intervaloAtaque);
+            }).catch(function (erro) {
+                if (!estaLigado() || aMudarAldeia || aRecuperar) {
+                    return;
+                }
+
+                var mensagem = obterMensagemErro(erro);
+                if (erroIndicaAldeiaDeJogador(mensagem)) {
+                    registarAlvoDeJogador(ultimoAlvoEnviado);
+                    agendar(enviarProximo, CONFIG.intervaloAtaque);
+                    return;
+                }
+                if (erroIndicaFaltaDeTropas(mensagem)) {
+                    tiposSemTropas[tarefa.tipo] = true;
+                    agendar(enviarProximo, CONFIG.intervaloAtaque);
+                    return;
+                }
+
                 console.error('Script Farm:', erro);
                 recuperar('O envio foi interrompido');
-                return;
-            }
-
-            agendar(
-                enviarProximo,
-                CONFIG.intervaloAtaque
-            );
+            });
         }
 
         atualizarBotao('A iniciar reconhecimento e farm…');
@@ -2737,13 +2763,19 @@
 
     function criarPlanoDemolicaoMuralhas() {
         if (!CONFIG.demolirMuralhas) {
-            return { tarefas: [] };
+            return {
+                tarefas: [],
+                bloqueadasSemTropas: 0,
+                vikingsDisponiveis: 0,
+                arietesDisponiveis: 0
+            };
         }
 
         var vikingsDisponiveis = quantidadeUnidade('axe');
         var arietesDisponiveis = quantidadeUnidade('ram');
         var recentes = obterAtaquesMuralhaRecentes();
         var tarefas = [];
+        var bloqueadasSemTropas = 0;
         var linhas = Array.from(document.querySelectorAll(
             '#plunder_list tr[id^="village_"], ' +
             '#am_widget_Farm tr[id^="village_"]'
@@ -2756,6 +2788,8 @@
         arietesDisponiveis = arietesDisponiveis === null
             ? 0
             : arietesDisponiveis;
+        var vikingsIniciais = vikingsDisponiveis;
+        var arietesIniciais = arietesDisponiveis;
 
         linhas.some(function (linha) {
             if (tarefas.length >= CONFIG.maxDemolicoesPorAldeia) {
@@ -2769,8 +2803,7 @@
                 !nivel ||
                 !alvoId ||
                 !alvoEhBarbaro(linha) ||
-                deveUsarModeloC(linha) ||
-                linhaTemAtaque(linha) ||
+                (CONFIG.ignorarAtacados && linhaTemAtaque(linha)) ||
                 recentes.has(String(alvoId)) ||
                 !dentroDoLimiteDistancia(linha)
             ) {
@@ -2782,6 +2815,7 @@
                 vikingsDisponiveis < tropas.axe ||
                 arietesDisponiveis < tropas.ram
             ) {
+                bloqueadasSemTropas += 1;
                 return false;
             }
 
@@ -2797,7 +2831,12 @@
             return false;
         });
 
-        return { tarefas: tarefas };
+        return {
+            tarefas: tarefas,
+            bloqueadasSemTropas: bloqueadasSemTropas,
+            vikingsDisponiveis: vikingsIniciais,
+            arietesDisponiveis: arietesIniciais
+        };
     }
 
     function obterNivelMuralha(item) {
@@ -2807,17 +2846,62 @@
                 ? item.closest('tr')
                 : null;
 
-        if (!linha || !linha.cells || linha.cells.length <= 6) {
+        if (!linha || !linha.cells) {
             return null;
         }
 
-        var texto = linha.cells[6].textContent.trim();
+        var nivelDireto = linha.getAttribute('data-wall-level') ||
+            linha.getAttribute('data-muralha');
+        if (/^\d+$/.test(String(nivelDireto || '').trim())) {
+            return Math.min(20, Number(nivelDireto));
+        }
+
+        var celulaMarcada = linha.querySelector(
+            '[data-building="wall"], [data-wall-level], ' +
+            'td.wall, td[class*="wall_level"]'
+        );
+        var indice = obterIndiceColunaMuralha(linha);
+        var celula = celulaMarcada ||
+            (indice >= 0 ? linha.cells[indice] : null) ||
+            (linha.cells.length > 6 ? linha.cells[6] : null);
+        if (!celula) {
+            return null;
+        }
+
+        var texto = celula.textContent.trim();
         if (!/^\d+$/.test(texto)) {
             return null;
         }
 
         var nivel = Number(texto);
         return nivel > 0 ? Math.min(20, nivel) : 0;
+    }
+
+    function obterIndiceColunaMuralha(linha) {
+        var tabela = linha.closest('table');
+        if (!tabela) {
+            return -1;
+        }
+
+        var cabecalhos = Array.from(tabela.querySelectorAll('th'));
+        for (var indice = 0; indice < cabecalhos.length; indice += 1) {
+            var cabecalho = cabecalhos[indice];
+            var imagem = cabecalho.querySelector('img');
+            var descricao = [
+                cabecalho.textContent,
+                cabecalho.getAttribute('class'),
+                cabecalho.getAttribute('title'),
+                imagem && imagem.getAttribute('src'),
+                imagem && imagem.getAttribute('title'),
+                imagem && imagem.getAttribute('alt')
+            ].filter(Boolean).join(' ').toLowerCase();
+            if (/wall|muralha/.test(descricao)) {
+                return cabecalho.cellIndex >= 0
+                    ? cabecalho.cellIndex
+                    : indice;
+            }
+        }
+        return -1;
     }
 
     function obterIdAlvoLinha(linha) {
@@ -3333,7 +3417,23 @@
     }
 
     function compararAlvosPorDistancia(primeiro, segundo) {
-        return obterDistanciaAlvo(primeiro) - obterDistanciaAlvo(segundo);
+        var diferenca = obterDistanciaAlvo(primeiro) -
+            obterDistanciaAlvo(segundo);
+        if (diferenca) {
+            return diferenca;
+        }
+
+        var primeiroId = obterIdAlvoLinha(
+            primeiro.matches && primeiro.matches('tr')
+                ? primeiro
+                : primeiro.closest('tr')
+        ) || Number.MAX_SAFE_INTEGER;
+        var segundoId = obterIdAlvoLinha(
+            segundo.matches && segundo.matches('tr')
+                ? segundo
+                : segundo.closest('tr')
+        ) || Number.MAX_SAFE_INTEGER;
+        return primeiroId - segundoId;
     }
 
     function ordenarTarefasFarm(tarefas) {
@@ -3449,20 +3549,6 @@
                 return;
             }
 
-            if (permiteC) {
-                if (
-                    tarefasModeloC.length + tarefasModeloA.length <
-                        CONFIG.maxAtaquesPorAldeia
-                ) {
-                    tarefasModeloC.push({
-                        botao: obterBotaoNoAlvo(alvo, 'c'),
-                        tipo: 'principal',
-                        modelo: 'c'
-                    });
-                }
-                return;
-            }
-
             if (
                 (
                     CONFIG.demolirMuralhas &&
@@ -3470,6 +3556,24 @@
                 ) ||
                 !dentroDoLimiteMuralha(referencia)
             ) {
+                return;
+            }
+
+            if (permiteC) {
+                if (
+                    tarefasModeloC.length + tarefasModeloA.length <
+                        CONFIG.maxAtaquesPorAldeia
+                ) {
+                    tarefasModeloC.push({
+                        botao: obterBotaoNoAlvo(alvo, 'c'),
+                        alvoId: obterIdAlvoLinha(alvo),
+                        tipo: 'principal',
+                        modelo: 'c',
+                        modeloId: obterIdModeloDoElemento(
+                            obterBotaoNoAlvo(alvo, 'c')
+                        )
+                    });
+                }
                 return;
             }
 
@@ -3482,8 +3586,11 @@
                 if (botaoA && !botaoEstaDesativado(botaoA)) {
                     tarefasModeloA.push({
                         botao: botaoA,
+                        alvoId: obterIdAlvoLinha(alvo),
                         tipo: 'principal',
-                        modelo: 'a'
+                        modelo: 'a',
+                        modeloId: obterIdModeloDoElemento(botaoA) ||
+                            obterIdModelo('a')
                     });
                 }
                 return;
@@ -3498,8 +3605,11 @@
                 if (botaoB && !botaoEstaDesativado(botaoB)) {
                     tarefasModeloB.push({
                         botao: botaoB,
+                        alvoId: obterIdAlvoLinha(alvo),
                         tipo: 'batedor',
-                        modelo: 'b'
+                        modelo: 'b',
+                        modeloId: obterIdModeloDoElemento(botaoB) ||
+                            obterIdModelo('b')
                     });
                 }
             }
@@ -3545,6 +3655,76 @@
         return alvo.querySelector
             ? alvo.querySelector('a.' + classeModelo)
             : null;
+    }
+
+    function obterBotaoAtualTarefa(tarefa) {
+        if (
+            tarefa.botao &&
+            tarefa.botao.isConnected &&
+            !botaoEstaDesativado(tarefa.botao)
+        ) {
+            return tarefa.botao;
+        }
+
+        var alvoId = numeroPositivo(tarefa.alvoId);
+        if (!alvoId) {
+            return tarefa.botao && tarefa.botao.isConnected
+                ? tarefa.botao
+                : null;
+        }
+
+        var linhas = document.querySelectorAll(
+            '#plunder_list tr[id^="village_"], ' +
+            '#am_widget_Farm tr[id^="village_"]'
+        );
+        for (var indice = 0; indice < linhas.length; indice += 1) {
+            if (obterIdAlvoLinha(linhas[indice]) === alvoId) {
+                return obterBotaoNoAlvo(linhas[indice], tarefa.modelo);
+            }
+        }
+        return null;
+    }
+
+    function enviarTarefaFarm(tarefa) {
+        var botaoAtual = obterBotaoAtualTarefa(tarefa);
+        var alvoId = numeroPositivo(tarefa.alvoId) ||
+            (botaoAtual && obterIdAlvoLinha(botaoAtual.closest('tr')));
+        var modeloId = numeroPositivo(tarefa.modeloId) ||
+            obterIdModeloDoElemento(botaoAtual) ||
+            (tarefa.modelo === 'a' || tarefa.modelo === 'b'
+                ? obterIdModelo(tarefa.modelo)
+                : null);
+        var origemId = obterIdAldeiaOrigem();
+        var podeEnviarDireto = Boolean(
+            alvoId &&
+            modeloId &&
+            origemId &&
+            window.TribalWars &&
+            typeof window.TribalWars.post === 'function' &&
+            window.Accountmanager &&
+            window.Accountmanager.send_units_link
+        );
+
+        if (podeEnviarDireto) {
+            return enviarModeloParaAlvo(alvoId, modeloId, origemId).then(
+                function (resposta) {
+                    if (botaoAtual && botaoAtual.isConnected) {
+                        marcarEnvioNesteCiclo(botaoAtual);
+                    }
+                    return resposta;
+                }
+            );
+        }
+
+        if (!botaoAtual || !botaoAtual.isConnected) {
+            return Promise.reject(
+                new Error('O botão do alvo deixou de estar disponível')
+            );
+        }
+
+        botaoAtual.click();
+        marcarEnvioNesteCiclo(botaoAtual);
+        return Promise.resolve();
     }
 
     function botaoEstaDesativado(item) {
