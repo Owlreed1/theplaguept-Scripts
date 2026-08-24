@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.2.3
+// @version      1.2.4
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.2.3';
+    var SCRIPT_VERSION = '1.2.4';
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -69,7 +69,17 @@
         batedorModeloBAtivo: false,
         maxBatedoresPorAldeia: 50,
         mapearNovasBarbaras: false,
+        atacarSemEspionagem: true,
         modeloNovasSemInfo: 'b',
+        coresRelatorio: {
+            azul: true,
+            verde: true,
+            amarelo: true,
+            vermelho: false,
+            vermelhoAzul: false,
+            vermelhoAmarelo: false,
+            semCor: true
+        },
         raioNovasBarbaras: 50,
         maxNovasBarbaras: 50,
         demolirMuralhas: true,
@@ -189,6 +199,22 @@
         resultado.modelo = resultado.modelo === 'b' ? 'b' : 'a';
         resultado.modeloNovasSemInfo =
             resultado.modeloNovasSemInfo === 'a' ? 'a' : 'b';
+        resultado.atacarSemEspionagem = Boolean(
+            resultado.atacarSemEspionagem
+        );
+        resultado.coresRelatorio = Object.assign(
+            {},
+            CONFIG_PADRAO.coresRelatorio,
+            valor && valor.coresRelatorio &&
+                typeof valor.coresRelatorio === 'object'
+                ? valor.coresRelatorio
+                : {}
+        );
+        Object.keys(resultado.coresRelatorio).forEach(function (cor) {
+            resultado.coresRelatorio[cor] = Boolean(
+                resultado.coresRelatorio[cor]
+            );
+        });
         resultado.modeloCComInfoAtivo = Boolean(
             resultado.modeloCComInfoAtivo
         );
@@ -312,7 +338,7 @@
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
                 '<span>As alterações ficam guardadas neste mundo.</span></div>',
-                '<span class="af-version">v1.2.3</span>',
+                '<span class="af-version">v1.2.4</span>',
             '</div>',
             '<div class="af-settings-grid">',
                 '<fieldset class="af-card">',
@@ -334,7 +360,18 @@
                 '</fieldset>',
                 '<fieldset class="af-card">',
                     '<legend>Novas bárbaras e sem informação</legend>',
+                    '<label class="af-check af-sem-info-toggle"><input id="af-atacar-sem-espionagem" type="checkbox"> Atacar bárbaras mesmo sem informação de espionagem</label>',
                     '<label>Modelo a enviar<select id="af-modelo-novas"><option value="a">Modelo A</option><option value="b">Modelo B</option></select></label>',
+                    '<span class="af-subtitle">Cores das bolinhas permitidas</span>',
+                    '<div class="af-report-grid">',
+                        '<label><input id="af-cor-azul" type="checkbox"><i class="af-dot af-dot-blue"></i> Azul</label>',
+                        '<label><input id="af-cor-verde" type="checkbox"><i class="af-dot af-dot-green"></i> Verde</label>',
+                        '<label><input id="af-cor-amarelo" type="checkbox"><i class="af-dot af-dot-yellow"></i> Amarelo</label>',
+                        '<label><input id="af-cor-vermelho" type="checkbox"><i class="af-dot af-dot-red"></i> Vermelho</label>',
+                        '<label><input id="af-cor-vermelho-azul" type="checkbox"><i class="af-dot af-dot-red-blue"></i> Verm./azul</label>',
+                        '<label><input id="af-cor-vermelho-amarelo" type="checkbox"><i class="af-dot af-dot-red-yellow"></i> Verm./amar.</label>',
+                        '<label><input id="af-cor-sem" type="checkbox"><i class="af-dot af-dot-none">?</i> Sem bolinha</label>',
+                    '</div>',
                     '<label class="af-check"><input id="af-batedor-b-ativo" type="checkbox"> Enviar Modelo B às aldeias já existentes na lista</label>',
                     '<label>Máximo de batedores por aldeia<input id="af-max-batedores" type="number" min="1" max="500" step="1"></label>',
                     '<label class="af-check"><input id="af-mapear-novas" type="checkbox"> Procurar e reconhecer novas bárbaras no mapa</label>',
@@ -342,7 +379,7 @@
                         '<label>Raio máximo (campos)<input id="af-raio-novas" type="number" min="1" max="200" step="1"></label>',
                         '<label>Máximo de novas bárbaras<input id="af-max-novas" type="number" min="1" max="500" step="1"></label>',
                     '</div>',
-                    '<small>O modelo escolhido é usado nas bárbaras novas do mapa e nas aldeias da lista sem informação. Configura A e B no jogo; para reconhecimento, recomenda-se B com exatamente 1 batedor.</small>',
+                    '<small>Azul e verm./azul indicam informação de espionagem. Para verde, amarelo, vermelho, verm./amar. ou sem bolinha, ativa o ataque sem espionagem e escolhe A ou B. Aldeias de jogadores continuam sempre excluídas.</small>',
                 '</fieldset>',
                 '<fieldset class="af-card">',
                     '<legend>Demolir muralhas</legend>',
@@ -409,6 +446,19 @@
             '#auto-farm-a-settings .af-check{display:flex;align-items:flex-start;gap:6px;font-weight:normal;line-height:17px}',
             '#auto-farm-a-settings .af-check input{margin:2px 0 0}',
             '#auto-farm-a-settings .af-modelo-c-toggle{margin-bottom:6px;padding:6px;border:1px solid #c39a51;border-radius:3px;background:#f6e4af;font-weight:bold}',
+            '#auto-farm-a-settings .af-sem-info-toggle{margin-bottom:8px;padding:6px;border:1px solid #c39a51;border-radius:3px;background:#f6e4af;font-weight:bold}',
+            '#auto-farm-a-settings .af-subtitle{display:block;margin:2px 0 5px;font-size:10px;font-weight:bold;text-transform:uppercase;color:#725b35}',
+            '#auto-farm-a-settings .af-report-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin-bottom:11px}',
+            '#auto-farm-a-settings .af-report-grid label{display:flex;align-items:center;gap:5px;margin:0;padding:4px 5px;border:1px solid #d2b77e;border-radius:3px;background:#fffae9;font-weight:normal}',
+            '#auto-farm-a-settings .af-report-grid input{margin:0}',
+            '#auto-farm-a-settings .af-dot{display:inline-flex;width:10px;height:10px;flex:0 0 10px;align-items:center;justify-content:center;border:1px solid #80683f;border-radius:50%;font:700 8px Arial,sans-serif;color:#4b371c}',
+            '#auto-farm-a-settings .af-dot-blue{background:#2688d8}',
+            '#auto-farm-a-settings .af-dot-green{background:#50b83c}',
+            '#auto-farm-a-settings .af-dot-yellow{background:#f2c318}',
+            '#auto-farm-a-settings .af-dot-red{background:#d84232}',
+            '#auto-farm-a-settings .af-dot-red-blue{background:linear-gradient(90deg,#d84232 50%,#2688d8 50%)}',
+            '#auto-farm-a-settings .af-dot-red-yellow{background:linear-gradient(90deg,#d84232 50%,#f2c318 50%)}',
+            '#auto-farm-a-settings .af-dot-none{background:#eee3c8}',
             '#auto-farm-a-settings .af-inline{display:grid;grid-template-columns:1fr 105px;gap:10px;align-items:end}',
             '#auto-farm-a-settings .af-two-columns{display:grid;grid-template-columns:1fr 1fr;gap:10px}',
             '#auto-farm-a-settings .af-compact{margin-top:-4px}',
@@ -437,7 +487,24 @@
         definirCheckbox('af-batedor-b-ativo', CONFIG.batedorModeloBAtivo);
         definirValor('af-max-batedores', CONFIG.maxBatedoresPorAldeia);
         definirCheckbox('af-mapear-novas', CONFIG.mapearNovasBarbaras);
+        definirCheckbox(
+            'af-atacar-sem-espionagem',
+            CONFIG.atacarSemEspionagem
+        );
         definirValor('af-modelo-novas', CONFIG.modeloNovasSemInfo);
+        definirCheckbox('af-cor-azul', CONFIG.coresRelatorio.azul);
+        definirCheckbox('af-cor-verde', CONFIG.coresRelatorio.verde);
+        definirCheckbox('af-cor-amarelo', CONFIG.coresRelatorio.amarelo);
+        definirCheckbox('af-cor-vermelho', CONFIG.coresRelatorio.vermelho);
+        definirCheckbox(
+            'af-cor-vermelho-azul',
+            CONFIG.coresRelatorio.vermelhoAzul
+        );
+        definirCheckbox(
+            'af-cor-vermelho-amarelo',
+            CONFIG.coresRelatorio.vermelhoAmarelo
+        );
+        definirCheckbox('af-cor-sem', CONFIG.coresRelatorio.semCor);
         definirValor('af-raio-novas', CONFIG.raioNovasBarbaras);
         definirValor('af-max-novas', CONFIG.maxNovasBarbaras);
         definirCheckbox('af-demolir-muralhas', CONFIG.demolirMuralhas);
@@ -509,7 +576,21 @@
                 batedorModeloBAtivo: lerCheckbox('af-batedor-b-ativo'),
                 maxBatedoresPorAldeia: lerValor('af-max-batedores'),
                 mapearNovasBarbaras: lerCheckbox('af-mapear-novas'),
+                atacarSemEspionagem: lerCheckbox(
+                    'af-atacar-sem-espionagem'
+                ),
                 modeloNovasSemInfo: lerValor('af-modelo-novas'),
+                coresRelatorio: {
+                    azul: lerCheckbox('af-cor-azul'),
+                    verde: lerCheckbox('af-cor-verde'),
+                    amarelo: lerCheckbox('af-cor-amarelo'),
+                    vermelho: lerCheckbox('af-cor-vermelho'),
+                    vermelhoAzul: lerCheckbox('af-cor-vermelho-azul'),
+                    vermelhoAmarelo: lerCheckbox(
+                        'af-cor-vermelho-amarelo'
+                    ),
+                    semCor: lerCheckbox('af-cor-sem')
+                },
                 raioNovasBarbaras: lerValor('af-raio-novas'),
                 maxNovasBarbaras: lerValor('af-max-novas'),
                 demolirMuralhas: lerCheckbox('af-demolir-muralhas'),
@@ -2648,7 +2729,19 @@
     }
 
     function deveUsarModeloC(item) {
-        return CONFIG.modeloCComInfoAtivo && temInformacaoModeloC(item);
+        var linha = item && item.matches && item.matches('tr')
+            ? item
+            : item && item.closest
+                ? item.closest('tr')
+                : null;
+        var botaoC = linha && obterBotaoNoAlvo(linha, 'c');
+
+        return Boolean(
+            CONFIG.modeloCComInfoAtivo &&
+            temInformacaoModeloC(linha) &&
+            botaoC &&
+            !botaoEstaDesativado(botaoC)
+        );
     }
 
     function temInformacaoModeloC(item) {
@@ -2657,9 +2750,88 @@
             : item && item.closest
                 ? item.closest('tr')
                 : null;
+        var cor = obterCorRelatorio(linha);
         var botaoC = linha && obterBotaoNoAlvo(linha, 'c');
 
+        if (cor !== 'semCor') {
+            return cor === 'azul' || cor === 'vermelhoAzul';
+        }
+
         return Boolean(botaoC && !botaoEstaDesativado(botaoC));
+    }
+
+    function obterCorRelatorio(item) {
+        var linha = item && item.matches && item.matches('tr')
+            ? item
+            : item && item.closest
+                ? item.closest('tr')
+                : null;
+        if (!linha) {
+            return 'semCor';
+        }
+
+        var candidatos = Array.from(linha.querySelectorAll([
+            '.report_dot',
+            '[class*="report_dot"]',
+            '[data-report-color]',
+            'img[src*="/dots/"]',
+            'img[src*="dots/"]',
+            'img[src*="dot_"]',
+            'img[src*="dot-"]'
+        ].join(',')));
+
+        for (var indice = 0; indice < candidatos.length; indice += 1) {
+            var elemento = candidatos[indice];
+            var descricao = [
+                elemento.getAttribute('src'),
+                elemento.getAttribute('class'),
+                elemento.getAttribute('title'),
+                elemento.getAttribute('alt'),
+                elemento.getAttribute('data-report-color'),
+                elemento.getAttribute('data-color')
+            ].filter(Boolean).join(' ').toLowerCase();
+            var cor = normalizarCorRelatorio(descricao);
+            if (cor) {
+                return cor;
+            }
+        }
+
+        return 'semCor';
+    }
+
+    function normalizarCorRelatorio(descricao) {
+        var texto = String(descricao || '').toLowerCase();
+        var vermelho = /red|vermelh/.test(texto);
+        var azul = /blue|azul/.test(texto);
+        var amarelo = /yellow|amarel/.test(texto);
+        var verde = /green|verde/.test(texto);
+
+        if (vermelho && azul) {
+            return 'vermelhoAzul';
+        }
+        if (vermelho && amarelo) {
+            return 'vermelhoAmarelo';
+        }
+        if (azul) {
+            return 'azul';
+        }
+        if (verde) {
+            return 'verde';
+        }
+        if (amarelo) {
+            return 'amarelo';
+        }
+        if (vermelho) {
+            return 'vermelho';
+        }
+        return null;
+    }
+
+    function corRelatorioPermitida(item) {
+        var cor = obterCorRelatorio(item);
+        return Boolean(
+            CONFIG.coresRelatorio && CONFIG.coresRelatorio[cor]
+        );
     }
 
     function calcularTropasDemolicao(nivelMuralha) {
@@ -2976,6 +3148,7 @@
 
         if (
             CONFIG.modeloAtivo &&
+            CONFIG.atacarSemEspionagem &&
             modelosNecessarios.indexOf(CONFIG.modeloNovasSemInfo) === -1
         ) {
             modelosNecessarios.push(CONFIG.modeloNovasSemInfo);
@@ -3021,6 +3194,7 @@
                 batedorListaAtivo ||
                 (
                     CONFIG.modeloAtivo &&
+                    CONFIG.atacarSemEspionagem &&
                     CONFIG.modeloNovasSemInfo === 'b'
                 )
             ) &&
@@ -3042,6 +3216,10 @@
                 return;
             }
             alvosBarbaros += 1;
+
+            if (!corRelatorioPermitida(alvo)) {
+                return;
+            }
 
             if (
                 linhaJaEnviadaNesteCiclo(referencia) ||
@@ -3075,35 +3253,52 @@
                 return;
             }
 
-            if (
-                CONFIG.modeloAtivo &&
-                !temInformacaoModeloC(alvo)
-            ) {
-                var modeloSemInfo = CONFIG.modeloNovasSemInfo;
-                var tipoSemInfo = modeloSemInfo === 'b'
-                    ? 'batedor'
-                    : 'principal';
-                var totalTipoSemInfo = contarTipo(
-                    tarefasSemInfo,
-                    tipoSemInfo
-                ) + (tipoSemInfo === 'batedor'
-                    ? tarefasBatedor.length
-                    : tarefasModeloC.length + tarefasPrincipais.length);
-                var limiteSemInfo = tipoSemInfo === 'batedor'
-                    ? CONFIG.maxBatedoresPorAldeia
-                    : CONFIG.maxAtaquesPorAldeia;
-                var botaoSemInfo = obterBotaoNoAlvo(alvo, modeloSemInfo);
+            if (!temInformacaoModeloC(alvo)) {
+                if (CONFIG.modeloAtivo && CONFIG.atacarSemEspionagem) {
+                    var modeloSemInfo = CONFIG.modeloNovasSemInfo;
+                    var tipoSemInfo = modeloSemInfo === 'b'
+                        ? 'batedor'
+                        : 'principal';
+                    var totalTipoSemInfo = contarTipo(
+                        tarefasSemInfo,
+                        tipoSemInfo
+                    ) + (tipoSemInfo === 'batedor'
+                        ? tarefasBatedor.length
+                        : tarefasModeloC.length + tarefasPrincipais.length);
+                    var limiteSemInfo = tipoSemInfo === 'batedor'
+                        ? CONFIG.maxBatedoresPorAldeia
+                        : CONFIG.maxAtaquesPorAldeia;
+                    var botaoSemInfo = obterBotaoNoAlvo(
+                        alvo,
+                        modeloSemInfo
+                    );
 
-                if (
-                    !(tipoSemInfo === 'batedor' && semBatedores) &&
-                    totalTipoSemInfo < limiteSemInfo &&
-                    botaoSemInfo &&
-                    !botaoEstaDesativado(botaoSemInfo)
+                    if (
+                        !(tipoSemInfo === 'batedor' && semBatedores) &&
+                        totalTipoSemInfo < limiteSemInfo &&
+                        botaoSemInfo &&
+                        !botaoEstaDesativado(botaoSemInfo)
+                    ) {
+                        tarefasSemInfo.push({
+                            botao: botaoSemInfo,
+                            tipo: tipoSemInfo
+                        });
+                    }
+                } else if (
+                    batedorListaAtivo &&
+                    !semBatedores &&
+                    tarefasBatedor.length < CONFIG.maxBatedoresPorAldeia
                 ) {
-                    tarefasSemInfo.push({
-                        botao: botaoSemInfo,
-                        tipo: tipoSemInfo
-                    });
+                    var botaoReconhecimento = obterBotaoNoAlvo(alvo, 'b');
+                    if (
+                        botaoReconhecimento &&
+                        !botaoEstaDesativado(botaoReconhecimento)
+                    ) {
+                        tarefasBatedor.push({
+                            botao: botaoReconhecimento,
+                            tipo: 'batedor'
+                        });
+                    }
                 }
                 return;
             }
