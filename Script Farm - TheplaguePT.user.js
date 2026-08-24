@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.2.6
+// @version      1.2.8
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.2.6';
+    var SCRIPT_VERSION = '1.2.8';
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -86,6 +86,8 @@
             vermelhoAmarelo: false,
             semCor: true
         },
+        criterioPrioridade: 'distancia',
+        prioridadeModelos: 'a-b-c',
         modeloCComInfoAtivo: true,
         maxAtaquesPorAldeia: 50,
         batedorModeloBAtivo: false,
@@ -244,6 +246,18 @@
                 resultado.coresModeloB[cor] = false;
             }
         });
+        resultado.criterioPrioridade =
+            resultado.criterioPrioridade === 'modelo'
+                ? 'modelo'
+                : 'distancia';
+        var prioridadesValidas = [
+            'a-b-c', 'a-c-b', 'b-a-c',
+            'b-c-a', 'c-a-b', 'c-b-a'
+        ];
+        resultado.prioridadeModelos =
+            prioridadesValidas.indexOf(resultado.prioridadeModelos) !== -1
+                ? resultado.prioridadeModelos
+                : CONFIG_PADRAO.prioridadeModelos;
         resultado.modeloNovasSemInfo =
             resultado.modeloNovasSemInfo === 'a' ? 'a' : 'b';
         resultado.atacarSemEspionagem = Boolean(
@@ -385,7 +399,7 @@
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
                 '<span>As alterações ficam guardadas neste mundo.</span></div>',
-                '<span class="af-version">v1.2.6</span>',
+                '<span class="af-version">v1.2.8</span>',
             '</div>',
             '<div class="af-settings-grid">',
                 '<fieldset class="af-card">',
@@ -393,6 +407,9 @@
                     '<label class="af-check"><input id="af-modelo-ativo" type="checkbox"> Ativar envios automáticos A/B</label>',
                     '<label class="af-check af-modelo-c-toggle"><input id="af-modelo-c-info" type="checkbox"> Ativar Modelo C automático</label>',
                     '<small>Desmarca esta opção para nunca enviar o Modelo C. Quando ativa, uma aldeia com relatório disponível recebe apenas C.</small>',
+                    '<label>Critério principal<select id="af-criterio-prioridade"><option value="distancia">Distância primeiro</option><option value="modelo">Modelos primeiro</option></select></label>',
+                    '<label>Ordem dos modelos<select id="af-prioridade-modelos"><option value="a-b-c">A → B → C</option><option value="a-c-b">A → C → B</option><option value="b-a-c">B → A → C</option><option value="b-c-a">B → C → A</option><option value="c-a-b">C → A → B</option><option value="c-b-a">C → B → A</option></select></label>',
+                    '<small>Com distância primeiro, a ordem resolve empates. Com modelos primeiro, percorre a ordem escolhida e mantém os alvos mais próximos primeiro dentro de cada modelo.</small>',
                     '<div class="af-inline">',
                         '<label class="af-check"><input id="af-limite-muralha" type="checkbox"> Limitar muralha</label>',
                         '<label class="af-compact">Nível máximo<input id="af-muralha-max" type="number" min="0" max="20" step="1"></label>',
@@ -566,6 +583,8 @@
             'af-modelo-c-info',
             CONFIG.modeloCComInfoAtivo
         );
+        definirValor('af-criterio-prioridade', CONFIG.criterioPrioridade);
+        definirValor('af-prioridade-modelos', CONFIG.prioridadeModelos);
         definirCheckbox('af-limite-muralha', CONFIG.limiteMuralhaAtivo);
         definirValor('af-muralha-max', CONFIG.muralhaMaxima);
         definirCheckbox('af-limite-distancia', CONFIG.limiteDistanciaAtivo);
@@ -655,49 +674,23 @@
         );
         carregarGruposNoPainel();
 
-        document.getElementById('af-settings-save').addEventListener('click', function () {
-            CONFIG = normalizarConfiguracao(Object.assign({}, CONFIG, {
-                modeloAtivo: lerCheckbox('af-modelo-ativo'),
-                modeloAAtivo: lerCheckbox('af-modelo-a-ativo'),
-                modeloASemEspionagem: lerCheckbox(
-                    'af-modelo-a-sem-info'
-                ),
-                coresModeloA: lerCoresModeloPainel('a'),
-                modeloBAtivo: lerCheckbox('af-modelo-b-ativo'),
-                modeloBSemEspionagem: lerCheckbox(
-                    'af-modelo-b-sem-info'
-                ),
-                coresModeloB: lerCoresModeloPainel('b'),
-                modeloCComInfoAtivo: lerCheckbox('af-modelo-c-info'),
-                limiteMuralhaAtivo: lerCheckbox('af-limite-muralha'),
-                muralhaMaxima: lerValor('af-muralha-max'),
-                limiteDistanciaAtivo: lerCheckbox('af-limite-distancia'),
-                distanciaMaxima: lerValor('af-distancia-max'),
-                ignorarAtacados: lerCheckbox('af-ignorar-atacados'),
-                maxAtaquesPorAldeia: lerValor('af-max-ataques'),
-                maxBatedoresPorAldeia: lerValor('af-max-batedores'),
-                mapearNovasBarbaras: lerCheckbox('af-mapear-novas'),
-                modeloNovasSemInfo: lerValor('af-modelo-novas'),
-                raioNovasBarbaras: lerValor('af-raio-novas'),
-                maxNovasBarbaras: lerValor('af-max-novas'),
-                demolirMuralhas: lerCheckbox('af-demolir-muralhas'),
-                maxDemolicoesPorAldeia: lerValor('af-max-demolicoes'),
-                grupoFarmId: lerValor('af-grupo-farm'),
-                modoSpeed: lerCheckbox('af-modo-speed'),
-                pausaEntreRondas: Number(lerValor('af-pausa-rondas')) * 1000,
-                intervaloAtaque: lerValor('af-intervalo-base'),
-                limiteSemProgresso: Number(lerValor('af-sem-progresso')) * 1000,
-                esperaProximaAldeia: lerValor('af-pausa-aldeia'),
-                voltarAoAssistente: lerCheckbox('af-voltar-assistente'),
-                mudarSemTropas: lerCheckbox('af-mudar-sem-tropas'),
-                mudarSemAlvos: lerCheckbox('af-mudar-sem-alvos'),
-                esgotarEnviosAntesMudar: lerCheckbox('af-esgotar-envios'),
-                atualizarEmErros: lerCheckbox('af-atualizar-erros')
-            }));
-            guardarConfiguracao();
-            preencherPainelDefinicoes();
-            mostrarMensagemDefinicoes('Definições guardadas e aplicadas.');
-            reiniciarSeLigado();
+        document.getElementById('af-settings-save').addEventListener(
+            'click',
+            function () {
+                guardarEAplicarDefinicoes(
+                    'Definições guardadas e aplicadas.'
+                );
+            }
+        );
+
+        document.querySelectorAll(
+            '#auto-farm-a-settings input[type="checkbox"]'
+        ).forEach(function (campo) {
+            campo.addEventListener('change', function () {
+                guardarEAplicarDefinicoes(
+                    'Opção guardada e aplicada automaticamente.'
+                );
+            });
         });
 
         document.getElementById('af-settings-reset').addEventListener('click', function () {
@@ -707,6 +700,49 @@
             mostrarMensagemDefinicoes('Predefinições repostas.');
             reiniciarSeLigado();
         });
+    }
+
+    function guardarEAplicarDefinicoes(mensagem) {
+        CONFIG = normalizarConfiguracao(Object.assign({}, CONFIG, {
+            modeloAtivo: lerCheckbox('af-modelo-ativo'),
+            modeloAAtivo: lerCheckbox('af-modelo-a-ativo'),
+            modeloASemEspionagem: lerCheckbox('af-modelo-a-sem-info'),
+            coresModeloA: lerCoresModeloPainel('a'),
+            modeloBAtivo: lerCheckbox('af-modelo-b-ativo'),
+            modeloBSemEspionagem: lerCheckbox('af-modelo-b-sem-info'),
+            coresModeloB: lerCoresModeloPainel('b'),
+            modeloCComInfoAtivo: lerCheckbox('af-modelo-c-info'),
+            criterioPrioridade: lerValor('af-criterio-prioridade'),
+            prioridadeModelos: lerValor('af-prioridade-modelos'),
+            limiteMuralhaAtivo: lerCheckbox('af-limite-muralha'),
+            muralhaMaxima: lerValor('af-muralha-max'),
+            limiteDistanciaAtivo: lerCheckbox('af-limite-distancia'),
+            distanciaMaxima: lerValor('af-distancia-max'),
+            ignorarAtacados: lerCheckbox('af-ignorar-atacados'),
+            maxAtaquesPorAldeia: lerValor('af-max-ataques'),
+            maxBatedoresPorAldeia: lerValor('af-max-batedores'),
+            mapearNovasBarbaras: lerCheckbox('af-mapear-novas'),
+            modeloNovasSemInfo: lerValor('af-modelo-novas'),
+            raioNovasBarbaras: lerValor('af-raio-novas'),
+            maxNovasBarbaras: lerValor('af-max-novas'),
+            demolirMuralhas: lerCheckbox('af-demolir-muralhas'),
+            maxDemolicoesPorAldeia: lerValor('af-max-demolicoes'),
+            grupoFarmId: lerValor('af-grupo-farm'),
+            modoSpeed: lerCheckbox('af-modo-speed'),
+            pausaEntreRondas: Number(lerValor('af-pausa-rondas')) * 1000,
+            intervaloAtaque: lerValor('af-intervalo-base'),
+            limiteSemProgresso: Number(lerValor('af-sem-progresso')) * 1000,
+            esperaProximaAldeia: lerValor('af-pausa-aldeia'),
+            voltarAoAssistente: lerCheckbox('af-voltar-assistente'),
+            mudarSemTropas: lerCheckbox('af-mudar-sem-tropas'),
+            mudarSemAlvos: lerCheckbox('af-mudar-sem-alvos'),
+            esgotarEnviosAntesMudar: lerCheckbox('af-esgotar-envios'),
+            atualizarEmErros: lerCheckbox('af-atualizar-erros')
+        }));
+        guardarConfiguracao();
+        preencherPainelDefinicoes();
+        mostrarMensagemDefinicoes(mensagem);
+        reiniciarSeLigado();
     }
 
     function reiniciarSeLigado() {
@@ -3300,15 +3336,39 @@
         return obterDistanciaAlvo(primeiro) - obterDistanciaAlvo(segundo);
     }
 
-    function ordenarTarefasPorDistancia(tarefas) {
+    function ordenarTarefasFarm(tarefas) {
+        var ordemModelos = String(CONFIG.prioridadeModelos || 'a-b-c')
+            .split('-');
+        var posicaoModelo = {};
+        ordemModelos.forEach(function (modelo, indice) {
+            posicaoModelo[modelo] = indice;
+        });
+
         return tarefas.map(function (tarefa, ordem) {
             return {
                 tarefa: tarefa,
                 ordem: ordem,
-                distancia: obterDistanciaAlvo(tarefa.botao)
+                distancia: obterDistanciaAlvo(tarefa.botao),
+                prioridade: Object.prototype.hasOwnProperty.call(
+                    posicaoModelo,
+                    tarefa.modelo
+                )
+                    ? posicaoModelo[tarefa.modelo]
+                    : ordemModelos.length
             };
         }).sort(function (primeira, segunda) {
-            return primeira.distancia - segunda.distancia ||
+            var diferencaDistancia =
+                primeira.distancia === segunda.distancia
+                    ? 0
+                    : primeira.distancia - segunda.distancia;
+            var diferencaModelo =
+                primeira.prioridade - segunda.prioridade;
+
+            if (CONFIG.criterioPrioridade === 'modelo') {
+                return diferencaModelo || diferencaDistancia ||
+                    primeira.ordem - segunda.ordem;
+            }
+            return diferencaDistancia || diferencaModelo ||
                 primeira.ordem - segunda.ordem;
         }).map(function (item) {
             return item.tarefa;
@@ -3396,7 +3456,8 @@
                 ) {
                     tarefasModeloC.push({
                         botao: obterBotaoNoAlvo(alvo, 'c'),
-                        tipo: 'principal'
+                        tipo: 'principal',
+                        modelo: 'c'
                     });
                 }
                 return;
@@ -3421,7 +3482,8 @@
                 if (botaoA && !botaoEstaDesativado(botaoA)) {
                     tarefasModeloA.push({
                         botao: botaoA,
-                        tipo: 'principal'
+                        tipo: 'principal',
+                        modelo: 'a'
                     });
                 }
                 return;
@@ -3436,13 +3498,14 @@
                 if (botaoB && !botaoEstaDesativado(botaoB)) {
                     tarefasModeloB.push({
                         botao: botaoB,
-                        tipo: 'batedor'
+                        tipo: 'batedor',
+                        modelo: 'b'
                     });
                 }
             }
         });
 
-        var tarefasOrdenadas = ordenarTarefasPorDistancia(
+        var tarefasOrdenadas = ordenarTarefasFarm(
             tarefasModeloC.concat(
                 tarefasModeloA,
                 tarefasModeloB
