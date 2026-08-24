@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.62
+// @version      1.3.63
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.62 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.63 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -90,13 +90,12 @@
         ram: '🐏 Arietes',
         catapult: '🪨 Catapultas',
         knight: '⚜️ Paladino',
-        snob: '👑 Nobres',
-        militia: '🏘️ Milicia'
+        snob: '👑 Nobres'
     };
 
     const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'spy', 'heavy'];
     const TROOP_ATTACK_UNITS = ['axe', 'light', 'marcher', 'ram', 'catapult', 'snob'];
-    const TROOP_UNIT_ORDER = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob', 'militia'];
+    const TROOP_UNIT_ORDER = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'];
     const ATTACK_FULL_AXE = 5000;
     const ATTACK_FULL_LIGHT = 2000;
     const ATTACK_HALF_AXE = 2500;
@@ -2618,8 +2617,7 @@
             ram: ['unit ram', 'unit item ram', 'ram.png', '/ram'],
             catapult: ['unit catapult', 'unit item catapult', 'catapult.png', '/catapult'],
             knight: ['unit knight', 'unit item knight', 'knight.png', '/knight'],
-            snob: ['unit snob', 'unit item snob', 'snob.png', '/snob'],
-            militia: ['unit militia', 'unit item militia', 'militia.png', '/militia']
+            snob: ['unit snob', 'unit item snob', 'snob.png', '/snob']
         };
 
         return TROOP_UNIT_ORDER.find(key =>
@@ -2641,8 +2639,7 @@
             ['spy', ['explorador', 'exploradores', 'batedor', 'batedores', 'scout', 'scouts', 'spy']],
             ['ram', ['ariete', 'arietes', 'ram', 'rams']],
             ['knight', ['paladino', 'paladinos', 'paladin', 'knight']],
-            ['snob', ['nobre', 'nobres', 'noble', 'nobles']],
-            ['militia', ['milicia', 'militia']]
+            ['snob', ['nobre', 'nobres', 'noble', 'nobles']]
         ];
 
         for (const [key, aliases] of labelAliases) {
@@ -2720,6 +2717,60 @@
         return null;
     }
 
+    const troopTableGridCache = new WeakMap();
+
+    function getTroopTableGridInfo(table) {
+        if (!table) return null;
+        if (troopTableGridCache.has(table)) return troopTableGridCache.get(table);
+
+        const rows = getDirectTableRows(table);
+        const grid = [];
+        const rowIndexes = new WeakMap();
+
+        rows.forEach((row, rowIndex) => {
+            rowIndexes.set(row, rowIndex);
+            if (!grid[rowIndex]) grid[rowIndex] = [];
+
+            let columnIndex = 0;
+
+            Array.from(row.children).forEach(cell => {
+                while (grid[rowIndex][columnIndex]) {
+                    columnIndex += 1;
+                }
+
+                const colspan = Math.max(1, Number(cell.getAttribute('colspan') || 1));
+                const rowspan = Math.max(1, Number(cell.getAttribute('rowspan') || 1));
+
+                for (let rowOffset = 0; rowOffset < rowspan; rowOffset++) {
+                    const targetRow = rowIndex + rowOffset;
+                    if (!grid[targetRow]) grid[targetRow] = [];
+
+                    for (let columnOffset = 0; columnOffset < colspan; columnOffset++) {
+                        grid[targetRow][columnIndex + columnOffset] = cell;
+                    }
+                }
+
+                columnIndex += colspan;
+            });
+        });
+
+        const info = { rows, grid, rowIndexes };
+        troopTableGridCache.set(table, info);
+        return info;
+    }
+
+    function getVirtualCellAtColumn(row, columnIndex) {
+        const table = row ? row.closest('table') : null;
+        const info = getTroopTableGridInfo(table);
+        const rowIndex = info ? info.rowIndexes.get(row) : null;
+
+        if (rowIndex === null || rowIndex === undefined) return null;
+
+        return info.grid[rowIndex]
+            ? info.grid[rowIndex][columnIndex] || null
+            : null;
+    }
+
     function getTroopColumns(table) {
         let bestColumns = [];
         let bestScore = -Infinity;
@@ -2744,7 +2795,17 @@
             const orderedPairs = orderIndexes.slice(1).filter((index, pairIndex) =>
                 index >= orderIndexes[pairIndex]
             ).length;
-            const score = uniqueKeys.size * 10 + orderedPairs - duplicateCount * 25;
+            const rowText = cleanText(row.innerText || row.textContent || '');
+            const hasCoords = Boolean(parseCoords(rowText));
+            const hasValueCells = Array.from(row.children).some(isLikelyTroopValueCell);
+            const isHeaderLike = columns.length >= 3 && !hasCoords && !hasValueCells;
+            const score =
+                uniqueKeys.size * 10 +
+                orderedPairs -
+                duplicateCount * 25 +
+                (isHeaderLike ? 100 : 0) -
+                (hasCoords ? 100 : 0) -
+                (hasValueCells ? 35 : 0);
 
             if (score > bestScore) {
                 bestScore = score;
@@ -2844,31 +2905,19 @@
     }
 
     function getTroopColumnCell(row, column, columns) {
-        const cells = Array.from(row.children);
-        const unitCellIndexes = columns
-            .map(item => typeof item.cellIndex === 'number' ? item.cellIndex : null)
-            .filter(index => index !== null);
-        const unitStartIndex = unitCellIndexes.length ? Math.min(...unitCellIndexes) : 0;
-        const coordCellIndex = cells.findIndex(cell => parseCoords(cell.innerText || cell.textContent || ''));
-        const physicalOffset = coordCellIndex >= 0 && unitStartIndex <= coordCellIndex
-            ? coordCellIndex + 1 - unitStartIndex
-            : 0;
-
-        if (typeof column.cellIndex === 'number') {
-            const physicalCell = cells[column.cellIndex + physicalOffset];
-
-            if (physicalCell && !parseCoords(physicalCell.innerText || physicalCell.textContent || '')) {
-                return physicalCell;
-            }
-        }
-
-        const virtualCell = getCellAtColumn(row, column.index + physicalOffset);
+        const virtualCell = getVirtualCellAtColumn(row, column.index);
 
         if (virtualCell && !parseCoords(virtualCell.innerText || virtualCell.textContent || '')) {
             return virtualCell;
         }
 
-        return null;
+        const physicalCell = typeof column.cellIndex === 'number'
+            ? Array.from(row.children)[column.cellIndex]
+            : null;
+
+        return physicalCell && !parseCoords(physicalCell.innerText || physicalCell.textContent || '')
+            ? physicalCell
+            : null;
     }
 
     function parseTroopRowTotals(row, columns) {
@@ -2949,17 +2998,17 @@
     }
 
     function parsePlaceTroopRowTotals(row, columns) {
+        const normalTotals = parseTroopRowTotals(row, columns);
+        if (hasTroopValues(normalTotals)) {
+            return normalTotals;
+        }
+
         const unitCellResult = parseTroopRowTotalsByUnitCells(row);
         if (
             unitCellResult.detectedCount >= getDirectUnitCellMinCount(columns) &&
             hasTroopValues(unitCellResult.totals)
         ) {
             return unitCellResult.totals;
-        }
-
-        const normalTotals = parseTroopRowTotals(row, columns);
-        if (hasTroopValues(normalTotals)) {
-            return normalTotals;
         }
 
         const rightTotals = parseTroopRowTotalsFromRight(row, columns);
@@ -4056,7 +4105,7 @@
 
                 addTroopTotals(totals, village.totals);
                 addTroopTotals(attackTotals, village.attackTotals);
-                addTroopTotals(defenseTotals, getDefenseTroopTotals(village.defenseTotals));
+                addTroopTotals(defenseTotals, getDefenseTroopTotals(village.totals));
                 return village;
             });
 
@@ -4070,7 +4119,8 @@
             attackFullCounter: calculateAttackFullCounterByVillage(villages),
             villageCount: getPlayerVillageCount() || parsedVillageCount || rows.length,
             parsedVillageCount,
-            expectedVillageCount: getTroopScanExpectedVillageCount(null, parsedVillageCount)
+            expectedVillageCount: getTroopScanExpectedVillageCount(null, parsedVillageCount),
+            troopColumns: bestColumns.map(column => column.key)
         };
     }
 
@@ -4562,6 +4612,7 @@
                 : 'Visao geral de tropas + Praca de Reunioes',
             aldeiasVisaoGeral: summary.parsedVillageCount,
             aldeiasPraca: summary.placeVillageCount,
+            colunas: summary.troopColumns,
             unidades: getDefenseTroopTotals(summary.defenseTotals || {})
         });
 
