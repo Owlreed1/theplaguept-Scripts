@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.3.4
+// @version      1.3.5
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.3.4';
+    var SCRIPT_VERSION = '1.3.5';
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -1937,6 +1937,15 @@
             ultimoAlvoEnviado = tarefa.alvoId || obterIdAlvoLinha(
                 tarefa.botao.closest('tr')
             );
+            var coordenadasTarefa = obterCoordenadas(
+                tarefa.botao.closest('tr').textContent
+            );
+            atualizarBotao(
+                'A enviar Modelo ' + tarefa.modelo.toUpperCase() +
+                (coordenadasTarefa
+                    ? ' para ' + chaveCoordenada(coordenadasTarefa)
+                    : ' para ID ' + ultimoAlvoEnviado) + '…'
+            );
 
             enviarTarefaFarm(tarefa).then(function () {
                 if (!estaLigado() || aMudarAldeia || aRecuperar) {
@@ -3683,10 +3692,36 @@
         }
 
         try {
-            if (typeof window.jQuery === 'function') {
+            var alvoId = numeroPositivo(tarefa.alvoId) ||
+                obterIdAlvoLinha(botaoAtual.closest('tr'));
+            var modeloId = numeroPositivo(tarefa.modeloId) ||
+                obterIdModeloDoElemento(botaoAtual);
+            var envioNativo = window.Accountmanager &&
+                window.Accountmanager.farm &&
+                typeof window.Accountmanager.farm.sendUnits === 'function';
+
+            if (envioNativo && alvoId && modeloId) {
+                window.Accountmanager.farm.sendUnits(
+                    botaoAtual,
+                    alvoId,
+                    modeloId
+                );
+                console.info(
+                    '[Script Farm] Modelo ' + tarefa.modelo.toUpperCase() +
+                    ' enviado pela rotina nativa para o alvo ' + alvoId + '.'
+                );
+            } else if (typeof window.jQuery === 'function') {
                 window.jQuery(botaoAtual).trigger('click');
+                console.info(
+                    '[Script Farm] Modelo ' + tarefa.modelo.toUpperCase() +
+                    ' acionado por clique para o alvo ' + alvoId + '.'
+                );
             } else {
                 botaoAtual.click();
+                console.info(
+                    '[Script Farm] Modelo ' + tarefa.modelo.toUpperCase() +
+                    ' acionado pelo botão para o alvo ' + alvoId + '.'
+                );
             }
             marcarEnvioNesteCiclo(botaoAtual);
         } catch (erro) {
