@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.1.0
+// @version      1.2.0
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -53,6 +53,7 @@
         batedorModeloBAtivo: false,
         maxBatedoresPorAldeia: 50,
         mapearNovasBarbaras: false,
+        modeloNovasSemInfo: 'b',
         raioNovasBarbaras: 50,
         maxNovasBarbaras: 50,
         demolirMuralhas: true,
@@ -163,6 +164,8 @@
 
         resultado.modeloAtivo = Boolean(resultado.modeloAtivo);
         resultado.modelo = resultado.modelo === 'b' ? 'b' : 'a';
+        resultado.modeloNovasSemInfo =
+            resultado.modeloNovasSemInfo === 'a' ? 'a' : 'b';
         resultado.modeloCComInfoAtivo = Boolean(
             resultado.modeloCComInfoAtivo
         );
@@ -285,7 +288,7 @@
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
                 '<span>As alterações ficam guardadas neste mundo.</span></div>',
-                '<span class="af-version">v1.1.0</span>',
+                '<span class="af-version">v1.2.0</span>',
             '</div>',
             '<div class="af-settings-grid">',
                 '<fieldset class="af-card">',
@@ -306,7 +309,8 @@
                     '<label>Máximo de ataques por aldeia<input id="af-max-ataques" type="number" min="1" max="500" step="1"></label>',
                 '</fieldset>',
                 '<fieldset class="af-card">',
-                    '<legend>Reconhecimento — Modelo B</legend>',
+                    '<legend>Novas bárbaras e sem informação</legend>',
+                    '<label>Modelo a enviar<select id="af-modelo-novas"><option value="a">Modelo A</option><option value="b">Modelo B</option></select></label>',
                     '<label class="af-check"><input id="af-batedor-b-ativo" type="checkbox"> Enviar Modelo B às aldeias já existentes na lista</label>',
                     '<label>Máximo de batedores por aldeia<input id="af-max-batedores" type="number" min="1" max="500" step="1"></label>',
                     '<label class="af-check"><input id="af-mapear-novas" type="checkbox"> Procurar e reconhecer novas bárbaras no mapa</label>',
@@ -314,7 +318,7 @@
                         '<label>Raio máximo (campos)<input id="af-raio-novas" type="number" min="1" max="200" step="1"></label>',
                         '<label>Máximo de novas bárbaras<input id="af-max-novas" type="number" min="1" max="500" step="1"></label>',
                     '</div>',
-                    '<small>Configura o Modelo B do jogo com exatamente 1 batedor. Quando a pesquisa do mapa está ativa, as aldeias da lista não recebem B: os batedores ficam reservados para aldeias novas.</small>',
+                    '<small>O modelo escolhido é usado nas bárbaras novas do mapa e nas aldeias da lista sem informação. Configura A e B no jogo; para reconhecimento, recomenda-se B com exatamente 1 batedor.</small>',
                 '</fieldset>',
                 '<fieldset class="af-card">',
                     '<legend>Demolir muralhas</legend>',
@@ -408,6 +412,7 @@
         definirCheckbox('af-batedor-b-ativo', CONFIG.batedorModeloBAtivo);
         definirValor('af-max-batedores', CONFIG.maxBatedoresPorAldeia);
         definirCheckbox('af-mapear-novas', CONFIG.mapearNovasBarbaras);
+        definirValor('af-modelo-novas', CONFIG.modeloNovasSemInfo);
         definirValor('af-raio-novas', CONFIG.raioNovasBarbaras);
         definirValor('af-max-novas', CONFIG.maxNovasBarbaras);
         definirCheckbox('af-demolir-muralhas', CONFIG.demolirMuralhas);
@@ -450,6 +455,10 @@
             'change',
             atualizarEstadoCamposDefinicoes
         );
+        document.getElementById('af-modelo-novas').addEventListener(
+            'change',
+            atualizarEstadoCamposDefinicoes
+        );
         document.getElementById('af-demolir-muralhas').addEventListener(
             'change',
             atualizarEstadoCamposDefinicoes
@@ -470,6 +479,7 @@
                 batedorModeloBAtivo: lerCheckbox('af-batedor-b-ativo'),
                 maxBatedoresPorAldeia: lerValor('af-max-batedores'),
                 mapearNovasBarbaras: lerCheckbox('af-mapear-novas'),
+                modeloNovasSemInfo: lerValor('af-modelo-novas'),
                 raioNovasBarbaras: lerValor('af-raio-novas'),
                 maxNovasBarbaras: lerValor('af-max-novas'),
                 demolirMuralhas: lerCheckbox('af-demolir-muralhas'),
@@ -515,8 +525,8 @@
         document.getElementById('af-distancia-max').disabled =
             !lerCheckbox('af-limite-distancia');
         document.getElementById('af-max-batedores').disabled =
-            !lerCheckbox('af-batedor-b-ativo') ||
-            lerCheckbox('af-mapear-novas');
+            !lerCheckbox('af-batedor-b-ativo') &&
+            lerValor('af-modelo-novas') !== 'b';
         document.getElementById('af-raio-novas').disabled =
             !lerCheckbox('af-mapear-novas');
         document.getElementById('af-max-novas').disabled =
@@ -1288,7 +1298,8 @@
             cancelarTimer(watchdogTimer);
             watchdogTimer = null;
             atualizarBotao(
-                'Mapa B prioritário: a procurar aldeias novas até ' +
+                'Mapa ' + CONFIG.modeloNovasSemInfo.toUpperCase() +
+                ' prioritário: a procurar aldeias novas até ' +
                 CONFIG.raioNovasBarbaras + ' campos…'
             );
 
@@ -1302,7 +1313,10 @@
                     return;
                 }
 
-                atualizarBotao('Mapa B: ' + resultado.motivo + ' — a continuar…');
+                atualizarBotao(
+                    'Mapa ' + CONFIG.modeloNovasSemInfo.toUpperCase() +
+                    ': ' + resultado.motivo + ' — a continuar…'
+                );
                 agendar(iniciarFarm, 100);
             }).catch(function (erro) {
                 if (!estaLigado() || aMudarAldeia || aRecuperar) {
@@ -1310,7 +1324,7 @@
                 }
                 console.error('Script Farm: falha no mapa prioritário.', erro);
                 recuperar(
-                    'Mapa B: ' +
+                    'Mapa ' + CONFIG.modeloNovasSemInfo.toUpperCase() + ': ' +
                     resumirMensagem(obterMensagemErro(erro), 80)
                 );
             });
@@ -1491,7 +1505,8 @@
             var resumo =
                 'Farm: ' + enviosPrincipais +
                 ' | Lista B: ' + batedoresDaLista +
-                ' | Mapa B: ' + resultado.enviados;
+                ' | Mapa ' + CONFIG.modeloNovasSemInfo.toUpperCase() +
+                ': ' + resultado.enviados;
 
             if (resultado.motivo) {
                 resumo += ' (' + resultado.motivo + ')';
@@ -1505,7 +1520,7 @@
 
             console.error('Script Farm: falha ao mapear bárbaras.', erro);
             recuperar(
-                'Mapa B: ' +
+                'Mapa ' + CONFIG.modeloNovasSemInfo.toUpperCase() + ': ' +
                 resumirMensagem(obterMensagemErro(erro), 80)
             );
         });
@@ -1516,8 +1531,9 @@
         limparTimers();
         desligarObservador();
         atualizarBotao(
-            'Mapa B: ' + resultado.enviados +
-            ' nova(s) reconhecida(s) — a atualizar tropas…'
+            'Mapa ' + CONFIG.modeloNovasSemInfo.toUpperCase() + ': ' +
+            resultado.enviados +
+            ' nova(s) atacada(s) — a atualizar tropas…'
         );
         agendar(function () {
             window.location.reload();
@@ -1527,20 +1543,27 @@
     async function mapearNovasBarbaras() {
         var origem = obterCoordenadasOrigem();
         var origemId = obterIdAldeiaOrigem();
-        var quantidadeBatedores = quantidadeUnidade('spy');
-        var modeloBId = obterIdModeloB();
+        var modelo = CONFIG.modeloNovasSemInfo;
+        var usaBatedor = modelo === 'b';
+        var quantidadeBatedores = usaBatedor
+            ? quantidadeUnidade('spy')
+            : null;
+        var modeloId = obterIdModelo(modelo);
 
         if (!origem || !origemId) {
             return criarResultadoMapa(0, 'origem desconhecida');
         }
 
-        if (quantidadeBatedores === 0) {
+        if (usaBatedor && quantidadeBatedores === 0) {
             tiposSemTropas.batedor = true;
             return criarResultadoMapa(0, 'sem batedores');
         }
 
-        if (!modeloBId) {
-            return criarResultadoMapa(0, 'Modelo B não encontrado');
+        if (!modeloId) {
+            return criarResultadoMapa(
+                0,
+                'Modelo ' + modelo.toUpperCase() + ' não encontrado'
+            );
         }
 
         if (
@@ -1578,7 +1601,7 @@
         });
 
         var limite = CONFIG.maxNovasBarbaras;
-        if (quantidadeBatedores !== null) {
+        if (usaBatedor && quantidadeBatedores !== null) {
             limite = Math.min(limite, quantidadeBatedores);
         }
 
@@ -1646,8 +1669,9 @@
         }
 
         atualizarBotao(
-            'Mapa B: ' + candidatas.length + ' nova(s) de ' +
-            estatisticas.noRaio + ' no raio — modelo ' + modeloBId
+            'Mapa ' + modelo.toUpperCase() + ': ' +
+            candidatas.length + ' nova(s) de ' +
+            estatisticas.noRaio + ' no raio — predefinição ' + modeloId
         );
 
         var enviados = 0;
@@ -1662,7 +1686,7 @@
                 return criarResultadoMapa(enviados, 'verificação pendente');
             }
 
-            if (quantidadeUnidade('spy') === 0) {
+            if (usaBatedor && quantidadeUnidade('spy') === 0) {
                 tiposSemTropas.batedor = true;
                 return criarResultadoMapa(enviados, 'sem batedores');
             }
@@ -1675,13 +1699,18 @@
             );
 
             try {
-                await enviarModeloBParaAlvo(alvo.id, modeloBId, origemId);
+                await enviarModeloParaAlvo(alvo.id, modeloId, origemId);
             } catch (erro) {
                 var mensagemErro = obterMensagemErro(erro);
 
                 if (erroIndicaFaltaDeTropas(mensagemErro)) {
-                    tiposSemTropas.batedor = true;
-                    return criarResultadoMapa(enviados, 'sem batedores');
+                    tiposSemTropas[usaBatedor ? 'batedor' : 'principal'] = true;
+                    return criarResultadoMapa(
+                        enviados,
+                        usaBatedor
+                            ? 'sem batedores'
+                            : 'sem tropas para o Modelo A'
+                    );
                 }
 
                 if (erroIndicaAldeiaDeJogador(mensagemErro)) {
@@ -1690,8 +1719,15 @@
                 }
 
                 if (erroIndicaModeloInvalido(mensagemErro)) {
-                    console.warn('Script Farm: Modelo B recusado.', erro);
-                    return criarResultadoMapa(enviados, 'Modelo B recusado');
+                    console.warn(
+                        'Script Farm: Modelo ' + modelo.toUpperCase() +
+                        ' recusado.',
+                        erro
+                    );
+                    return criarResultadoMapa(
+                        enviados,
+                        'Modelo ' + modelo.toUpperCase() + ' recusado'
+                    );
                 }
 
                 throw erro;
@@ -1724,11 +1760,13 @@
         return Number.isFinite(id) && id > 0 ? id : null;
     }
 
-    function obterIdModeloB() {
-        var botaoB = document.querySelector(
-            '#plunder_list a.farm_icon_b, #am_widget_Farm a.farm_icon_b'
+    function obterIdModelo(modelo) {
+        var letra = modelo === 'a' ? 'a' : 'b';
+        var classe = '.farm_icon_' + letra;
+        var botaoModelo = document.querySelector(
+            '#plunder_list a' + classe + ', #am_widget_Farm a' + classe
         );
-        var id = obterIdModeloDoElemento(botaoB);
+        var id = obterIdModeloDoElemento(botaoModelo);
 
         if (id) {
             return id;
@@ -1750,13 +1788,13 @@
             var linha = input.closest('tr');
             var linhaAnterior = linha && linha.previousElementSibling;
             var linhaSeguinte = linha && linha.nextElementSibling;
-            var pertenceAoModeloB = Boolean(
-                (linha && linha.querySelector('.farm_icon_b')) ||
-                (linhaAnterior && linhaAnterior.querySelector('.farm_icon_b')) ||
-                (linhaSeguinte && linhaSeguinte.querySelector('.farm_icon_b'))
+            var pertenceAoModelo = Boolean(
+                (linha && linha.querySelector(classe)) ||
+                (linhaAnterior && linhaAnterior.querySelector(classe)) ||
+                (linhaSeguinte && linhaSeguinte.querySelector(classe))
             );
 
-            if (pertenceAoModeloB) {
+            if (pertenceAoModelo) {
                 id = numeroPositivo(input.value);
                 if (id) {
                     return id;
@@ -1768,9 +1806,13 @@
             window.Accountmanager.farm &&
             window.Accountmanager.farm.templates;
         if (templates) {
+            var maiuscula = letra.toUpperCase();
             id = numeroPositivo(
-                (templates.b && (templates.b.id || templates.b.template_id)) ||
-                (templates.B && (templates.B.id || templates.B.template_id))
+                (templates[letra] &&
+                    (templates[letra].id || templates[letra].template_id)) ||
+                (templates[maiuscula] &&
+                    (templates[maiuscula].id ||
+                        templates[maiuscula].template_id))
             );
         }
 
@@ -2097,7 +2139,7 @@
         return Number(coordenada.x) + '|' + Number(coordenada.y);
     }
 
-    function enviarModeloBParaAlvo(alvoId, modeloBId, origemId) {
+    function enviarModeloParaAlvo(alvoId, modeloId, origemId) {
         return new Promise(function (resolver, rejeitar) {
             var url = String(window.Accountmanager.send_units_link);
 
@@ -2117,7 +2159,7 @@
                 null,
                 {
                     target: alvoId,
-                    template_id: modeloBId,
+                    template_id: modeloId,
                     source: origemId
                 },
                 function (resposta) {
@@ -2400,10 +2442,10 @@
     }
 
     function deveUsarModeloC(item) {
-        if (!CONFIG.modeloCComInfoAtivo) {
-            return false;
-        }
+        return CONFIG.modeloCComInfoAtivo && temInformacaoModeloC(item);
+    }
 
+    function temInformacaoModeloC(item) {
         var linha = item && item.matches && item.matches('tr')
             ? item
             : item && item.closest
@@ -2706,10 +2748,17 @@
         var modelosNecessarios = [];
         var batedorListaAtivo =
             CONFIG.batedorModeloBAtivo &&
-            !CONFIG.mapearNovasBarbaras;
+            !(
+                CONFIG.mapearNovasBarbaras &&
+                CONFIG.modeloNovasSemInfo === 'b'
+            );
         var modeloPrincipalAtivo =
             CONFIG.modeloAtivo &&
-            !(CONFIG.mapearNovasBarbaras && CONFIG.modelo === 'b');
+            !(
+                CONFIG.mapearNovasBarbaras &&
+                CONFIG.modeloNovasSemInfo === 'b' &&
+                CONFIG.modelo === 'b'
+            );
 
         if (CONFIG.modeloCComInfoAtivo) {
             modelosNecessarios.push('c');
@@ -2717,6 +2766,13 @@
 
         if (batedorListaAtivo) {
             modelosNecessarios.push('b');
+        }
+
+        if (
+            CONFIG.modeloAtivo &&
+            modelosNecessarios.indexOf(CONFIG.modeloNovasSemInfo) === -1
+        ) {
+            modelosNecessarios.push(CONFIG.modeloNovasSemInfo);
         }
 
         if (
@@ -2744,12 +2800,24 @@
         });
 
         var tarefasModeloC = [];
+        var tarefasSemInfo = [];
         var tarefasBatedor = [];
         var tarefasPrincipais = [];
         var jogadoresIgnorados = 0;
         var alvosBarbaros = 0;
+        function contarTipo(tarefas, tipo) {
+            return tarefas.filter(function (tarefa) {
+                return tarefa.tipo === tipo;
+            }).length;
+        }
         var semBatedores =
-            batedorListaAtivo &&
+            (
+                batedorListaAtivo ||
+                (
+                    CONFIG.modeloAtivo &&
+                    CONFIG.modeloNovasSemInfo === 'b'
+                )
+            ) &&
             quantidadeUnidade('spy') === 0;
 
         alvos.forEach(function (alvo) {
@@ -2779,7 +2847,9 @@
 
             if (
                 deveUsarModeloC(alvo) &&
-                tarefasModeloC.length + tarefasPrincipais.length <
+                tarefasModeloC.length +
+                    contarTipo(tarefasSemInfo, 'principal') +
+                    tarefasPrincipais.length <
                     CONFIG.maxAtaquesPorAldeia
             ) {
                 tarefasModeloC.push({
@@ -2800,9 +2870,44 @@
             }
 
             if (
+                CONFIG.modeloAtivo &&
+                !temInformacaoModeloC(alvo)
+            ) {
+                var modeloSemInfo = CONFIG.modeloNovasSemInfo;
+                var tipoSemInfo = modeloSemInfo === 'b'
+                    ? 'batedor'
+                    : 'principal';
+                var totalTipoSemInfo = contarTipo(
+                    tarefasSemInfo,
+                    tipoSemInfo
+                ) + (tipoSemInfo === 'batedor'
+                    ? tarefasBatedor.length
+                    : tarefasModeloC.length + tarefasPrincipais.length);
+                var limiteSemInfo = tipoSemInfo === 'batedor'
+                    ? CONFIG.maxBatedoresPorAldeia
+                    : CONFIG.maxAtaquesPorAldeia;
+                var botaoSemInfo = obterBotaoNoAlvo(alvo, modeloSemInfo);
+
+                if (
+                    !(tipoSemInfo === 'batedor' && semBatedores) &&
+                    totalTipoSemInfo < limiteSemInfo &&
+                    botaoSemInfo &&
+                    !botaoEstaDesativado(botaoSemInfo)
+                ) {
+                    tarefasSemInfo.push({
+                        botao: botaoSemInfo,
+                        tipo: tipoSemInfo
+                    });
+                }
+                return;
+            }
+
+            if (
                 batedorListaAtivo &&
                 !semBatedores &&
-                tarefasBatedor.length < CONFIG.maxBatedoresPorAldeia
+                tarefasBatedor.length +
+                    contarTipo(tarefasSemInfo, 'batedor') <
+                    CONFIG.maxBatedoresPorAldeia
             ) {
                 var botaoB = obterBotaoNoAlvo(alvo, 'b');
                 if (botaoB && !botaoEstaDesativado(botaoB)) {
@@ -2816,7 +2921,9 @@
             if (
                 modeloPrincipalAtivo &&
                 !(batedorListaAtivo && CONFIG.modelo === 'b') &&
-                tarefasModeloC.length + tarefasPrincipais.length <
+                tarefasModeloC.length +
+                    contarTipo(tarefasSemInfo, 'principal') +
+                    tarefasPrincipais.length <
                     CONFIG.maxAtaquesPorAldeia
             ) {
                 var botaoPrincipal = obterBotaoNoAlvo(alvo, CONFIG.modelo);
@@ -2834,6 +2941,7 @@
 
         return {
             tarefas: tarefasModeloC.concat(
+                tarefasSemInfo,
                 tarefasBatedor,
                 tarefasPrincipais
             ),
@@ -2844,6 +2952,7 @@
             semTropasParaTarefas:
                 semBatedores &&
                 tarefasModeloC.length === 0 &&
+                tarefasSemInfo.length === 0 &&
                 tarefasPrincipais.length === 0,
             jogadoresIgnorados: jogadoresIgnorados,
             alvosBarbaros: alvosBarbaros
