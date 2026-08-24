@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.2.1
+// @version      1.2.3
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.2.1';
+    var SCRIPT_VERSION = '1.2.3';
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -75,6 +75,7 @@
         demolirMuralhas: true,
         maxDemolicoesPorAldeia: 10,
         grupoFarmId: '0',
+        modoSpeed: false,
         pausaEntreRondas: 60 * 1000,
         intervaloAtaque: 420,
         ignorarAtacados: true,
@@ -226,6 +227,7 @@
         )
             ? String(resultado.grupoFarmId)
             : CONFIG_PADRAO.grupoFarmId;
+        resultado.modoSpeed = Boolean(resultado.modoSpeed);
         resultado.pausaEntreRondas = limitarNumero(
             resultado.pausaEntreRondas,
             10000,
@@ -310,7 +312,7 @@
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
                 '<span>As alterações ficam guardadas neste mundo.</span></div>',
-                '<span class="af-version">v1.2.1</span>',
+                '<span class="af-version">v1.2.3</span>',
             '</div>',
             '<div class="af-settings-grid">',
                 '<fieldset class="af-card">',
@@ -368,8 +370,9 @@
                     '<legend>Grupo e rondas</legend>',
                     '<label>Grupo de aldeias<select id="af-grupo-farm"><option value="0">Todas as aldeias</option></select></label>',
                     '<small>O script percorre exclusivamente as aldeias do grupo escolhido. Organiza no jogo um grupo apenas com as aldeias que devem farmar.</small>',
+                    '<label class="af-check"><input id="af-modo-speed" type="checkbox"> Modo Speed — pausa base de 1 segundo</label>',
                     '<label>Pausa entre rondas (segundos)<input id="af-pausa-rondas" type="number" min="10" max="3600" step="5"></label>',
-                    '<small>Depois de concluir todas as aldeias do grupo, aguarda este tempo e inicia uma nova ronda. Também recebe a variação de ±10%.</small>',
+                    '<small>No Modo Speed, a pausa configurada acima é ignorada. Depois da contagem, atualiza a página e inicia a nova ronda. A pausa recebe sempre a variação de ±10%.</small>',
                 '</fieldset>',
             '</div>',
             '<div class="af-settings-actions">',
@@ -447,6 +450,7 @@
         definirValor('af-pausa-aldeia', CONFIG.esperaProximaAldeia);
         garantirOpcaoGrupoGuardado();
         definirValor('af-grupo-farm', CONFIG.grupoFarmId);
+        definirCheckbox('af-modo-speed', CONFIG.modoSpeed);
         definirValor(
             'af-pausa-rondas',
             CONFIG.pausaEntreRondas / 1000
@@ -485,6 +489,10 @@
             'change',
             atualizarEstadoCamposDefinicoes
         );
+        document.getElementById('af-modo-speed').addEventListener(
+            'change',
+            atualizarEstadoCamposDefinicoes
+        );
         carregarGruposNoPainel();
 
         document.getElementById('af-settings-save').addEventListener('click', function () {
@@ -507,6 +515,7 @@
                 demolirMuralhas: lerCheckbox('af-demolir-muralhas'),
                 maxDemolicoesPorAldeia: lerValor('af-max-demolicoes'),
                 grupoFarmId: lerValor('af-grupo-farm'),
+                modoSpeed: lerCheckbox('af-modo-speed'),
                 pausaEntreRondas: Number(lerValor('af-pausa-rondas')) * 1000,
                 intervaloAtaque: lerValor('af-intervalo-base'),
                 limiteSemProgresso: Number(lerValor('af-sem-progresso')) * 1000,
@@ -555,6 +564,8 @@
             !lerCheckbox('af-mapear-novas');
         document.getElementById('af-max-demolicoes').disabled =
             !lerCheckbox('af-demolir-muralhas');
+        document.getElementById('af-pausa-rondas').disabled =
+            lerCheckbox('af-modo-speed');
     }
 
     function mostrarMensagemDefinicoes(texto) {
@@ -855,7 +866,8 @@
         botao.type = 'button';
         botao.innerHTML =
             '<span class="auto-farm-a-launcher-icon">SF</span>' +
-            '<span data-auto-farm-dot aria-hidden="true"></span>';
+            '<span data-auto-farm-dot aria-hidden="true"></span>' +
+            '<span data-auto-farm-countdown hidden></span>';
         botao.style.setProperty('order', '90', 'important');
 
         botao.addEventListener('click', function (evento) {
@@ -921,13 +933,15 @@
             '#auto-farm-a-toggle .auto-farm-a-launcher-icon{display:block!important;line-height:26px!important}',
             '#auto-farm-a-toggle [data-auto-farm-dot]{position:absolute!important;right:2px!important;bottom:2px!important;width:6px!important;height:6px!important;border:1px solid #2b1509!important;border-radius:50%!important;background:#ff6b6b!important;box-shadow:0 0 2px #000!important}',
             '#auto-farm-a-toggle.af-ligado [data-auto-farm-dot]{background:#7cfc00!important}',
+            '#auto-farm-a-toggle [data-auto-farm-countdown]{position:absolute!important;display:block!important;top:31px!important;left:50%!important;transform:translateX(-50%)!important;min-width:46px!important;padding:3px 5px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 10px Verdana,Arial,sans-serif!important;line-height:13px!important;text-align:center!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 5px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}',
+            '#auto-farm-a-toggle [data-auto-farm-countdown][hidden]{display:none!important}',
             '#tp-theplaguept-script-bar>#auto-farm-a-toggle::after{content:attr(data-tp-title);position:absolute!important;display:none!important;top:33px!important;left:50%!important;transform:translateX(-50%)!important;min-width:max-content!important;max-width:360px!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}',
             '#tp-theplaguept-script-bar>#auto-farm-a-toggle:hover::after,#tp-theplaguept-script-bar>#auto-farm-a-toggle:focus-visible::after{display:block!important}'
         ].join('');
         document.head.appendChild(estilo);
     }
 
-    function atualizarBotao(mensagem) {
+    function atualizarBotao(mensagem, contagem) {
         if (!botao) {
             return;
         }
@@ -941,6 +955,17 @@
         botao.classList.toggle('af-ligado', ligado);
         botao.setAttribute('aria-label', titulo);
         botao.setAttribute('data-tp-title', titulo);
+
+        var mostrador = botao.querySelector('[data-auto-farm-countdown]');
+        if (mostrador) {
+            if (contagem) {
+                mostrador.textContent = contagem;
+                mostrador.hidden = false;
+            } else {
+                mostrador.textContent = '';
+                mostrador.hidden = true;
+            }
+        }
 
         if (workerHeartbeatTimer !== null) {
             publicarSinalWorker();
@@ -1055,6 +1080,8 @@
         url.searchParams.delete('mode');
         url.searchParams.delete('action');
         url.searchParams.delete('page');
+        url.searchParams.delete('Farm_page');
+        url.searchParams.delete('farm_page');
         url.hash = '';
         return url.href;
     }
@@ -1092,8 +1119,7 @@
         }
 
         if (Number(guardado.pausaAte) > 0) {
-            await iniciarNovaRonda(guardado);
-            return false;
+            return Boolean(await iniciarNovaRonda(guardado));
         }
 
         var atual = obterIdAldeiaOrigem();
@@ -1148,21 +1174,74 @@
         aMudarAldeia = false;
         aRecuperar = false;
 
-        var restante = Math.max(0, Number(valor.pausaAte) - Date.now());
+        function atualizarContagem() {
+            if (!estaLigado()) {
+                atualizarBotao('Parado');
+                return;
+            }
+
+            var restante = Math.max(
+                0,
+                Number(valor.pausaAte) - Date.now()
+            );
+            var contagem = formatarContagemRonda(restante);
+            atualizarBotao(
+                (CONFIG.modoSpeed ? 'Speed — ' : '') +
+                'ronda ' + valor.numero + ' concluída — nova ronda em ' +
+                contagem,
+                contagem
+            );
+
+            if (restante > 0) {
+                agendarExato(
+                    atualizarContagem,
+                    Math.min(1000, Math.max(100, restante))
+                );
+                return;
+            }
+
+            recarregarAntesDaNovaRonda(valor);
+        }
+
+        atualizarContagem();
+    }
+
+    function formatarContagemRonda(restanteMs) {
+        var total = Math.max(0, Math.ceil(Number(restanteMs) / 1000));
+        var horas = Math.floor(total / 3600);
+        var minutos = Math.floor((total % 3600) / 60);
+        var segundos = total % 60;
+        var mm = String(minutos).padStart(2, '0');
+        var ss = String(segundos).padStart(2, '0');
+
+        return horas > 0
+            ? String(horas).padStart(2, '0') + ':' + mm + ':' + ss
+            : mm + ':' + ss;
+    }
+
+    function recarregarAntesDaNovaRonda(valor) {
+        if (!estaLigado()) {
+            return;
+        }
+
+        guardarEstadoRonda(valor);
+        aMudarAldeia = true;
+        aRecuperar = false;
+        limparTimers();
+        desligarObservador();
         atualizarBotao(
-            'Ronda ' + valor.numero + ' concluída — pausa ' +
-            Math.ceil(restante / 1000) + ' s'
+            'Pausa concluída — a atualizar antes da ronda ' +
+            (Number(valor.numero) + 1) + '…'
         );
 
-        agendarExato(function () {
-            iniciarNovaRonda(valor).catch(function (erro) {
-                console.error('Script Farm: falha ao reiniciar a ronda.', erro);
-                recuperar(
-                    'Nova ronda: ' +
-                    resumirMensagem(obterMensagemErro(erro), 70)
-                );
-            });
-        }, restante);
+        agendar(function () {
+            var url = criarUrlAssistenteFarm();
+            if (url === window.location.href) {
+                window.location.reload();
+            } else {
+                window.location.replace(url);
+            }
+        }, 300);
     }
 
     async function iniciarNovaRonda(anterior) {
@@ -1185,10 +1264,20 @@
             pausaAte: 0
         };
         guardarEstadoRonda(nova);
+
+        if (String(obterIdAldeiaOrigem()) === String(nova.aldeias[0])) {
+            atualizarBotao(
+                'A iniciar a ronda ' + nova.numero +
+                ' — alvos mais próximos primeiro'
+            );
+            return true;
+        }
+
         navegarParaAldeiaGrupo(
             nova.aldeias[0],
             'A iniciar a ronda ' + nova.numero
         );
+        return false;
     }
 
     function navegarParaAldeiaGrupo(aldeiaId, motivo) {
@@ -3339,9 +3428,10 @@
             return true;
         }
 
-        valor.pausaAte = Date.now() + aplicarVariacao10(
-            CONFIG.pausaEntreRondas
-        );
+        var pausaBase = CONFIG.modoSpeed
+            ? 1000
+            : CONFIG.pausaEntreRondas;
+        valor.pausaAte = Date.now() + aplicarVariacao10(pausaBase);
         guardarEstadoRonda(valor);
         pausarAteNovaRonda(valor);
         return true;
