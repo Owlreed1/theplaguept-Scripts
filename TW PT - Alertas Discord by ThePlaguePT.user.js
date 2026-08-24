@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.59
+// @version      1.3.60
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.59 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.60 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -94,7 +94,7 @@
         militia: '🏘️ Milicia'
     };
 
-    const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'spy', 'heavy', 'militia'];
+    const TROOP_DEFENSE_UNITS = ['spear', 'sword', 'archer', 'spy', 'heavy'];
     const TROOP_ATTACK_UNITS = ['axe', 'light', 'marcher', 'ram', 'catapult', 'snob'];
     const TROOP_UNIT_ORDER = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob', 'militia'];
     const ATTACK_FULL_AXE = 5000;
@@ -2984,6 +2984,12 @@
         });
     }
 
+    function mergeTroopTotalsByMax(first, second) {
+        const totals = cloneTroopTotals(first || {});
+        maxTroopTotals(totals, second || {});
+        return totals;
+    }
+
     function rowHasCoords(row) {
         return Boolean(parseCoords(row ? (row.innerText || row.textContent || '') : ''));
     }
@@ -4147,7 +4153,7 @@
             summary.totals = rebuiltTotals;
             summary.attackTotals = rebuiltAttackTotals;
             summary.defenseTotals = hasOverviewDefenseTotals
-                ? overviewDefenseTotals
+                ? mergeTroopTotalsByMax(overviewDefenseTotals, rebuiltDefenseTotals)
                 : rebuiltDefenseTotals;
             summary.villages = rebuiltVillages;
             summary.placeScanIncomplete = false;
@@ -4283,7 +4289,6 @@
 
         if (Number(totals.archer || 0) > 0) lines.push(`🏹 Arqueiros: **${formatTroopNumber(totals.archer)}**`);
         if (Number(totals.heavy || 0) > 0) lines.push(`🐴 Cavalaria Pesada: **${formatTroopNumber(totals.heavy)}**`);
-        if (Number(totals.militia || 0) > 0) lines.push(`🏘️ Milicia: **${formatTroopNumber(totals.militia)}**`);
 
         if (Number(totals.spy || 0) > 0) lines.push(`${TROOP_UNIT_LABELS.spy}: **${formatTroopNumber(totals.spy)}**`);
 
