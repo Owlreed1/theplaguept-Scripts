@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.3.0
+// @version      1.3.2
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.3.0';
+    var SCRIPT_VERSION = '1.3.2';
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -149,6 +149,7 @@
     var idsAlvosDeJogadores = null;
     var estadoAtual = '';
     var mapaProcessadoNesteCiclo = false;
+    var demolicaoBloqueadaNesteCiclo = false;
     var idsBarbarasMapa = null;
     var validacaoBarbarasEmCurso = false;
     var estadoRonda = null;
@@ -1766,7 +1767,12 @@
                 }
 
                 if (resultado.enviados > 0) {
-                    recarregarDepoisMapa(resultado);
+                    atualizarBotao(
+                        'Mapa ' + CONFIG.modeloNovasSemInfo.toUpperCase() +
+                        ': ' + resultado.enviados +
+                        ' nova(s) atacada(s) — a continuar o farm…'
+                    );
+                    agendar(iniciarFarm, 100);
                     return;
                 }
 
@@ -1799,14 +1805,19 @@
                         return;
                     }
 
-                    if (resultado.enviados > 0) {
-                        recarregarDepoisDemolicoes(resultado.enviados);
-                    } else {
-                        mudarAldeia(
-                            'Muralhas: ' +
-                            (resultado.motivo || 'nenhum ataque enviado')
-                        );
+                    if (
+                        resultado.enviados === 0 &&
+                        resultado.motivo === 'origem desconhecida'
+                    ) {
+                        recuperar('Muralhas: aldeia de origem desconhecida');
+                        return;
                     }
+
+                    atualizarBotao(
+                        'Muralhas: ' + resultado.enviados +
+                        ' ataque(s) — a continuar o farm…'
+                    );
+                    agendar(iniciarFarm, 100);
                 }
             ).catch(function (erro) {
                 if (!estaLigado() || aMudarAldeia || aRecuperar) {
@@ -1828,8 +1839,12 @@
             if (planoMuralhas.bloqueadasSemTropas > 0) {
                 tratarSemTrabalho(
                     'Muralhas: disponíveis ' +
-                    planoMuralhas.vikingsDisponiveis + ' Vikings e ' +
-                    planoMuralhas.arietesDisponiveis + ' aríetes',
+                    formatarQuantidadeConhecida(
+                        planoMuralhas.vikingsDisponiveis
+                    ) + ' Vikings e ' +
+                    formatarQuantidadeConhecida(
+                        planoMuralhas.arietesDisponiveis
+                    ) + ' aríetes',
                     CONFIG.mudarSemTropas
                 );
                 return;
@@ -2007,20 +2022,6 @@
                 resumirMensagem(obterMensagemErro(erro), 80)
             );
         });
-    }
-
-    function recarregarDepoisMapa(resultado) {
-        aRecuperar = true;
-        limparTimers();
-        desligarObservador();
-        atualizarBotao(
-            'Mapa ' + CONFIG.modeloNovasSemInfo.toUpperCase() + ': ' +
-            resultado.enviados +
-            ' nova(s) atacada(s) — a atualizar tropas…'
-        );
-        agendar(function () {
-            window.location.reload();
-        }, 700);
     }
 
     async function mapearNovasBarbaras() {
@@ -2762,17 +2763,19 @@
     }
 
     function criarPlanoDemolicaoMuralhas() {
-        if (!CONFIG.demolirMuralhas) {
+        if (!CONFIG.demolirMuralhas || demolicaoBloqueadaNesteCiclo) {
             return {
                 tarefas: [],
                 bloqueadasSemTropas: 0,
-                vikingsDisponiveis: 0,
-                arietesDisponiveis: 0
+                vikingsDisponiveis: null,
+                arietesDisponiveis: null
             };
         }
 
         var vikingsDisponiveis = quantidadeUnidade('axe');
         var arietesDisponiveis = quantidadeUnidade('ram');
+        var vikingsConhecidos = vikingsDisponiveis !== null;
+        var arietesConhecidos = arietesDisponiveis !== null;
         var recentes = obterAtaquesMuralhaRecentes();
         var tarefas = [];
         var bloqueadasSemTropas = 0;
@@ -2782,12 +2785,6 @@
         ));
         linhas.sort(compararAlvosPorDistancia);
 
-        vikingsDisponiveis = vikingsDisponiveis === null
-            ? 0
-            : vikingsDisponiveis;
-        arietesDisponiveis = arietesDisponiveis === null
-            ? 0
-            : arietesDisponiveis;
         var vikingsIniciais = vikingsDisponiveis;
         var arietesIniciais = arietesDisponiveis;
 
@@ -2812,8 +2809,8 @@
 
             var tropas = calcularTropasDemolicao(nivel);
             if (
-                vikingsDisponiveis < tropas.axe ||
-                arietesDisponiveis < tropas.ram
+                (vikingsConhecidos && vikingsDisponiveis < tropas.axe) ||
+                (arietesConhecidos && arietesDisponiveis < tropas.ram)
             ) {
                 bloqueadasSemTropas += 1;
                 return false;
@@ -2826,8 +2823,12 @@
                 axe: tropas.axe,
                 ram: tropas.ram
             });
-            vikingsDisponiveis -= tropas.axe;
-            arietesDisponiveis -= tropas.ram;
+            if (vikingsConhecidos) {
+                vikingsDisponiveis -= tropas.axe;
+            }
+            if (arietesConhecidos) {
+                arietesDisponiveis -= tropas.ram;
+            }
             return false;
         });
 
@@ -3157,7 +3158,7 @@
                     continue;
                 }
                 if (erroIndicaFaltaDeTropas(mensagem)) {
-                    tiposSemTropas.principal = true;
+                    demolicaoBloqueadaNesteCiclo = true;
                     return { enviados: enviados, motivo: 'sem Vikings/aríetes' };
                 }
                 throw erro;
@@ -3372,19 +3373,6 @@
 
         escreverJsonSeguro(localStorage, chave, limpos);
         return ativos;
-    }
-
-    function recarregarDepoisDemolicoes(quantidade) {
-        aRecuperar = true;
-        limparTimers();
-        desligarObservador();
-        atualizarBotao(
-            'Muralhas: ' + quantidade +
-            ' ataque(s) lançado(s) — a atualizar tropas…'
-        );
-        agendar(function () {
-            window.location.reload();
-        }, 700);
     }
 
     function resumirMensagem(mensagem, maximo) {
@@ -3882,6 +3870,10 @@
 
         var quantidade = lerNumero(elemento.textContent);
         return Number.isNaN(quantidade) ? null : quantidade;
+    }
+
+    function formatarQuantidadeConhecida(quantidade) {
+        return quantidade === null ? 'desconhecido' : String(quantidade);
     }
 
     function lerNumero(texto) {
