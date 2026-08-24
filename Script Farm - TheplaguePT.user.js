@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.0.0
+// @version      1.0.1
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -56,8 +56,7 @@
         maxNovasBarbaras: 50,
         demolirMuralhas: true,
         maxDemolicoesPorAldeia: 10,
-        intervaloAtaqueMin: 320,
-        intervaloAtaqueMax: 520,
+        intervaloAtaque: 420,
         ignorarAtacados: true,
         limiteMuralhaAtivo: false,
         muralhaMaxima: 20,
@@ -131,6 +130,19 @@
             console.warn('Script Farm: não foi possível ler as definições.', erro);
         }
 
+        if (!Number.isFinite(Number(guardada.intervaloAtaque))) {
+            var intervaloAntigoMin = Number(guardada.intervaloAtaqueMin);
+            var intervaloAntigoMax = Number(guardada.intervaloAtaqueMax);
+            if (
+                Number.isFinite(intervaloAntigoMin) &&
+                Number.isFinite(intervaloAntigoMax)
+            ) {
+                guardada.intervaloAtaque = Math.round(
+                    (intervaloAntigoMin + intervaloAntigoMax) / 2
+                );
+            }
+        }
+
         return normalizarConfiguracao(
             Object.assign({}, CONFIG_PADRAO, guardada)
         );
@@ -178,20 +190,11 @@
             100,
             CONFIG_PADRAO.maxDemolicoesPorAldeia
         );
-        resultado.intervaloAtaqueMin = limitarNumero(
-            resultado.intervaloAtaqueMin,
-            200,
+        resultado.intervaloAtaque = limitarNumero(
+            resultado.intervaloAtaque,
+            250,
             60000,
-            CONFIG_PADRAO.intervaloAtaqueMin
-        );
-        resultado.intervaloAtaqueMax = limitarNumero(
-            resultado.intervaloAtaqueMax,
-            resultado.intervaloAtaqueMin,
-            60000,
-            Math.max(
-                resultado.intervaloAtaqueMin,
-                CONFIG_PADRAO.intervaloAtaqueMax
-            )
+            CONFIG_PADRAO.intervaloAtaque
         );
         resultado.muralhaMaxima = limitarNumero(
             resultado.muralhaMaxima,
@@ -265,7 +268,7 @@
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
                 '<span>As alterações ficam guardadas neste mundo.</span></div>',
-                '<span class="af-version">v1.0.0</span>',
+                '<span class="af-version">v1.0.1</span>',
             '</div>',
             '<div class="af-settings-grid">',
                 '<fieldset class="af-card">',
@@ -304,11 +307,8 @@
                 '</fieldset>',
                 '<fieldset class="af-card">',
                     '<legend>Tempos</legend>',
-                    '<div class="af-two-columns">',
-                        '<label>Intervalo mínimo (ms)<input id="af-intervalo-min" type="number" min="200" max="60000" step="10"></label>',
-                        '<label>Intervalo máximo (ms)<input id="af-intervalo-max" type="number" min="200" max="60000" step="10"></label>',
-                    '</div>',
-                    '<small>É aplicado um valor aleatório entre o mínimo e o máximo. O mínimo permitido é 200 ms.</small>',
+                    '<label>Tempo base entre envios (ms)<input id="af-intervalo-base" type="number" min="250" max="60000" step="10"></label>',
+                    '<small>Todos os tempos da automação recebem uma variação aleatória fixa de ±10%. Exemplo: 1000 ms resulta em 900–1100 ms.</small>',
                     '<label>Refresh se não houver progresso (segundos)<input id="af-sem-progresso" type="number" min="10" max="300" step="1"></label>',
                     '<label>Pausa antes da próxima aldeia (ms)<input id="af-pausa-aldeia" type="number" min="0" max="60000" step="50"></label>',
                 '</fieldset>',
@@ -391,8 +391,7 @@
             'af-max-demolicoes',
             CONFIG.maxDemolicoesPorAldeia
         );
-        definirValor('af-intervalo-min', CONFIG.intervaloAtaqueMin);
-        definirValor('af-intervalo-max', CONFIG.intervaloAtaqueMax);
+        definirValor('af-intervalo-base', CONFIG.intervaloAtaque);
         definirValor('af-sem-progresso', CONFIG.limiteSemProgresso / 1000);
         definirValor('af-pausa-aldeia', CONFIG.esperaProximaAldeia);
         definirCheckbox('af-voltar-assistente', CONFIG.voltarAoAssistente);
@@ -444,8 +443,7 @@
                 maxNovasBarbaras: lerValor('af-max-novas'),
                 demolirMuralhas: lerCheckbox('af-demolir-muralhas'),
                 maxDemolicoesPorAldeia: lerValor('af-max-demolicoes'),
-                intervaloAtaqueMin: lerValor('af-intervalo-min'),
-                intervaloAtaqueMax: lerValor('af-intervalo-max'),
+                intervaloAtaque: lerValor('af-intervalo-base'),
                 limiteSemProgresso: Number(lerValor('af-sem-progresso')) * 1000,
                 esperaProximaAldeia: lerValor('af-pausa-aldeia'),
                 voltarAoAssistente: lerCheckbox('af-voltar-assistente'),
@@ -1042,7 +1040,7 @@
 
             agendar(
                 enviarProximo,
-                aleatorio(CONFIG.intervaloAtaqueMin, CONFIG.intervaloAtaqueMax)
+                CONFIG.intervaloAtaque
             );
         }
 
@@ -1284,10 +1282,7 @@
 
             if (indice < candidatas.length - 1) {
                 await esperarAutomacao(
-                    aleatorio(
-                        CONFIG.intervaloAtaqueMin,
-                        CONFIG.intervaloAtaqueMax
-                    )
+                    CONFIG.intervaloAtaque
                 );
             }
         }
@@ -2058,10 +2053,7 @@
 
             if (indice < tarefas.length - 1) {
                 await esperarAutomacao(
-                    aleatorio(
-                        CONFIG.intervaloAtaqueMin,
-                        CONFIG.intervaloAtaqueMax
-                    )
+                    CONFIG.intervaloAtaque
                 );
             }
         }
@@ -2805,7 +2797,7 @@
                 estaNoAssistenteFarm() &&
                 !workerEstaAtivo()
             ) {
-                agendar(executarControlador, aleatorio(250, 750));
+                agendar(executarControlador, 500);
             } else if (evento.key === SETTINGS_KEY) {
                 CONFIG = carregarConfiguracao();
                 preencherPainelSeExistir();
@@ -2938,10 +2930,11 @@
     }
 
     function agendar(funcao, atraso) {
+        var atrasoComVariacao = aplicarVariacao10(atraso);
         var id = window.setTimeout(function () {
             timers.delete(id);
             funcao();
-        }, atraso);
+        }, atrasoComVariacao);
         timers.add(id);
         return id;
     }
@@ -2961,9 +2954,14 @@
         watchdogTimer = null;
     }
 
-    function aleatorio(inferior, superior) {
-        return Math.floor(
-            Math.random() * (superior - inferior + 1)
-        ) + inferior;
+    function aplicarVariacao10(atraso) {
+        var tempoBase = Math.max(0, Number(atraso) || 0);
+        if (tempoBase === 0) {
+            return 0;
+        }
+
+        return Math.round(
+            tempoBase * (0.9 + (Math.random() * 0.2))
+        );
     }
 }());
