@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.3.2
+// @version      1.3.3
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.3.2';
+    var SCRIPT_VERSION = '1.3.3';
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -3675,34 +3675,6 @@
 
     function enviarTarefaFarm(tarefa) {
         var botaoAtual = obterBotaoAtualTarefa(tarefa);
-        var alvoId = numeroPositivo(tarefa.alvoId) ||
-            (botaoAtual && obterIdAlvoLinha(botaoAtual.closest('tr')));
-        var modeloId = numeroPositivo(tarefa.modeloId) ||
-            obterIdModeloDoElemento(botaoAtual) ||
-            (tarefa.modelo === 'a' || tarefa.modelo === 'b'
-                ? obterIdModelo(tarefa.modelo)
-                : null);
-        var origemId = obterIdAldeiaOrigem();
-        var podeEnviarDireto = Boolean(
-            alvoId &&
-            modeloId &&
-            origemId &&
-            window.TribalWars &&
-            typeof window.TribalWars.post === 'function' &&
-            window.Accountmanager &&
-            window.Accountmanager.send_units_link
-        );
-
-        if (podeEnviarDireto) {
-            return enviarModeloParaAlvo(alvoId, modeloId, origemId).then(
-                function (resposta) {
-                    if (botaoAtual && botaoAtual.isConnected) {
-                        marcarEnvioNesteCiclo(botaoAtual);
-                    }
-                    return resposta;
-                }
-            );
-        }
 
         if (!botaoAtual || !botaoAtual.isConnected) {
             return Promise.reject(
@@ -3710,9 +3682,30 @@
             );
         }
 
-        botaoAtual.click();
-        marcarEnvioNesteCiclo(botaoAtual);
-        return Promise.resolve();
+        try {
+            botaoAtual.click();
+            marcarEnvioNesteCiclo(botaoAtual);
+        } catch (erro) {
+            return Promise.reject(erro);
+        }
+
+        return esperarFimPedidoFarm(8000);
+    }
+
+    function esperarFimPedidoFarm(limiteMs) {
+        var inicio = Date.now();
+        return new Promise(function (resolver) {
+            function verificar() {
+                var pedidosAtivos = window.jQuery &&
+                    Number(window.jQuery.active || 0);
+                if (!pedidosAtivos || Date.now() - inicio >= limiteMs) {
+                    resolver();
+                    return;
+                }
+                window.setTimeout(verificar, 50);
+            }
+            window.setTimeout(verificar, 0);
+        });
     }
 
     function botaoEstaDesativado(item) {
