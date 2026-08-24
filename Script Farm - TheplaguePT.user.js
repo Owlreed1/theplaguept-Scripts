@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.0.1
+// @version      1.1.0
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -37,6 +37,7 @@
     var WALL_ATTACKED_KEY = 'autoFarmA.wallAttacked.v1';
     var FARM_KNOWN_CACHE_KEY = 'autoFarmA.knownFarmTargets.v1';
     var PLAYER_TARGETS_KEY = 'autoFarmA.playerTargets.v1';
+    var ROUND_STATE_KEY = 'scriptFarm.roundState.v1';
     var MAP_CACHE_DURATION = 60 * 1000;
     var FARM_KNOWN_CACHE_DURATION = 15 * 60 * 1000;
     var MAP_SCOUTED_DURATION = 365 * 24 * 60 * 60 * 1000;
@@ -56,6 +57,8 @@
         maxNovasBarbaras: 50,
         demolirMuralhas: true,
         maxDemolicoesPorAldeia: 10,
+        grupoFarmId: '0',
+        pausaEntreRondas: 60 * 1000,
         intervaloAtaque: 420,
         ignorarAtacados: true,
         limiteMuralhaAtivo: false,
@@ -96,6 +99,9 @@
     var mapaProcessadoNesteCiclo = false;
     var idsBarbarasMapa = null;
     var validacaoBarbarasEmCurso = false;
+    var estadoRonda = null;
+    var preparacaoGrupoEmCurso = false;
+    var geracaoExecucao = 0;
     var tiposSemTropas = {
         principal: false,
         batedor: false
@@ -190,6 +196,17 @@
             100,
             CONFIG_PADRAO.maxDemolicoesPorAldeia
         );
+        resultado.grupoFarmId = /^-?\d+$/.test(
+            String(resultado.grupoFarmId)
+        )
+            ? String(resultado.grupoFarmId)
+            : CONFIG_PADRAO.grupoFarmId;
+        resultado.pausaEntreRondas = limitarNumero(
+            resultado.pausaEntreRondas,
+            10000,
+            60 * 60 * 1000,
+            CONFIG_PADRAO.pausaEntreRondas
+        );
         resultado.intervaloAtaque = limitarNumero(
             resultado.intervaloAtaque,
             250,
@@ -268,7 +285,7 @@
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
                 '<span>As alterações ficam guardadas neste mundo.</span></div>',
-                '<span class="af-version">v1.0.1</span>',
+                '<span class="af-version">v1.1.0</span>',
             '</div>',
             '<div class="af-settings-grid">',
                 '<fieldset class="af-card">',
@@ -320,6 +337,13 @@
                     '<label class="af-check"><input id="af-esgotar-envios" type="checkbox"> Só mudar depois de esgotar todos os envios possíveis</label>',
                     '<label class="af-check"><input id="af-atualizar-erros" type="checkbox"> Atualizar e continuar após erros ou interrupções</label>',
                     '<small>Uma verificação CAPTCHA fica sempre em pausa para resolução manual.</small>',
+                '</fieldset>',
+                '<fieldset class="af-card">',
+                    '<legend>Grupo e rondas</legend>',
+                    '<label>Grupo de aldeias<select id="af-grupo-farm"><option value="0">Todas as aldeias</option></select></label>',
+                    '<small>O script percorre exclusivamente as aldeias do grupo escolhido. Organiza no jogo um grupo apenas com as aldeias que devem farmar.</small>',
+                    '<label>Pausa entre rondas (segundos)<input id="af-pausa-rondas" type="number" min="10" max="3600" step="5"></label>',
+                    '<small>Depois de concluir todas as aldeias do grupo, aguarda este tempo e inicia uma nova ronda. Também recebe a variação de ±10%.</small>',
                 '</fieldset>',
             '</div>',
             '<div class="af-settings-actions">',
@@ -394,6 +418,12 @@
         definirValor('af-intervalo-base', CONFIG.intervaloAtaque);
         definirValor('af-sem-progresso', CONFIG.limiteSemProgresso / 1000);
         definirValor('af-pausa-aldeia', CONFIG.esperaProximaAldeia);
+        garantirOpcaoGrupoGuardado();
+        definirValor('af-grupo-farm', CONFIG.grupoFarmId);
+        definirValor(
+            'af-pausa-rondas',
+            CONFIG.pausaEntreRondas / 1000
+        );
         definirCheckbox('af-voltar-assistente', CONFIG.voltarAoAssistente);
         definirCheckbox('af-mudar-sem-tropas', CONFIG.mudarSemTropas);
         definirCheckbox('af-mudar-sem-alvos', CONFIG.mudarSemAlvos);
@@ -424,6 +454,7 @@
             'change',
             atualizarEstadoCamposDefinicoes
         );
+        carregarGruposNoPainel();
 
         document.getElementById('af-settings-save').addEventListener('click', function () {
             CONFIG = normalizarConfiguracao(Object.assign({}, CONFIG, {
@@ -443,6 +474,8 @@
                 maxNovasBarbaras: lerValor('af-max-novas'),
                 demolirMuralhas: lerCheckbox('af-demolir-muralhas'),
                 maxDemolicoesPorAldeia: lerValor('af-max-demolicoes'),
+                grupoFarmId: lerValor('af-grupo-farm'),
+                pausaEntreRondas: Number(lerValor('af-pausa-rondas')) * 1000,
                 intervaloAtaque: lerValor('af-intervalo-base'),
                 limiteSemProgresso: Number(lerValor('af-sem-progresso')) * 1000,
                 esperaProximaAldeia: lerValor('af-pausa-aldeia'),
@@ -469,6 +502,7 @@
 
     function reiniciarSeLigado() {
         pararExecucao();
+        limparEstadoRonda();
         if (estaLigado()) {
             atualizarBotao('A aplicar as definições…');
             agendar(executarControlador, 250);
@@ -517,6 +551,197 @@
         return document.getElementById(id).value;
     }
 
+    function garantirOpcaoGrupoGuardado() {
+        var select = document.getElementById('af-grupo-farm');
+        if (!select) {
+            return;
+        }
+
+        var valor = String(CONFIG.grupoFarmId);
+        var existe = Array.from(select.options).some(function (opcao) {
+            return opcao.value === valor;
+        });
+        if (!existe) {
+            var opcao = document.createElement('option');
+            opcao.value = valor;
+            opcao.textContent = 'Grupo guardado #' + valor;
+            select.appendChild(opcao);
+        }
+    }
+
+    function carregarGruposNoPainel() {
+        var select = document.getElementById('af-grupo-farm');
+        if (!select) {
+            return;
+        }
+
+        select.disabled = true;
+        select.title = 'A carregar os grupos do jogo…';
+
+        obterGruposDoJogo().then(function (grupos) {
+            var valorAtual = String(CONFIG.grupoFarmId);
+            select.textContent = '';
+
+            grupos.forEach(function (grupo) {
+                var opcao = document.createElement('option');
+                opcao.value = grupo.id;
+                opcao.textContent = grupo.nome;
+                select.appendChild(opcao);
+            });
+
+            if (!grupos.some(function (grupo) {
+                return grupo.id === valorAtual;
+            })) {
+                var indisponivel = document.createElement('option');
+                indisponivel.value = valorAtual;
+                indisponivel.textContent =
+                    'Grupo guardado #' + valorAtual + ' (indisponível)';
+                select.appendChild(indisponivel);
+            }
+
+            select.value = valorAtual;
+            select.disabled = false;
+            select.title = '';
+        }).catch(function (erro) {
+            console.warn('Script Farm: não foi possível carregar grupos.', erro);
+            garantirOpcaoGrupoGuardado();
+            select.value = String(CONFIG.grupoFarmId);
+            select.disabled = false;
+            select.title = 'Não foi possível atualizar os grupos agora';
+        });
+    }
+
+    async function obterGruposDoJogo() {
+        var gruposAtuais = extrairGruposDoDocumento(document);
+        if (gruposAtuais.length > 1) {
+            return gruposAtuais;
+        }
+
+        var dados = await obterDadosGrupo('0');
+        return dados.grupos;
+    }
+
+    function criarUrlVisaoGeralGrupo(grupoId) {
+        var url = new URL(window.location.href);
+        url.searchParams.set('screen', 'overview_villages');
+        url.searchParams.set('mode', 'units');
+        url.searchParams.set('type', 'complete');
+        url.searchParams.set('units_type', 'complete');
+        url.searchParams.set('group', String(grupoId));
+        url.searchParams.set('page', '-1');
+        ['action', 'ajax', 'h'].forEach(function (chave) {
+            url.searchParams.delete(chave);
+        });
+        url.hash = '';
+        return url.href;
+    }
+
+    async function obterDadosGrupo(grupoId) {
+        var pagina = await requisitarPagina(
+            criarUrlVisaoGeralGrupo(grupoId),
+            { method: 'GET', cache: 'no-store' },
+            30000
+        );
+        var documento = new DOMParser().parseFromString(
+            pagina.texto,
+            'text/html'
+        );
+
+        if (documento.querySelector('#bot_check, .g-recaptcha, [id*="captcha"]')) {
+            throw new Error('O jogo pediu verificação antes de listar os grupos');
+        }
+
+        var grupos = extrairGruposDoDocumento(documento);
+        var grupo = grupos.find(function (item) {
+            return item.id === String(grupoId);
+        });
+
+        if (String(grupoId) !== '0' && !grupo) {
+            throw new Error('o grupo escolhido já não existe');
+        }
+
+        return {
+            grupos: grupos,
+            aldeias: extrairAldeiasDoDocumento(documento),
+            nome: grupo ? grupo.nome : 'Grupo #' + grupoId
+        };
+    }
+
+    function extrairGruposDoDocumento(documento) {
+        var grupos = [];
+        var ids = new Set();
+        var seletores = [
+            '#group_selection option',
+            'select[name="group"] option',
+            'select[id*="group"] option'
+        ];
+
+        documento.querySelectorAll(seletores.join(',')).forEach(
+            function (opcao) {
+                var id = String(opcao.value || '').trim();
+                if (!/^-?\d+$/.test(id) || ids.has(id)) {
+                    return;
+                }
+                ids.add(id);
+                grupos.push({
+                    id: id,
+                    nome: opcao.textContent.trim() || 'Grupo #' + id
+                });
+            }
+        );
+
+        if (!ids.has('0')) {
+            grupos.unshift({ id: '0', nome: 'Todas as aldeias' });
+        }
+        return grupos;
+    }
+
+    function extrairAldeiasDoDocumento(documento) {
+        var ids = [];
+        var vistos = new Set();
+        var linhas = documento.querySelectorAll([
+            '#units_table tr',
+            '#combined_table tr',
+            '#production_table tr',
+            '#buildings_table tr',
+            'table.overview_table tr',
+            'table.vis tr'
+        ].join(','));
+
+        linhas.forEach(function (linha) {
+            if (!/\d{1,3}\s*\|\s*\d{1,3}/.test(linha.textContent || '')) {
+                return;
+            }
+
+            var id = null;
+            var link = linha.querySelector('a[href*="village="]');
+            if (link) {
+                try {
+                    id = numeroPositivo(
+                        new URL(link.href, window.location.href)
+                            .searchParams.get('village')
+                    );
+                } catch (erro) {
+                    id = null;
+                }
+            }
+
+            if (!id) {
+                var comId = linha.matches('[data-id]')
+                    ? linha
+                    : linha.querySelector('[data-id]');
+                id = comId && numeroPositivo(comId.getAttribute('data-id'));
+            }
+
+            if (id && !vistos.has(String(id))) {
+                vistos.add(String(id));
+                ids.push(id);
+            }
+        });
+
+        return ids;
+    }
+
     function criarBotao() {
         var anterior = document.getElementById(BUTTON_ID);
         if (anterior) {
@@ -550,6 +775,7 @@
             var ligar = !estaLigado();
             localStorage.setItem(STORAGE_KEY, ligar ? '1' : '0');
             pararExecucao();
+            limparEstadoRonda();
 
             if (ligar) {
                 atualizarBotao('A iniciar…');
@@ -667,9 +893,48 @@
             atualizarBotao('Em pausa — outro separador AF já está ativo');
             return;
         }
-        atualizarBotao('A carregar a lista de farm…');
-        armarWatchdog();
-        esperarInterface(Date.now());
+
+        if (preparacaoGrupoEmCurso) {
+            return;
+        }
+
+        preparacaoGrupoEmCurso = true;
+        var geracaoAtual = geracaoExecucao;
+        atualizarBotao('A preparar o grupo e a ronda…');
+        prepararRondaGrupo().then(function (podeTrabalhar) {
+            if (geracaoAtual !== geracaoExecucao) {
+                return;
+            }
+            preparacaoGrupoEmCurso = false;
+            if (
+                !podeTrabalhar ||
+                !estaLigado() ||
+                aMudarAldeia ||
+                aRecuperar
+            ) {
+                return;
+            }
+
+            atualizarBotao('A carregar a lista de farm…');
+            armarWatchdog();
+            esperarInterface(Date.now());
+        }).catch(function (erro) {
+            if (geracaoAtual !== geracaoExecucao) {
+                return;
+            }
+            preparacaoGrupoEmCurso = false;
+            console.error('Script Farm: falha ao preparar o grupo.', erro);
+            var mensagem = obterMensagemErro(erro);
+            if (/(?:grupo).*(?:não contém aldeias|sem aldeias|não existe)/i.test(mensagem)) {
+                limparTimers();
+                desligarObservador();
+                atualizarBotao('Grupo sem aldeias disponíveis — em pausa');
+                return;
+            }
+            recuperar(
+                'Grupo: ' + resumirMensagem(mensagem, 75)
+            );
+        });
     }
 
     function estaNoAssistenteFarm() {
@@ -683,11 +948,167 @@
     function criarUrlAssistenteFarm() {
         var url = new URL(window.location.href);
         url.searchParams.set('screen', 'am_farm');
+        url.searchParams.set('group', String(CONFIG.grupoFarmId));
         url.searchParams.delete('mode');
         url.searchParams.delete('action');
         url.searchParams.delete('page');
         url.hash = '';
         return url.href;
+    }
+
+    async function prepararRondaGrupo() {
+        var guardado = lerEstadoRonda();
+        var grupoId = String(CONFIG.grupoFarmId);
+
+        if (
+            !guardado ||
+            guardado.grupoId !== grupoId ||
+            !guardado.aldeias.length
+        ) {
+            var dados = await obterDadosGrupo(grupoId);
+            if (!dados.aldeias.length) {
+                throw new Error('o grupo escolhido não contém aldeias');
+            }
+
+            guardado = {
+                grupoId: grupoId,
+                grupoNome: dados.nome,
+                aldeias: dados.aldeias,
+                concluidas: [],
+                numero: 1,
+                pausaAte: 0
+            };
+            guardarEstadoRonda(guardado);
+        }
+
+        estadoRonda = guardado;
+
+        if (Number(guardado.pausaAte) > Date.now()) {
+            pausarAteNovaRonda(guardado);
+            return false;
+        }
+
+        if (Number(guardado.pausaAte) > 0) {
+            await iniciarNovaRonda(guardado);
+            return false;
+        }
+
+        var atual = obterIdAldeiaOrigem();
+        if (guardado.aldeias.indexOf(atual) === -1) {
+            navegarParaAldeiaGrupo(
+                guardado.aldeias[0],
+                'A entrar no grupo ' + guardado.grupoNome
+            );
+            return false;
+        }
+
+        atualizarBotao(
+            'Ronda ' + guardado.numero + ' — ' + guardado.grupoNome
+        );
+        return true;
+    }
+
+    function lerEstadoRonda() {
+        var valor = lerJsonSeguro(sessionStorage, ROUND_STATE_KEY, null);
+        if (
+            !valor ||
+            !Array.isArray(valor.aldeias) ||
+            !Array.isArray(valor.concluidas)
+        ) {
+            return null;
+        }
+
+        valor.aldeias = valor.aldeias.map(numeroPositivo).filter(Boolean);
+        valor.concluidas = valor.concluidas
+            .map(numeroPositivo)
+            .filter(Boolean);
+        valor.grupoId = String(valor.grupoId);
+        valor.grupoNome = String(valor.grupoNome || 'Grupo #' + valor.grupoId);
+        valor.numero = Math.max(1, numeroPositivo(valor.numero) || 1);
+        valor.pausaAte = Number(valor.pausaAte) || 0;
+        return valor;
+    }
+
+    function guardarEstadoRonda(valor) {
+        estadoRonda = valor;
+        escreverJsonSeguro(sessionStorage, ROUND_STATE_KEY, valor);
+    }
+
+    function limparEstadoRonda() {
+        estadoRonda = null;
+        sessionStorage.removeItem(ROUND_STATE_KEY);
+    }
+
+    function pausarAteNovaRonda(valor) {
+        limparTimers();
+        desligarObservador();
+        aMudarAldeia = false;
+        aRecuperar = false;
+
+        var restante = Math.max(0, Number(valor.pausaAte) - Date.now());
+        atualizarBotao(
+            'Ronda ' + valor.numero + ' concluída — pausa ' +
+            Math.ceil(restante / 1000) + ' s'
+        );
+
+        agendarExato(function () {
+            iniciarNovaRonda(valor).catch(function (erro) {
+                console.error('Script Farm: falha ao reiniciar a ronda.', erro);
+                recuperar(
+                    'Nova ronda: ' +
+                    resumirMensagem(obterMensagemErro(erro), 70)
+                );
+            });
+        }, restante);
+    }
+
+    async function iniciarNovaRonda(anterior) {
+        if (!estaLigado()) {
+            return;
+        }
+
+        atualizarBotao('A atualizar o grupo para a nova ronda…');
+        var dados = await obterDadosGrupo(CONFIG.grupoFarmId);
+        if (!dados.aldeias.length) {
+            throw new Error('o grupo escolhido ficou sem aldeias');
+        }
+
+        var nova = {
+            grupoId: String(CONFIG.grupoFarmId),
+            grupoNome: dados.nome,
+            aldeias: dados.aldeias,
+            concluidas: [],
+            numero: Math.max(1, Number(anterior && anterior.numero) + 1 || 1),
+            pausaAte: 0
+        };
+        guardarEstadoRonda(nova);
+        navegarParaAldeiaGrupo(
+            nova.aldeias[0],
+            'A iniciar a ronda ' + nova.numero
+        );
+    }
+
+    function navegarParaAldeiaGrupo(aldeiaId, motivo) {
+        var id = numeroPositivo(aldeiaId);
+        if (!id || !estaLigado()) {
+            return;
+        }
+
+        aMudarAldeia = true;
+        aRecuperar = false;
+        limparTimers();
+        desligarObservador();
+        atualizarBotao(motivo + ' — aldeia ' + id + '…');
+
+        agendar(function () {
+            var url = new URL(criarUrlAssistenteFarm());
+            url.searchParams.set('village', String(id));
+            if (String(obterIdAldeiaOrigem()) === String(id)) {
+                window.location.reload();
+            } else {
+                window.location.assign(url.href);
+            }
+        }, CONFIG.esperaProximaAldeia);
     }
 
     function abrirAssistenteEmSeparador() {
@@ -2624,6 +3045,10 @@
             return;
         }
 
+        if (concluirAldeiaNaRonda(motivo)) {
+            return;
+        }
+
         aMudarAldeia = true;
         aRecuperar = false;
         limparTimers();
@@ -2650,6 +3075,50 @@
                 window.location.reload();
             }, CONFIG.esperaNavegacao);
         }, CONFIG.esperaProximaAldeia);
+    }
+
+    function concluirAldeiaNaRonda(motivo) {
+        var valor = estadoRonda || lerEstadoRonda();
+        if (!valor || !valor.aldeias.length) {
+            return false;
+        }
+
+        var atual = obterIdAldeiaOrigem();
+        if (
+            atual &&
+            valor.aldeias.indexOf(atual) !== -1 &&
+            valor.concluidas.indexOf(atual) === -1
+        ) {
+            valor.concluidas.push(atual);
+        }
+
+        var inicio = Math.max(0, valor.aldeias.indexOf(atual));
+        var proxima = null;
+        for (var passo = 1; passo <= valor.aldeias.length; passo += 1) {
+            var candidata = valor.aldeias[
+                (inicio + passo) % valor.aldeias.length
+            ];
+            if (valor.concluidas.indexOf(candidata) === -1) {
+                proxima = candidata;
+                break;
+            }
+        }
+
+        if (proxima) {
+            guardarEstadoRonda(valor);
+            navegarParaAldeiaGrupo(
+                proxima,
+                motivo + ' — grupo ' + valor.grupoNome
+            );
+            return true;
+        }
+
+        valor.pausaAte = Date.now() + aplicarVariacao10(
+            CONFIG.pausaEntreRondas
+        );
+        guardarEstadoRonda(valor);
+        pausarAteNovaRonda(valor);
+        return true;
     }
 
     function existemEnviosPossiveisAgora() {
@@ -2909,6 +3378,8 @@
     }
 
     function pararExecucao() {
+        geracaoExecucao += 1;
+        preparacaoGrupoEmCurso = false;
         limparTimers();
         desligarObservador();
         pararSinalWorker(true);
@@ -2930,11 +3401,15 @@
     }
 
     function agendar(funcao, atraso) {
-        var atrasoComVariacao = aplicarVariacao10(atraso);
+        return agendarExato(funcao, aplicarVariacao10(atraso));
+    }
+
+    function agendarExato(funcao, atraso) {
+        var atrasoAplicado = Math.max(0, Number(atraso) || 0);
         var id = window.setTimeout(function () {
             timers.delete(id);
             funcao();
-        }, atrasoComVariacao);
+        }, atrasoAplicado);
         timers.add(id);
         return id;
     }
