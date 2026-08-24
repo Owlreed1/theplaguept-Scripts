@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.66
+// @version      1.3.67
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.66';
+    const SCRIPT_VERSION = '1.3.67';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
 
     console.log(`[TW Discord Alerts] Versao ${SCRIPT_VERSION} carregada`);
@@ -2621,19 +2621,26 @@
         await checkIncomingAttacks();
     }
 
-    function getTroopsOverviewUrl() {
+    function getTroopsOverviewUrl(type) {
         const url = new URL(window.location.href);
         url.searchParams.set('screen', 'overview_villages');
         url.searchParams.set('mode', 'units');
         url.searchParams.set('page', '-1');
+        url.searchParams.delete('type');
+        url.searchParams.delete('group');
+
+        if (type) {
+            url.searchParams.set('type', String(type));
+        }
+
         url.searchParams.delete('action');
         url.searchParams.delete('ajax');
         url.searchParams.delete('h');
         return url.toString();
     }
 
-    async function fetchTroopsOverviewDocument() {
-        return fetchCleanDocument(getTroopsOverviewUrl());
+    async function fetchTroopsOverviewDocument(type) {
+        return fetchCleanDocument(getTroopsOverviewUrl(type));
     }
 
     function getPlaceUnitsUrl(villageId) {
@@ -3782,6 +3789,48 @@
         return getDefenseTroopTotals(totals);
     }
 
+    function getBestTroopTableAndColumns(doc) {
+        const preferredTable = doc.querySelector('#units_table');
+        const tables = preferredTable
+            ? [preferredTable]
+            : Array.from(doc.querySelectorAll('table.vis, table'));
+        let bestTable = null;
+        let bestColumns = [];
+
+        tables.forEach(table => {
+            const columns = getTroopColumns(table);
+            if (columns.length > bestColumns.length) {
+                bestTable = table;
+                bestColumns = columns;
+            }
+        });
+
+        return { bestTable, bestColumns };
+    }
+
+    function parseSupportOverviewStationedTroopTotals(doc) {
+        const totals = createTroopTotals();
+        const { bestTable, bestColumns } = getBestTroopTableAndColumns(doc);
+
+        if (!bestTable || !bestColumns.length) return totals;
+
+        getDirectTableRows(bestTable)
+            .filter(row => !row.querySelector('th'))
+            .forEach(row => {
+                const rowText = getTroopOverviewRowText(row);
+
+                if (isIgnoredTroopOverviewRow(rowText)) return;
+                if (isTotalTroopRow(rowText)) return;
+                if (isHomeAvailableTroopOverviewRow(rowText)) return;
+                if (!row.querySelector('input[type="checkbox"]')) return;
+
+                const rowTotals = parsePlaceTroopRowTotals(row, bestColumns);
+                addTroopTotals(totals, getDefenseTroopTotals(rowTotals));
+            });
+
+        return getDefenseTroopTotals(totals);
+    }
+
     function isOwnTroopOverviewRow(rowText) {
         return [
             'as suas proprias',
@@ -4675,6 +4724,27 @@
         const summary = parseTroopsOverview(doc);
 
         if (!summary) return null;
+
+        try {
+            const supportDoc = await fetchTroopsOverviewDocument('support');
+
+            if (isTwVerificationPage(supportDoc)) {
+                pauseForVerification('Visao de suporte');
+                return null;
+            }
+
+            const supportStationedTotals = parseSupportOverviewStationedTroopTotals(supportDoc);
+
+            if (hasTroopValues(supportStationedTotals)) {
+                summary.supportStationedTotals = mergeDefenseTroopTotalsByMax(
+                    summary.supportStationedTotals,
+                    supportStationedTotals
+                );
+                syncSupportTotalsFromBreakdown(summary);
+            }
+        } catch (error) {
+            console.warn('[TW] Erro ao carregar visao de suporte:', error);
+        }
 
         return enrichTroopsSummaryWithScavenging(summary);
     }
