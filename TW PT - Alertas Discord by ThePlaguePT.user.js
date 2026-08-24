@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.60
+// @version      1.3.61
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    console.log('[TW Discord Alerts] Versao 1.3.60 carregada');
+    console.log('[TW Discord Alerts] Versao 1.3.61 carregada');
 
     const DEFAULT_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
     const DEFAULT_ATTACKS_WEBHOOK = 'COLOCA_O_WEBHOOK_AQUI';
@@ -2888,10 +2888,13 @@
 
     function parseTroopRowTotalsByUnitCells(row) {
         const rowTotals = createTroopTotals();
+        const detectedUnits = new Set();
 
         Array.from(row ? row.children : []).forEach(cell => {
             const unitKey = detectTroopUnitKey(cell);
             if (!unitKey) return;
+
+            detectedUnits.add(unitKey);
 
             const value = parseSafeTroopCellNumber(cell.innerText || cell.textContent || '');
             if (value > 0) {
@@ -2899,7 +2902,18 @@
             }
         });
 
-        return rowTotals;
+        return {
+            totals: rowTotals,
+            detectedCount: detectedUnits.size
+        };
+    }
+
+    function getDirectUnitCellMinCount(columns) {
+        const columnCount = Number(columns && columns.length || 0);
+
+        if (!columnCount) return 4;
+
+        return Math.max(3, Math.min(6, Math.ceil(columnCount * 0.45)));
     }
 
     function isLikelyTroopValueCell(cell) {
@@ -2935,9 +2949,12 @@
     }
 
     function parsePlaceTroopRowTotals(row, columns) {
-        const unitCellTotals = parseTroopRowTotalsByUnitCells(row);
-        if (hasTroopValues(unitCellTotals)) {
-            return unitCellTotals;
+        const unitCellResult = parseTroopRowTotalsByUnitCells(row);
+        if (
+            unitCellResult.detectedCount >= getDirectUnitCellMinCount(columns) &&
+            hasTroopValues(unitCellResult.totals)
+        ) {
+            return unitCellResult.totals;
         }
 
         const normalTotals = parseTroopRowTotals(row, columns);
@@ -2987,6 +3004,34 @@
     function mergeTroopTotalsByMax(first, second) {
         const totals = cloneTroopTotals(first || {});
         maxTroopTotals(totals, second || {});
+        return totals;
+    }
+
+    function filterTroopTotals(source, allowedUnits) {
+        const totals = createTroopTotals();
+
+        (allowedUnits || []).forEach(unitKey => {
+            totals[unitKey] = Number(source && source[unitKey] || 0);
+        });
+
+        return totals;
+    }
+
+    function getDefenseTroopTotals(source) {
+        return filterTroopTotals(source || {}, TROOP_DEFENSE_UNITS);
+    }
+
+    function mergeDefenseTroopTotalsByMax(first, second) {
+        const totals = getDefenseTroopTotals(first || {});
+        const otherTotals = getDefenseTroopTotals(second || {});
+
+        TROOP_DEFENSE_UNITS.forEach(unitKey => {
+            totals[unitKey] = Math.max(
+                Number(totals[unitKey] || 0),
+                Number(otherTotals[unitKey] || 0)
+            );
+        });
+
         return totals;
     }
 
@@ -3427,7 +3472,7 @@
     function isTroopSummaryDefenseReliable(summary) {
         return Boolean(
             isTroopSummaryOverviewReliable(summary) &&
-            hasTroopValues(summary.defenseTotals || {})
+            hasTroopValues(getDefenseTroopTotals(summary.defenseTotals || {}))
         );
     }
 
@@ -3973,7 +4018,7 @@
             }
 
             if (!village.hasDefenseRow && isHomeAvailableTroopOverviewRow(rowText)) {
-                village.defenseTotals = rowTotals;
+                village.defenseTotals = getDefenseTroopTotals(rowTotals);
                 village.hasDefenseRow = true;
             }
 
@@ -4007,7 +4052,7 @@
 
                 addTroopTotals(totals, village.totals);
                 addTroopTotals(attackTotals, village.attackTotals);
-                addTroopTotals(defenseTotals, village.defenseTotals);
+                addTroopTotals(defenseTotals, getDefenseTroopTotals(village.defenseTotals));
                 return village;
             });
 
@@ -4055,7 +4100,7 @@
                     : undefined
             });
         });
-        const overviewDefenseTotals = cloneTroopTotals(summary.defenseTotals);
+        const overviewDefenseTotals = getDefenseTroopTotals(summary.defenseTotals);
         const hasOverviewDefenseTotals = hasTroopValues(overviewDefenseTotals);
         const expectedVillageCount = getTroopScanExpectedVillageCount(summary, originalVillages.length);
 
@@ -4090,6 +4135,7 @@
                 }
 
                 const homeTotals = parseHomeDefenseTroopTotals(doc);
+                const homeDefenseTotals = getDefenseTroopTotals(homeTotals);
                 const scavengingTotals = parseScavengingTroopTotals(doc);
                 const transitTotals = parseTransitTroopTotals(doc);
                 const placeTotals = createTroopTotals();
@@ -4099,7 +4145,7 @@
                     village.attackTotals || village.totals || {}
                 );
 
-                addTroopTotals(defenseTotals, homeTotals);
+                addTroopTotals(defenseTotals, homeDefenseTotals);
                 addTroopTotals(placeTotals, homeTotals);
                 addTroopTotals(placeTotals, scavengingTotals);
                 addTroopTotals(placeTotals, transitTotals);
@@ -4153,14 +4199,14 @@
             summary.totals = rebuiltTotals;
             summary.attackTotals = rebuiltAttackTotals;
             summary.defenseTotals = hasOverviewDefenseTotals
-                ? mergeTroopTotalsByMax(overviewDefenseTotals, rebuiltDefenseTotals)
-                : rebuiltDefenseTotals;
+                ? mergeDefenseTroopTotalsByMax(overviewDefenseTotals, rebuiltDefenseTotals)
+                : getDefenseTroopTotals(rebuiltDefenseTotals);
             summary.villages = rebuiltVillages;
             summary.placeScanIncomplete = false;
         } else {
             summary.totals = cloneTroopTotals(summary.totals);
             summary.attackTotals = cloneTroopTotals(summary.attackTotals);
-            summary.defenseTotals = overviewDefenseTotals;
+            summary.defenseTotals = getDefenseTroopTotals(overviewDefenseTotals);
             summary.villages = originalVillages;
             summary.placeScanIncomplete = true;
             console.warn('[TW] Leitura da Praca de Reunioes ignorada por estar incompleta:', rebuiltVillages.length, '/', expectedVillageCount);
@@ -4281,7 +4327,7 @@
     }
 
     function buildSimpleDefenseTroopSummaryEmbed(summary) {
-        const totals = summary.defenseTotals || {};
+        const totals = getDefenseTroopTotals(summary.defenseTotals || {});
         const lines = [
             `🔱 Lanceiros: **${formatTroopNumber(totals.spear)}**`,
             `🗡️ Espadachins: **${formatTroopNumber(totals.sword)}**`
@@ -4506,6 +4552,14 @@
         }
 
         summary.defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
+        console.log('[TW] Defesa disponivel lida:', {
+            fonte: summary.placeScanIncomplete
+                ? 'Visao geral de tropas'
+                : 'Visao geral de tropas + Praca de Reunioes',
+            aldeiasVisaoGeral: summary.parsedVillageCount,
+            aldeiasPraca: summary.placeVillageCount,
+            unidades: getDefenseTroopTotals(summary.defenseTotals || {})
+        });
 
         const embed = buildSimpleDefenseTroopSummaryEmbed(summary);
 
