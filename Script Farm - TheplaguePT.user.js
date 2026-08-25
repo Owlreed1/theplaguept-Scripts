@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.4.0
+// @version      1.5.0
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,8 +20,13 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.4.0';
+    var SCRIPT_VERSION = '1.5.0';
     var WORLD_SCOPE = obterEscopoMundo();
+    var MODULOS_ATIVOS = Object.freeze({
+        gestaoRondas: false,
+        mapaEspionagem: false,
+        muralhas: false
+    });
 
     if (window.__autoFarmAController) {
         var controladorExistente = window.__autoFarmAController;
@@ -39,6 +44,7 @@
         nome: SCRIPT_NAME,
         versao: SCRIPT_VERSION,
         mundo: WORLD_SCOPE,
+        modulos: MODULOS_ATIVOS,
         iniciadoEm: Date.now()
     };
 
@@ -146,6 +152,8 @@
     var timers = new Set();
     var watchdogTimer = null;
     var workerHeartbeatTimer = null;
+    var workerSupervisorTimer = null;
+    var workerWindowRef = null;
     var tabId = Date.now() + '-' + Math.random().toString(36).slice(2);
     var observador = null;
     var botao = null;
@@ -415,7 +423,7 @@
         resultado.esgotarEnviosAntesMudar = Boolean(
             resultado.esgotarEnviosAntesMudar
         );
-        resultado.voltarAoAssistente = Boolean(resultado.voltarAoAssistente);
+        resultado.voltarAoAssistente = true;
         resultado.atualizarEmErros = Boolean(resultado.atualizarEmErros);
 
         return resultado;
@@ -535,7 +543,7 @@
                 '</fieldset>',
                 '<fieldset class="af-card">',
                     '<legend>Automação</legend>',
-                    '<label class="af-check"><input id="af-voltar-assistente" type="checkbox"> Abrir o Assistente de Saque num separador de trabalho</label>',
+                    '<label class="af-check"><input id="af-voltar-assistente" type="checkbox" checked disabled> Assistente de Saque num separador de trabalho (Ponto 1)</label>',
                     '<label class="af-check"><input id="af-mudar-sem-tropas" type="checkbox"> Avançar imediatamente quando não houver tropas</label>',
                     '<label class="af-check"><input id="af-mudar-sem-alvos" type="checkbox"> Avançar quando não houver alvos válidos</label>',
                     '<label class="af-check"><input id="af-esgotar-envios" type="checkbox"> Só mudar depois de esgotar todos os envios possíveis</label>',
@@ -664,7 +672,7 @@
             'af-pausa-rondas',
             CONFIG.pausaEntreRondas / 1000
         );
-        definirCheckbox('af-voltar-assistente', CONFIG.voltarAoAssistente);
+        definirCheckbox('af-voltar-assistente', true);
         definirCheckbox('af-mudar-sem-tropas', CONFIG.mudarSemTropas);
         definirCheckbox('af-mudar-sem-alvos', CONFIG.mudarSemAlvos);
         definirCheckbox(
@@ -786,7 +794,7 @@
             intervaloAtaque: lerValor('af-intervalo-base'),
             limiteSemProgresso: Number(lerValor('af-sem-progresso')) * 1000,
             esperaProximaAldeia: lerValor('af-pausa-aldeia'),
-            voltarAoAssistente: lerCheckbox('af-voltar-assistente'),
+            voltarAoAssistente: true,
             mudarSemTropas: lerCheckbox('af-mudar-sem-tropas'),
             mudarSemAlvos: lerCheckbox('af-mudar-sem-alvos'),
             esgotarEnviosAntesMudar: lerCheckbox('af-esgotar-envios'),
@@ -1177,16 +1185,6 @@
             evento.preventDefault();
             evento.stopPropagation();
 
-            if (
-                estaLigado() &&
-                !estaNoAssistenteFarm() &&
-                CONFIG.voltarAoAssistente &&
-                !workerEstaAtivo()
-            ) {
-                abrirAssistenteEmSeparador();
-                return;
-            }
-
             var ligar = !estaLigado();
             localStorage.setItem(STORAGE_KEY, ligar ? '1' : '0');
             pararExecucao();
@@ -1194,8 +1192,9 @@
 
             if (ligar) {
                 atualizarBotao('A iniciar…');
-                if (!estaNoAssistenteFarm() && CONFIG.voltarAoAssistente) {
+                if (!estaNoAssistenteFarm()) {
                     abrirAssistenteEmSeparador();
+                    iniciarSupervisaoWorker();
                 } else {
                     agendar(executarControlador, 100);
                 }
@@ -1293,11 +1292,7 @@
         }
 
         if (!estaNoAssistenteFarm()) {
-            if (!CONFIG.voltarAoAssistente) {
-                atualizarBotao('Ativo — separador de trabalho desativado');
-                return;
-            }
-
+            iniciarSupervisaoWorker();
             if (workerEstaAtivo()) {
                 atualizarBotao('A trabalhar noutro separador');
             } else {
@@ -1310,16 +1305,21 @@
             !(CONFIG.modeloAtivo && (
                 CONFIG.modeloAAtivo || CONFIG.modeloBAtivo
             )) &&
-            !CONFIG.modeloCComInfoAtivo &&
-            !CONFIG.mapearNovasBarbaras &&
-            !CONFIG.demolirMuralhas
+            !CONFIG.modeloCComInfoAtivo
         ) {
-            atualizarBotao('Farm e reconhecimento desativados nas definições');
+            atualizarBotao('Modelos A/B/C desativados nas definições');
             return;
         }
 
         if (!iniciarSinalWorker()) {
             atualizarBotao('Em pausa — outro separador AF já está ativo');
+            return;
+        }
+
+        if (!MODULOS_ATIVOS.gestaoRondas) {
+            atualizarBotao('Núcleo P1 — a carregar o Assistente…');
+            armarWatchdog();
+            esperarInterface(Date.now());
             return;
         }
 
@@ -1380,7 +1380,11 @@
     function criarUrlAssistenteFarm() {
         var url = new URL(window.location.href);
         url.searchParams.set('screen', 'am_farm');
-        url.searchParams.set('group', String(CONFIG.grupoFarmId));
+        if (MODULOS_ATIVOS.gestaoRondas) {
+            url.searchParams.set('group', String(CONFIG.grupoFarmId));
+        } else {
+            url.searchParams.delete('group');
+        }
         url.searchParams.delete('mode');
         url.searchParams.delete('action');
         url.searchParams.delete('page');
@@ -1623,7 +1627,9 @@
             return false;
         }
 
+        workerWindowRef = separador;
         atualizarBotao('Assistente aberto noutro separador');
+        iniciarSupervisaoWorker();
 
         try {
             window.focus();
@@ -1632,6 +1638,52 @@
         }
 
         return true;
+    }
+
+    function iniciarSupervisaoWorker() {
+        if (estaNoAssistenteFarm() || workerSupervisorTimer !== null) {
+            return;
+        }
+
+        workerSupervisorTimer = window.setInterval(
+            supervisionarWorker,
+            2000
+        );
+        supervisionarWorker();
+    }
+
+    function pararSupervisaoWorker() {
+        if (workerSupervisorTimer !== null) {
+            window.clearInterval(workerSupervisorTimer);
+            workerSupervisorTimer = null;
+        }
+        workerWindowRef = null;
+    }
+
+    function supervisionarWorker() {
+        if (!estaLigado() || estaNoAssistenteFarm()) {
+            pararSupervisaoWorker();
+            return;
+        }
+
+        if (workerWindowRef && workerWindowRef.closed) {
+            workerWindowRef = null;
+            localStorage.removeItem(WORKER_KEY);
+            atualizarBotao('Worker fechado — desliga e liga para reabrir');
+            return;
+        }
+
+        if (workerEstaAtivo()) {
+            var sinal = lerSinalWorker();
+            atualizarBotao(
+                sinal && sinal.estado
+                    ? 'Worker: ' + sinal.estado
+                    : 'A trabalhar noutro separador'
+            );
+            return;
+        }
+
+        atualizarBotao('Worker ausente — desliga e liga para reabrir');
     }
 
     function workerEstaAtivo() {
@@ -1803,7 +1855,11 @@
         tiposSemTropas.batedor = false;
         ultimoTipoEnviado = null;
 
-        if (CONFIG.mapearNovasBarbaras && !mapaProcessadoNesteCiclo) {
+        if (
+            MODULOS_ATIVOS.mapaEspionagem &&
+            CONFIG.mapearNovasBarbaras &&
+            !mapaProcessadoNesteCiclo
+        ) {
             mapaProcessadoNesteCiclo = true;
             cancelarTimer(watchdogTimer);
             watchdogTimer = null;
@@ -1846,7 +1902,14 @@
             return;
         }
 
-        var planoMuralhas = criarPlanoDemolicaoMuralhas();
+        var planoMuralhas = MODULOS_ATIVOS.muralhas
+            ? criarPlanoDemolicaoMuralhas()
+            : {
+                tarefas: [],
+                bloqueadasSemTropas: 0,
+                vikingsDisponiveis: null,
+                arietesDisponiveis: null
+            };
         if (planoMuralhas.tarefas.length > 0) {
             cancelarTimer(watchdogTimer);
             watchdogTimer = null;
@@ -1913,7 +1976,10 @@
                 return;
             }
 
-            if (CONFIG.mapearNovasBarbaras) {
+            if (
+                MODULOS_ATIVOS.mapaEspionagem &&
+                CONFIG.mapearNovasBarbaras
+            ) {
                 finalizarListaComMapa(0, 0);
                 return;
             }
@@ -2043,7 +2109,11 @@
     }
 
     function finalizarListaComMapa(enviosPrincipais, batedoresDaLista) {
-        if (!CONFIG.mapearNovasBarbaras || mapaProcessadoNesteCiclo) {
+        if (
+            !MODULOS_ATIVOS.mapaEspionagem ||
+            !CONFIG.mapearNovasBarbaras ||
+            mapaProcessadoNesteCiclo
+        ) {
             mudarAldeia(
                 'Farm: ' + enviosPrincipais +
                 ' | Batedores: ' + batedoresDaLista
@@ -2824,7 +2894,11 @@
     }
 
     function criarPlanoDemolicaoMuralhas() {
-        if (!CONFIG.demolirMuralhas || demolicaoBloqueadaNesteCiclo) {
+        if (
+            !MODULOS_ATIVOS.muralhas ||
+            !CONFIG.demolirMuralhas ||
+            demolicaoBloqueadaNesteCiclo
+        ) {
             return {
                 tarefas: [],
                 bloqueadasSemTropas: 0,
@@ -3962,6 +4036,13 @@
             return;
         }
 
+        if (!MODULOS_ATIVOS.gestaoRondas) {
+            limparTimers();
+            desligarObservador();
+            atualizarBotao(motivo + ' — Ponto 1 concluído nesta aldeia');
+            return;
+        }
+
         if (
             CONFIG.esgotarEnviosAntesMudar &&
             existemEnviosPossiveisAgora()
@@ -4177,15 +4258,10 @@
             } else if (
                 evento.key === WORKER_KEY &&
                 estaLigado() &&
-                !estaNoAssistenteFarm() &&
-                workerEstaAtivo()
+                !estaNoAssistenteFarm()
             ) {
-                var sinal = lerSinalWorker();
-                atualizarBotao(
-                    sinal && sinal.estado
-                        ? 'Worker: ' + sinal.estado
-                        : 'A trabalhar noutro separador'
-                );
+                iniciarSupervisaoWorker();
+                supervisionarWorker();
             } else if (
                 evento.key === WORKER_KEY &&
                 estaLigado() &&
@@ -4324,6 +4400,7 @@
         limparTimers();
         desligarObservador();
         pararSinalWorker(true);
+        pararSupervisaoWorker();
         aMudarAldeia = false;
         aRecuperar = false;
     }
