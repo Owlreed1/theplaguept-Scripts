@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         TW PT AutoFarm - ThePlaguePT
+// @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.0.0
+// @version      1.0.1
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -9,8 +9,8 @@
 // @include      *://*.tribalwars.*/game.php*
 // @homepageURL  https://github.com/ThePlaguePT/TribalWars-Scripts
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
-// @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20AutoFarm%20-%20ThePlaguePT.user.js
-// @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20AutoFarm%20-%20ThePlaguePT.user.js
+// @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20AutoFarm%20-%20ThePlaguePT.user.js
+// @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20AutoFarm%20-%20ThePlaguePT.user.js
 // @grant        none
 // @run-at       document-idle
 // @noframes
@@ -23,11 +23,11 @@
     if (window.__twPtAutoFarm) return;
 
     const APP = Object.freeze({
-        name: 'TW PT AutoFarm - ThePlaguePT',
-        shortName: 'TW PT AutoFarm',
-        version: '1.0.0',
+        name: 'TW PT - AutoFarm - ThePlaguePT',
+        shortName: 'TW PT - AutoFarm',
+        version: '1.0.1',
         id: 'twPtAutoFarm',
-        buttonId: 'twPtAutoFarm-launcher',
+        buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
         toolbarStyleId: 'tp-theplaguept-script-bar-style',
         styleId: 'twPtAutoFarm-style',
@@ -124,8 +124,14 @@
         button.id = APP.buttonId;
         button.className = 'tp-theplaguept-script-bar-item';
         button.type = 'button';
-        button.innerHTML = '<span aria-hidden="true">AF</span>';
-        button.addEventListener('click', () => {
+        button.innerHTML = `
+            <span class="auto-farm-a-launcher-icon">SF</span>
+            <span data-auto-farm-dot aria-hidden="true"></span>
+            <span data-auto-farm-countdown hidden></span>
+        `;
+        button.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
             if (isEnabled()) {
                 disable();
             } else {
@@ -164,10 +170,13 @@
         style.id = APP.styleId;
         style.textContent = `
             #${APP.toolbarId}>#${APP.buttonId}{order:90!important;position:relative!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;padding:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 10px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;cursor:pointer!important;overflow:visible!important}
-            #${APP.toolbarId}>#${APP.buttonId}[data-state="on"]{background:linear-gradient(to bottom,#5f9f3d,#3f7c27 55%,#28551a)!important}
-            #${APP.toolbarId}>#${APP.buttonId}[data-state="waiting"]{background:linear-gradient(to bottom,#d49a33,#aa6d18 55%,#74450d)!important}
-            #${APP.toolbarId}>#${APP.buttonId}[data-state="error"]{background:linear-gradient(to bottom,#d14a42,#a51e1a 55%,#6e100d)!important;animation:${APP.id}-pulse 1.2s ease-in-out infinite alternate}
+            #${APP.toolbarId}>#${APP.buttonId}.af-ligado{background:linear-gradient(to bottom,#5f9f3d,#3f7c27 55%,#28551a)!important}
             #${APP.toolbarId}>#${APP.buttonId}:hover,#${APP.toolbarId}>#${APP.buttonId}:focus-visible{filter:brightness(1.18)!important}
+            #${APP.buttonId} .auto-farm-a-launcher-icon{display:block!important;line-height:26px!important}
+            #${APP.buttonId} [data-auto-farm-dot]{position:absolute!important;right:2px!important;bottom:2px!important;width:6px!important;height:6px!important;border:1px solid #2b1509!important;border-radius:50%!important;background:#ff6b6b!important;box-shadow:0 0 2px #000!important}
+            #${APP.buttonId}.af-ligado [data-auto-farm-dot]{background:#7cfc00!important}
+            #${APP.buttonId} [data-auto-farm-countdown]{position:absolute!important;display:block!important;top:31px!important;left:50%!important;transform:translateX(-50%)!important;min-width:46px!important;padding:3px 5px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 10px Verdana,Arial,sans-serif!important;line-height:13px!important;text-align:center!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 5px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
+            #${APP.buttonId} [data-auto-farm-countdown][hidden]{display:none!important}
             #${APP.toolbarId}>#${APP.buttonId}::after{content:attr(data-tp-title);position:absolute!important;display:none!important;top:33px!important;left:50%!important;transform:translateX(-50%)!important;min-width:max-content!important;max-width:380px!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
             #${APP.toolbarId}>#${APP.buttonId}:hover::after,#${APP.toolbarId}>#${APP.buttonId}:focus-visible::after{display:block!important}
             #${APP.statusId}{margin:8px 0;padding:7px 10px;border:1px solid #c1a264;background:#f4e4b8;color:#3b260f;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}
@@ -177,7 +186,6 @@
             #${APP.statusId}[data-state="duplicate"] [data-role="state"],#${APP.statusId}[data-state="waiting"] [data-role="state"]{color:#9a5b0b}
             #${APP.statusId}[data-state="off"] [data-role="state"]{color:#8a1c17}
             #${APP.statusId} small{display:block;margin-top:3px;color:#84683a}
-            @keyframes ${APP.id}-pulse{from{filter:brightness(.9)}to{filter:brightness(1.25)}}
         `;
         (document.head || document.documentElement).appendChild(style);
     }
@@ -407,6 +415,7 @@
 
         if (state.button) {
             state.button.dataset.state = visualState;
+            state.button.classList.toggle('af-ligado', enabled);
             state.button.dataset.tpTitle = `${APP.name}: ${label}. Clique para ${enabled ? 'desligar' : 'ligar'}.`;
             state.button.setAttribute('aria-label', state.button.dataset.tpTitle);
             state.button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
