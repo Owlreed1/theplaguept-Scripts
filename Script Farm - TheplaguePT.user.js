@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Script Farm - TheplaguePT
 // @namespace    theplaguept.tw.script-farm
-// @version      1.5.0
+// @version      1.6.0
 // @description  Automação configurável do Assistente de Saque para Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'Script Farm - TheplaguePT';
-    var SCRIPT_VERSION = '1.5.0';
+    var SCRIPT_VERSION = '1.6.0';
     var WORLD_SCOPE = obterEscopoMundo();
     var MODULOS_ATIVOS = Object.freeze({
         gestaoRondas: false,
@@ -77,6 +77,11 @@
         modeloAtivo: true,
         modelo: 'a',
         modeloAAtivo: true,
+        modeloALimiteDistancia: false,
+        modeloADistanciaMaxima: 50,
+        modeloASaqueTotal: true,
+        modeloASaqueParcial: true,
+        modeloAMaxEnviosAlvo: 1,
         modeloASemEspionagem: false,
         coresModeloA: {
             azul: true,
@@ -88,6 +93,11 @@
             semCor: false
         },
         modeloBAtivo: true,
+        modeloBLimiteDistancia: false,
+        modeloBDistanciaMaxima: 50,
+        modeloBSaqueTotal: true,
+        modeloBSaqueParcial: true,
+        modeloBMaxEnviosAlvo: 1,
         modeloBSemEspionagem: true,
         coresModeloB: {
             azul: false,
@@ -100,6 +110,13 @@
         },
         criterioPrioridade: 'distancia',
         prioridadeModelos: 'a-b-c',
+        modeloCAtivo: true,
+        modeloCLimiteDistancia: false,
+        modeloCDistanciaMaxima: 50,
+        modeloCSaqueTotal: true,
+        modeloCSaqueParcial: true,
+        modeloCMaxEnviosAlvo: 1,
+        permitirMultiplosAtaquesAlvo: false,
         modeloCComInfoAtivo: true,
         maxAtaquesPorAldeia: 50,
         batedorModeloBAtivo: false,
@@ -268,6 +285,30 @@
             }
         }
 
+        if (!Object.prototype.hasOwnProperty.call(guardada, 'modeloCAtivo')) {
+            guardada.modeloCAtivo = Object.prototype.hasOwnProperty.call(
+                guardada,
+                'modeloCComInfoAtivo'
+            ) ? Boolean(guardada.modeloCComInfoAtivo) : true;
+        }
+        if (!Object.prototype.hasOwnProperty.call(
+            guardada,
+            'permitirMultiplosAtaquesAlvo'
+        )) {
+            guardada.permitirMultiplosAtaquesAlvo =
+                guardada.ignorarAtacados === false;
+        }
+        ['A', 'B', 'C'].forEach(function (modelo) {
+            var chaveLimite = 'modelo' + modelo + 'LimiteDistancia';
+            var chaveDistancia = 'modelo' + modelo + 'DistanciaMaxima';
+            if (!Object.prototype.hasOwnProperty.call(guardada, chaveLimite)) {
+                guardada[chaveLimite] = Boolean(guardada.limiteDistanciaAtivo);
+            }
+            if (!Object.prototype.hasOwnProperty.call(guardada, chaveDistancia)) {
+                guardada[chaveDistancia] = Number(guardada.distanciaMaxima) || 50;
+            }
+        });
+
         return normalizarConfiguracao(
             Object.assign({}, CONFIG_PADRAO, guardada)
         );
@@ -282,7 +323,41 @@
 
         resultado.modeloAtivo = Boolean(resultado.modeloAtivo);
         resultado.modelo = resultado.modelo === 'b' ? 'b' : 'a';
-        resultado.modeloAAtivo = Boolean(resultado.modeloAAtivo);
+        ['A', 'B', 'C'].forEach(function (modelo) {
+            var prefixo = 'modelo' + modelo;
+            resultado[prefixo + 'Ativo'] = Boolean(
+                resultado[prefixo + 'Ativo']
+            );
+            resultado[prefixo + 'LimiteDistancia'] = Boolean(
+                resultado[prefixo + 'LimiteDistancia']
+            );
+            resultado[prefixo + 'DistanciaMaxima'] = limitarNumero(
+                resultado[prefixo + 'DistanciaMaxima'],
+                1,
+                1000,
+                CONFIG_PADRAO[prefixo + 'DistanciaMaxima']
+            );
+            resultado[prefixo + 'SaqueTotal'] = Boolean(
+                resultado[prefixo + 'SaqueTotal']
+            );
+            resultado[prefixo + 'SaqueParcial'] = Boolean(
+                resultado[prefixo + 'SaqueParcial']
+            );
+            resultado[prefixo + 'MaxEnviosAlvo'] = limitarNumero(
+                resultado[prefixo + 'MaxEnviosAlvo'],
+                1,
+                50,
+                CONFIG_PADRAO[prefixo + 'MaxEnviosAlvo']
+            );
+        });
+        resultado.modeloAtivo = Boolean(
+            resultado.modeloAAtivo ||
+            resultado.modeloBAtivo ||
+            resultado.modeloCAtivo
+        );
+        resultado.permitirMultiplosAtaquesAlvo = Boolean(
+            resultado.permitirMultiplosAtaquesAlvo
+        );
         resultado.modeloASemEspionagem = Boolean(
             resultado.modeloASemEspionagem
         );
@@ -307,10 +382,7 @@
                 resultado.coresModeloB[cor] = false;
             }
         });
-        resultado.criterioPrioridade =
-            resultado.criterioPrioridade === 'modelo'
-                ? 'modelo'
-                : 'distancia';
+        resultado.criterioPrioridade = 'distancia';
         var prioridadesValidas = [
             'a-b-c', 'a-c-b', 'b-a-c',
             'b-c-a', 'c-a-b', 'c-b-a'
@@ -337,9 +409,7 @@
                 resultado.coresRelatorio[cor]
             );
         });
-        resultado.modeloCComInfoAtivo = Boolean(
-            resultado.modeloCComInfoAtivo
-        );
+        resultado.modeloCComInfoAtivo = resultado.modeloCAtivo;
         resultado.maxAtaquesPorAldeia = limitarNumero(
             resultado.maxAtaquesPorAldeia,
             1,
@@ -412,7 +482,7 @@
             60000,
             CONFIG_PADRAO.esperaProximaAldeia
         );
-        resultado.ignorarAtacados = Boolean(resultado.ignorarAtacados);
+        resultado.ignorarAtacados = !resultado.permitirMultiplosAtaquesAlvo;
         resultado.batedorModeloBAtivo = Boolean(resultado.batedorModeloBAtivo);
         resultado.mapearNovasBarbaras = Boolean(resultado.mapearNovasBarbaras);
         resultado.demolirMuralhas = Boolean(resultado.demolirMuralhas);
@@ -456,108 +526,46 @@
 
         var painel = document.createElement('section');
         painel.id = SETTINGS_ID;
-        painel.innerHTML = [
+        painel.innerHTML = criarHtmlPainelPonto2();
+
+        referencia.parentNode.insertBefore(painel, referencia);
+        preencherPainelDefinicoes();
+        ligarEventosDefinicoes();
+    }
+
+    function criarHtmlPainelPonto2() {
+        return [
             '<div class="af-settings-title">',
                 '<div><strong>Script Farm — TheplaguePT</strong>',
-                '<span>As alterações ficam guardadas neste mundo.</span></div>',
+                '<span>Ponto 2 — modelos de farm. Guardado apenas neste mundo.</span></div>',
                 '<span class="af-version">v' + SCRIPT_VERSION + '</span>',
             '</div>',
-            '<div class="af-settings-grid">',
-                '<fieldset class="af-card">',
-                    '<legend>Filtros gerais</legend>',
-                    '<label class="af-check"><input id="af-modelo-ativo" type="checkbox"> Ativar envios automáticos A/B</label>',
-                    '<label class="af-check af-modelo-c-toggle"><input id="af-modelo-c-info" type="checkbox"> Ativar Modelo C automático</label>',
-                    '<small>Desmarca esta opção para nunca enviar o Modelo C. Quando ativa, uma aldeia com relatório disponível recebe apenas C.</small>',
-                    '<label>Critério principal<select id="af-criterio-prioridade"><option value="distancia">Distância primeiro</option><option value="modelo">Modelos primeiro</option></select></label>',
-                    '<label>Ordem dos modelos<select id="af-prioridade-modelos"><option value="a-b-c">A → B → C</option><option value="a-c-b">A → C → B</option><option value="b-a-c">B → A → C</option><option value="b-c-a">B → C → A</option><option value="c-a-b">C → A → B</option><option value="c-b-a">C → B → A</option></select></label>',
-                    '<small>Com distância primeiro, a ordem resolve empates. Com modelos primeiro, percorre a ordem escolhida e mantém os alvos mais próximos primeiro dentro de cada modelo.</small>',
-                    '<div class="af-inline">',
-                        '<label class="af-check"><input id="af-limite-muralha" type="checkbox"> Limitar muralha</label>',
-                        '<label class="af-compact">Nível máximo<input id="af-muralha-max" type="number" min="0" max="20" step="1"></label>',
+            '<div class="af-section-heading"><strong>Modelos</strong>',
+                '<span>A distância é sempre calculada a partir da aldeia atual.</span>',
+            '</div>',
+            '<div class="af-p2-models">',
+                criarCartaoModeloPainel('a', 'Modelo A'),
+                criarCartaoModeloPainel('b', 'Modelo B'),
+                criarCartaoModeloPainel('c', 'Modelo C'),
+            '</div>',
+            '<div class="af-p2-bottom">',
+                '<fieldset class="af-card af-general-card">',
+                    '<legend>Definições gerais</legend>',
+                    '<div class="af-general-grid">',
+                        '<label>Prioridade dos modelos<select id="af-prioridade-modelos"><option value="a-b-c">A → B → C</option><option value="a-c-b">A → C → B</option><option value="b-a-c">B → A → C</option><option value="b-c-a">B → C → A</option><option value="c-a-b">C → A → B</option><option value="c-b-a">C → B → A</option></select></label>',
+                        '<label>Tempo base entre ataques (ms)<input id="af-intervalo-base" type="number" min="250" max="60000" step="10"></label>',
                     '</div>',
-                    '<div class="af-inline">',
-                        '<label class="af-check"><input id="af-limite-distancia" type="checkbox"> Limitar distância</label>',
-                        '<label class="af-compact">Campos máximos<input id="af-distancia-max" type="number" min="1" max="1000" step="1"></label>',
-                    '</div>',
-                    '<label class="af-check"><input id="af-ignorar-atacados" type="checkbox"> Ignorar aldeias com ataque em curso</label>',
+                    '<label class="af-check af-wide-check"><input id="af-multiplos-alvo" type="checkbox"> Permitir mais do que um ataque à mesma aldeia</label>',
+                    '<small>Os alvos mais próximos têm sempre prioridade. A ordem escolhida decide qual modelo é enviado. O tempo aplicado varia automaticamente ±10%.</small>',
                 '</fieldset>',
-                '<fieldset class="af-card af-modelos-card">',
-                    '<legend>Regras dos Modelos A e B</legend>',
-                    '<div class="af-modelos-grid">',
-                        '<section class="af-modelo-regra af-modelo-a">',
-                            '<h4><b>A</b> Modelo A — Farm</h4>',
-                            '<label class="af-check"><input id="af-modelo-a-ativo" type="checkbox"> Ativar Modelo A</label>',
-                            '<label class="af-check"><input id="af-modelo-a-sem-info" data-af-modelo-setting="a" type="checkbox"> Permitir A sem espionagem</label>',
-                            '<span class="af-subtitle">Bolinhas atribuídas ao A</span>',
-                            '<div class="af-report-grid">',
-                                '<label><input id="af-a-cor-azul" data-af-modelo-cor="a" data-af-cor="azul" type="checkbox"><i class="af-dot af-dot-blue"></i> Azul</label>',
-                                '<label><input id="af-a-cor-verde" data-af-modelo-cor="a" data-af-cor="verde" type="checkbox"><i class="af-dot af-dot-green"></i> Verde</label>',
-                                '<label><input id="af-a-cor-amarelo" data-af-modelo-cor="a" data-af-cor="amarelo" type="checkbox"><i class="af-dot af-dot-yellow"></i> Amarelo</label>',
-                                '<label><input id="af-a-cor-vermelho" data-af-modelo-cor="a" data-af-cor="vermelho" type="checkbox"><i class="af-dot af-dot-red"></i> Vermelho</label>',
-                                '<label><input id="af-a-cor-vermelho-azul" data-af-modelo-cor="a" data-af-cor="vermelhoAzul" type="checkbox"><i class="af-dot af-dot-red-blue"></i> Verm./azul</label>',
-                                '<label><input id="af-a-cor-vermelho-amarelo" data-af-modelo-cor="a" data-af-cor="vermelhoAmarelo" type="checkbox"><i class="af-dot af-dot-red-yellow"></i> Verm./amar.</label>',
-                                '<label><input id="af-a-cor-sem" data-af-modelo-cor="a" data-af-cor="semCor" type="checkbox"><i class="af-dot af-dot-none">?</i> Sem bolinha</label>',
-                            '</div>',
-                            '<label data-af-modelo-setting="a">Máximo de envios A/C por aldeia<input id="af-max-ataques" type="number" min="1" max="500" step="1"></label>',
-                        '</section>',
-                        '<section class="af-modelo-regra af-modelo-b">',
-                            '<h4><b>B</b> Modelo B — Reconhecimento</h4>',
-                            '<label class="af-check"><input id="af-modelo-b-ativo" type="checkbox"> Ativar Modelo B</label>',
-                            '<label class="af-check"><input id="af-modelo-b-sem-info" data-af-modelo-setting="b" type="checkbox"> Permitir B sem espionagem</label>',
-                            '<span class="af-subtitle">Bolinhas atribuídas ao B</span>',
-                            '<div class="af-report-grid">',
-                                '<label><input id="af-b-cor-azul" data-af-modelo-cor="b" data-af-cor="azul" type="checkbox"><i class="af-dot af-dot-blue"></i> Azul</label>',
-                                '<label><input id="af-b-cor-verde" data-af-modelo-cor="b" data-af-cor="verde" type="checkbox"><i class="af-dot af-dot-green"></i> Verde</label>',
-                                '<label><input id="af-b-cor-amarelo" data-af-modelo-cor="b" data-af-cor="amarelo" type="checkbox"><i class="af-dot af-dot-yellow"></i> Amarelo</label>',
-                                '<label><input id="af-b-cor-vermelho" data-af-modelo-cor="b" data-af-cor="vermelho" type="checkbox"><i class="af-dot af-dot-red"></i> Vermelho</label>',
-                                '<label><input id="af-b-cor-vermelho-azul" data-af-modelo-cor="b" data-af-cor="vermelhoAzul" type="checkbox"><i class="af-dot af-dot-red-blue"></i> Verm./azul</label>',
-                                '<label><input id="af-b-cor-vermelho-amarelo" data-af-modelo-cor="b" data-af-cor="vermelhoAmarelo" type="checkbox"><i class="af-dot af-dot-red-yellow"></i> Verm./amar.</label>',
-                                '<label><input id="af-b-cor-sem" data-af-modelo-cor="b" data-af-cor="semCor" type="checkbox"><i class="af-dot af-dot-none">?</i> Sem bolinha</label>',
-                            '</div>',
-                            '<label data-af-modelo-setting="b">Máximo de envios B por aldeia<input id="af-max-batedores" type="number" min="1" max="500" step="1"></label>',
-                        '</section>',
-                    '</div>',
-                    '<div class="af-map-rules">',
-                        '<span class="af-subtitle">Novas bárbaras no mapa</span>',
-                        '<label>Modelo para novas do mapa<select id="af-modelo-novas"><option value="a">Modelo A</option><option value="b">Modelo B</option></select></label>',
-                        '<label class="af-check"><input id="af-mapear-novas" type="checkbox"> Procurar novas bárbaras no mapa</label>',
-                        '<div class="af-two-columns">',
-                            '<label>Raio máximo (campos)<input id="af-raio-novas" type="number" min="1" max="200" step="1"></label>',
-                            '<label>Máximo de novas bárbaras<input id="af-max-novas" type="number" min="1" max="500" step="1"></label>',
-                        '</div>',
-                    '</div>',
-                    '<small>Cada cor pertence apenas a A ou B. Ao marcar uma cor num modelo, ela é retirada do outro. O Modelo C continua prioritário quando existe espionagem. Jogadores e aldeias próprias continuam excluídos.</small>',
-                '</fieldset>',
-                '<fieldset class="af-card">',
-                    '<legend>Demolir muralhas</legend>',
-                    '<label class="af-check"><input id="af-demolir-muralhas" type="checkbox"> Atacar bárbaras com muralha conhecida</label>',
-                    '<label>Máximo de demolições por aldeia<input id="af-max-demolicoes" type="number" min="1" max="100" step="1"></label>',
-                    '<small>Envia um ataque normal com Vikings e aríetes antes do farm. A quantidade é calculada pelo nível conhecido; muralhas com “?” aguardam reconhecimento.</small>',
-                '</fieldset>',
-                '<fieldset class="af-card">',
-                    '<legend>Tempos</legend>',
-                    '<label>Tempo base entre envios (ms)<input id="af-intervalo-base" type="number" min="250" max="60000" step="10"></label>',
-                    '<small>Todos os tempos da automação recebem uma variação aleatória fixa de ±10%. Exemplo: 1000 ms resulta em 900–1100 ms.</small>',
-                    '<label>Refresh se não houver progresso (segundos)<input id="af-sem-progresso" type="number" min="10" max="300" step="1"></label>',
-                    '<label>Pausa antes da próxima aldeia (ms)<input id="af-pausa-aldeia" type="number" min="0" max="60000" step="50"></label>',
-                '</fieldset>',
-                '<fieldset class="af-card">',
-                    '<legend>Automação</legend>',
-                    '<label class="af-check"><input id="af-voltar-assistente" type="checkbox" checked disabled> Assistente de Saque num separador de trabalho (Ponto 1)</label>',
-                    '<label class="af-check"><input id="af-mudar-sem-tropas" type="checkbox"> Avançar imediatamente quando não houver tropas</label>',
-                    '<label class="af-check"><input id="af-mudar-sem-alvos" type="checkbox"> Avançar quando não houver alvos válidos</label>',
-                    '<label class="af-check"><input id="af-esgotar-envios" type="checkbox"> Só mudar depois de esgotar todos os envios possíveis</label>',
-                    '<label class="af-check"><input id="af-atualizar-erros" type="checkbox"> Atualizar e continuar após erros ou interrupções</label>',
-                    '<small>Uma verificação CAPTCHA fica sempre em pausa para resolução manual.</small>',
-                '</fieldset>',
-                '<fieldset class="af-card">',
-                    '<legend>Grupo e rondas</legend>',
-                    '<label>Grupo de aldeias<select id="af-grupo-farm"><option value="0">Todas as aldeias</option></select></label>',
-                    '<small>O script percorre exclusivamente as aldeias do grupo escolhido. Organiza no jogo um grupo apenas com as aldeias que devem farmar.</small>',
-                    '<label class="af-check"><input id="af-modo-speed" type="checkbox"> Modo Speed — pausa base de 1 segundo</label>',
-                    '<label>Pausa entre rondas (segundos)<input id="af-pausa-rondas" type="number" min="10" max="3600" step="5"></label>',
-                    '<small>No Modo Speed, a pausa configurada acima é ignorada. Depois da contagem, atualiza a página e inicia a nova ronda. A pausa recebe sempre a variação de ±10%.</small>',
-                '</fieldset>',
+                '<aside class="af-points-state">',
+                    '<strong>Implementação por pontos</strong>',
+                    '<span class="af-point-done">✓ Ponto 1 — worker independente</span>',
+                    '<span class="af-point-active">● Ponto 2 — modelos A/B/C</span>',
+                    '<span>○ Ponto 3 — mapa e espionagem</span>',
+                    '<span>○ Ponto 4 — muralhas</span>',
+                    '<span>○ Ponto 5 — grupos e rondas</span>',
+                '</aside>',
             '</div>',
             '<div class="af-settings-actions">',
                 '<span id="af-settings-message" role="status"></span>',
@@ -565,10 +573,26 @@
                 '<button id="af-settings-save" type="button" class="btn">Guardar e aplicar</button>',
             '</div>'
         ].join('');
+    }
 
-        referencia.parentNode.insertBefore(painel, referencia);
-        preencherPainelDefinicoes();
-        ligarEventosDefinicoes();
+    function criarCartaoModeloPainel(modelo, titulo) {
+        var maiuscula = modelo.toUpperCase();
+        return [
+            '<fieldset class="af-card af-p2-model af-modelo-' + modelo + '" data-af-modelo-card="' + modelo + '">',
+                '<legend><b>' + maiuscula + '</b> ' + titulo + '</legend>',
+                '<label class="af-check af-model-active"><input id="af-modelo-' + modelo + '-ativo" type="checkbox"> Ativo</label>',
+                '<div class="af-distance-row">',
+                    '<label class="af-check"><input id="af-modelo-' + modelo + '-limite-distancia" data-af-modelo-campo="' + modelo + '" type="checkbox"> Distância máxima</label>',
+                    '<input id="af-modelo-' + modelo + '-distancia" data-af-modelo-campo="' + modelo + '" type="number" min="1" max="1000" step="1" aria-label="Distância máxima do Modelo ' + maiuscula + '">',
+                '</div>',
+                '<span class="af-subtitle">Tipo de saque</span>',
+                '<div class="af-loot-types">',
+                    '<label class="af-check"><input id="af-modelo-' + modelo + '-saque-total" data-af-modelo-campo="' + modelo + '" type="checkbox"> Saque total</label>',
+                    '<label class="af-check"><input id="af-modelo-' + modelo + '-saque-parcial" data-af-modelo-campo="' + modelo + '" type="checkbox"> Saque parcial</label>',
+                '</div>',
+                '<label>Máximo de envios por alvo<input id="af-modelo-' + modelo + '-max-envios" data-af-modelo-campo="' + modelo + '" type="number" min="1" max="50" step="1"></label>',
+            '</fieldset>'
+        ].join('');
     }
 
     function injetarEstilosDefinicoes() {
@@ -621,119 +645,86 @@
             '#auto-farm-a-settings .af-settings-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:12px;padding-top:10px;border-top:1px dashed #b79a63}',
             '#auto-farm-a-settings .af-settings-actions button{padding:6px 11px;cursor:pointer}',
             '#auto-farm-a-settings #af-settings-message{margin-right:auto;font-size:11px;font-weight:bold;color:#2f6f32}',
-            '@media(max-width:900px){#auto-farm-a-settings .af-settings-grid{grid-template-columns:1fr}#auto-farm-a-settings .af-modelos-card{grid-column:auto}#auto-farm-a-settings .af-modelos-grid{grid-template-columns:1fr}#auto-farm-a-settings .af-settings-actions{flex-wrap:wrap}}'
+            '#auto-farm-a-settings .af-section-heading{display:flex;align-items:center;gap:10px;margin:0 0 8px;color:#72501f;text-transform:uppercase;letter-spacing:.08em}',
+            '#auto-farm-a-settings .af-section-heading:after{content:"";height:1px;flex:1;background:#b79a63}',
+            '#auto-farm-a-settings .af-section-heading span{order:2;font-size:10px;font-weight:normal;text-transform:none;letter-spacing:0;color:#80683f}',
+            '#auto-farm-a-settings .af-p2-models{display:grid;grid-template-columns:repeat(3,minmax(190px,1fr));gap:10px}',
+            '#auto-farm-a-settings .af-p2-model{position:relative;padding:9px 10px 7px;background:#fff4d7;transition:opacity .15s}',
+            '#auto-farm-a-settings .af-p2-model legend{display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0}',
+            '#auto-farm-a-settings .af-p2-model legend b{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;border:1px solid #4f3820;border-radius:4px;background:#6b4a2b;color:#fff;text-shadow:1px 1px #000}',
+            '#auto-farm-a-settings .af-modelo-a{border-top:3px solid #7b552d}',
+            '#auto-farm-a-settings .af-modelo-b{border-top:3px solid #3f6f9f}',
+            '#auto-farm-a-settings .af-modelo-c{border-top:3px solid #69904a}',
+            '#auto-farm-a-settings .af-model-disabled{opacity:.58}',
+            '#auto-farm-a-settings .af-model-active{position:absolute;right:10px;top:-25px;margin:0;font-weight:normal}',
+            '#auto-farm-a-settings .af-distance-row{display:grid;grid-template-columns:minmax(0,1fr) 76px;gap:8px;align-items:center;margin-bottom:8px}',
+            '#auto-farm-a-settings .af-distance-row label{margin:0}',
+            '#auto-farm-a-settings .af-distance-row input[type=number]{margin:0;height:27px}',
+            '#auto-farm-a-settings .af-loot-types{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:0 0 8px}',
+            '#auto-farm-a-settings .af-loot-types label{margin:0;padding:4px 5px;border:1px solid #d2b77e;border-radius:3px;background:#fffae9}',
+            '#auto-farm-a-settings .af-p2-bottom{display:grid;grid-template-columns:minmax(0,2fr) minmax(190px,1fr);gap:10px;margin-top:10px}',
+            '#auto-farm-a-settings .af-general-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}',
+            '#auto-farm-a-settings .af-wide-check{margin:0 0 7px;padding:6px;border:1px solid #d2b77e;border-radius:3px;background:#fffae9;font-weight:bold}',
+            '#auto-farm-a-settings .af-points-state{display:flex;flex-direction:column;gap:5px;padding:10px;border:1px solid #b79a63;border-radius:4px;background:#f9ebc4;font-size:10px}',
+            '#auto-farm-a-settings .af-points-state strong{margin-bottom:2px;font-size:11px;text-transform:uppercase}',
+            '#auto-farm-a-settings .af-point-done{color:#39763a}',
+            '#auto-farm-a-settings .af-point-active{font-weight:bold;color:#8a5416}',
+            '@media(max-width:900px){#auto-farm-a-settings .af-settings-grid{grid-template-columns:1fr}#auto-farm-a-settings .af-modelos-card{grid-column:auto}#auto-farm-a-settings .af-modelos-grid,#auto-farm-a-settings .af-p2-models,#auto-farm-a-settings .af-p2-bottom{grid-template-columns:1fr}#auto-farm-a-settings .af-settings-actions{flex-wrap:wrap}}'
         ].join('');
         document.head.appendChild(estilo);
     }
 
     function preencherPainelDefinicoes() {
-        definirCheckbox('af-modelo-ativo', CONFIG.modeloAtivo);
-        definirCheckbox('af-modelo-a-ativo', CONFIG.modeloAAtivo);
-        definirCheckbox(
-            'af-modelo-a-sem-info',
-            CONFIG.modeloASemEspionagem
-        );
-        definirCoresModeloPainel('a', CONFIG.coresModeloA);
-        definirCheckbox('af-modelo-b-ativo', CONFIG.modeloBAtivo);
-        definirCheckbox(
-            'af-modelo-b-sem-info',
-            CONFIG.modeloBSemEspionagem
-        );
-        definirCoresModeloPainel('b', CONFIG.coresModeloB);
-        definirCheckbox(
-            'af-modelo-c-info',
-            CONFIG.modeloCComInfoAtivo
-        );
-        definirValor('af-criterio-prioridade', CONFIG.criterioPrioridade);
+        ['a', 'b', 'c'].forEach(function (modelo) {
+            var maiuscula = modelo.toUpperCase();
+            var prefixo = 'modelo' + maiuscula;
+            definirCheckbox(
+                'af-modelo-' + modelo + '-ativo',
+                CONFIG[prefixo + 'Ativo']
+            );
+            definirCheckbox(
+                'af-modelo-' + modelo + '-limite-distancia',
+                CONFIG[prefixo + 'LimiteDistancia']
+            );
+            definirValor(
+                'af-modelo-' + modelo + '-distancia',
+                CONFIG[prefixo + 'DistanciaMaxima']
+            );
+            definirCheckbox(
+                'af-modelo-' + modelo + '-saque-total',
+                CONFIG[prefixo + 'SaqueTotal']
+            );
+            definirCheckbox(
+                'af-modelo-' + modelo + '-saque-parcial',
+                CONFIG[prefixo + 'SaqueParcial']
+            );
+            definirValor(
+                'af-modelo-' + modelo + '-max-envios',
+                CONFIG[prefixo + 'MaxEnviosAlvo']
+            );
+        });
         definirValor('af-prioridade-modelos', CONFIG.prioridadeModelos);
-        definirCheckbox('af-limite-muralha', CONFIG.limiteMuralhaAtivo);
-        definirValor('af-muralha-max', CONFIG.muralhaMaxima);
-        definirCheckbox('af-limite-distancia', CONFIG.limiteDistanciaAtivo);
-        definirValor('af-distancia-max', CONFIG.distanciaMaxima);
-        definirCheckbox('af-ignorar-atacados', CONFIG.ignorarAtacados);
-        definirValor('af-max-ataques', CONFIG.maxAtaquesPorAldeia);
-        definirValor('af-max-batedores', CONFIG.maxBatedoresPorAldeia);
-        definirCheckbox('af-mapear-novas', CONFIG.mapearNovasBarbaras);
-        definirValor('af-modelo-novas', CONFIG.modeloNovasSemInfo);
-        definirValor('af-raio-novas', CONFIG.raioNovasBarbaras);
-        definirValor('af-max-novas', CONFIG.maxNovasBarbaras);
-        definirCheckbox('af-demolir-muralhas', CONFIG.demolirMuralhas);
-        definirValor(
-            'af-max-demolicoes',
-            CONFIG.maxDemolicoesPorAldeia
-        );
         definirValor('af-intervalo-base', CONFIG.intervaloAtaque);
-        definirValor('af-sem-progresso', CONFIG.limiteSemProgresso / 1000);
-        definirValor('af-pausa-aldeia', CONFIG.esperaProximaAldeia);
-        garantirOpcaoGrupoGuardado();
-        definirValor('af-grupo-farm', CONFIG.grupoFarmId);
-        definirCheckbox('af-modo-speed', CONFIG.modoSpeed);
-        definirValor(
-            'af-pausa-rondas',
-            CONFIG.pausaEntreRondas / 1000
-        );
-        definirCheckbox('af-voltar-assistente', true);
-        definirCheckbox('af-mudar-sem-tropas', CONFIG.mudarSemTropas);
-        definirCheckbox('af-mudar-sem-alvos', CONFIG.mudarSemAlvos);
         definirCheckbox(
-            'af-esgotar-envios',
-            CONFIG.esgotarEnviosAntesMudar
+            'af-multiplos-alvo',
+            CONFIG.permitirMultiplosAtaquesAlvo
         );
-        definirCheckbox('af-atualizar-erros', CONFIG.atualizarEmErros);
         atualizarEstadoCamposDefinicoes();
     }
 
     function ligarEventosDefinicoes() {
-        var limiteMuralha = document.getElementById('af-limite-muralha');
-        limiteMuralha.addEventListener('change', atualizarEstadoCamposDefinicoes);
-        document.getElementById('af-limite-distancia').addEventListener(
+        ['a', 'b', 'c'].forEach(function (modelo) {
+            document.getElementById(
+                'af-modelo-' + modelo + '-ativo'
+            ).addEventListener('change', atualizarEstadoCamposDefinicoes);
+            document.getElementById(
+                'af-modelo-' + modelo + '-limite-distancia'
+            ).addEventListener('change', atualizarEstadoCamposDefinicoes);
+        });
+        document.getElementById('af-multiplos-alvo').addEventListener(
             'change',
             atualizarEstadoCamposDefinicoes
         );
-        document.getElementById('af-modelo-a-ativo').addEventListener(
-            'change',
-            atualizarEstadoCamposDefinicoes
-        );
-        document.getElementById('af-modelo-b-ativo').addEventListener(
-            'change',
-            atualizarEstadoCamposDefinicoes
-        );
-        document.querySelectorAll('[data-af-modelo-cor]').forEach(
-            function (campo) {
-                campo.addEventListener('change', function () {
-                    if (campo.checked) {
-                        var outro = campo.getAttribute(
-                            'data-af-modelo-cor'
-                        ) === 'a' ? 'b' : 'a';
-                        var cor = campo.getAttribute('data-af-cor');
-                        var correspondente = document.querySelector(
-                            '[data-af-modelo-cor="' + outro + '"]' +
-                            '[data-af-cor="' + cor + '"]'
-                        );
-                        if (correspondente) {
-                            correspondente.checked = false;
-                        }
-                    }
-                });
-            }
-        );
-        document.getElementById('af-mapear-novas').addEventListener(
-            'change',
-            atualizarEstadoCamposDefinicoes
-        );
-        document.getElementById('af-modelo-novas').addEventListener(
-            'change',
-            atualizarEstadoCamposDefinicoes
-        );
-        document.getElementById('af-demolir-muralhas').addEventListener(
-            'change',
-            atualizarEstadoCamposDefinicoes
-        );
-        document.getElementById('af-modo-speed').addEventListener(
-            'change',
-            atualizarEstadoCamposDefinicoes
-        );
-        carregarGruposNoPainel();
 
         document.getElementById('af-settings-save').addEventListener(
             'click',
@@ -754,6 +745,17 @@
             });
         });
 
+        document.querySelectorAll(
+            '#auto-farm-a-settings input[type="number"], ' +
+            '#auto-farm-a-settings select'
+        ).forEach(function (campo) {
+            campo.addEventListener('change', function () {
+                guardarEAplicarDefinicoes(
+                    'Definição guardada e aplicada automaticamente.'
+                );
+            });
+        });
+
         document.getElementById('af-settings-reset').addEventListener('click', function () {
             CONFIG = normalizarConfiguracao(Object.assign({}, CONFIG_PADRAO));
             guardarConfiguracao();
@@ -765,40 +767,33 @@
 
     function guardarEAplicarDefinicoes(mensagem) {
         CONFIG = normalizarConfiguracao(Object.assign({}, CONFIG, {
-            modeloAtivo: lerCheckbox('af-modelo-ativo'),
             modeloAAtivo: lerCheckbox('af-modelo-a-ativo'),
-            modeloASemEspionagem: lerCheckbox('af-modelo-a-sem-info'),
-            coresModeloA: lerCoresModeloPainel('a'),
+            modeloALimiteDistancia: lerCheckbox(
+                'af-modelo-a-limite-distancia'
+            ),
+            modeloADistanciaMaxima: lerValor('af-modelo-a-distancia'),
+            modeloASaqueTotal: lerCheckbox('af-modelo-a-saque-total'),
+            modeloASaqueParcial: lerCheckbox('af-modelo-a-saque-parcial'),
+            modeloAMaxEnviosAlvo: lerValor('af-modelo-a-max-envios'),
             modeloBAtivo: lerCheckbox('af-modelo-b-ativo'),
-            modeloBSemEspionagem: lerCheckbox('af-modelo-b-sem-info'),
-            coresModeloB: lerCoresModeloPainel('b'),
-            modeloCComInfoAtivo: lerCheckbox('af-modelo-c-info'),
-            criterioPrioridade: lerValor('af-criterio-prioridade'),
+            modeloBLimiteDistancia: lerCheckbox(
+                'af-modelo-b-limite-distancia'
+            ),
+            modeloBDistanciaMaxima: lerValor('af-modelo-b-distancia'),
+            modeloBSaqueTotal: lerCheckbox('af-modelo-b-saque-total'),
+            modeloBSaqueParcial: lerCheckbox('af-modelo-b-saque-parcial'),
+            modeloBMaxEnviosAlvo: lerValor('af-modelo-b-max-envios'),
+            modeloCAtivo: lerCheckbox('af-modelo-c-ativo'),
+            modeloCLimiteDistancia: lerCheckbox(
+                'af-modelo-c-limite-distancia'
+            ),
+            modeloCDistanciaMaxima: lerValor('af-modelo-c-distancia'),
+            modeloCSaqueTotal: lerCheckbox('af-modelo-c-saque-total'),
+            modeloCSaqueParcial: lerCheckbox('af-modelo-c-saque-parcial'),
+            modeloCMaxEnviosAlvo: lerValor('af-modelo-c-max-envios'),
             prioridadeModelos: lerValor('af-prioridade-modelos'),
-            limiteMuralhaAtivo: lerCheckbox('af-limite-muralha'),
-            muralhaMaxima: lerValor('af-muralha-max'),
-            limiteDistanciaAtivo: lerCheckbox('af-limite-distancia'),
-            distanciaMaxima: lerValor('af-distancia-max'),
-            ignorarAtacados: lerCheckbox('af-ignorar-atacados'),
-            maxAtaquesPorAldeia: lerValor('af-max-ataques'),
-            maxBatedoresPorAldeia: lerValor('af-max-batedores'),
-            mapearNovasBarbaras: lerCheckbox('af-mapear-novas'),
-            modeloNovasSemInfo: lerValor('af-modelo-novas'),
-            raioNovasBarbaras: lerValor('af-raio-novas'),
-            maxNovasBarbaras: lerValor('af-max-novas'),
-            demolirMuralhas: lerCheckbox('af-demolir-muralhas'),
-            maxDemolicoesPorAldeia: lerValor('af-max-demolicoes'),
-            grupoFarmId: lerValor('af-grupo-farm'),
-            modoSpeed: lerCheckbox('af-modo-speed'),
-            pausaEntreRondas: Number(lerValor('af-pausa-rondas')) * 1000,
             intervaloAtaque: lerValor('af-intervalo-base'),
-            limiteSemProgresso: Number(lerValor('af-sem-progresso')) * 1000,
-            esperaProximaAldeia: lerValor('af-pausa-aldeia'),
-            voltarAoAssistente: true,
-            mudarSemTropas: lerCheckbox('af-mudar-sem-tropas'),
-            mudarSemAlvos: lerCheckbox('af-mudar-sem-alvos'),
-            esgotarEnviosAntesMudar: lerCheckbox('af-esgotar-envios'),
-            atualizarEmErros: lerCheckbox('af-atualizar-erros')
+            permitirMultiplosAtaquesAlvo: lerCheckbox('af-multiplos-alvo')
         }));
         guardarConfiguracao();
         preencherPainelDefinicoes();
@@ -816,36 +811,34 @@
     }
 
     function atualizarEstadoCamposDefinicoes() {
-        document.getElementById('af-muralha-max').disabled =
-            !lerCheckbox('af-limite-muralha');
-        document.getElementById('af-distancia-max').disabled =
-            !lerCheckbox('af-limite-distancia');
-        document.getElementById('af-max-batedores').disabled =
-            !lerCheckbox('af-modelo-b-ativo');
-        ['a', 'b'].forEach(function (modelo) {
+        var multiplos = lerCheckbox('af-multiplos-alvo');
+        ['a', 'b', 'c'].forEach(function (modelo) {
             var ativo = lerCheckbox('af-modelo-' + modelo + '-ativo');
+            var limiteDistancia = lerCheckbox(
+                'af-modelo-' + modelo + '-limite-distancia'
+            );
+            var cartao = document.querySelector(
+                '[data-af-modelo-card="' + modelo + '"]'
+            );
+            if (cartao) {
+                cartao.classList.toggle('af-model-disabled', !ativo);
+            }
             document.querySelectorAll(
-                '[data-af-modelo-setting="' + modelo + '"], ' +
-                '[data-af-modelo-cor="' + modelo + '"]'
+                '[data-af-modelo-campo="' + modelo + '"]'
             ).forEach(function (campo) {
                 campo.disabled = !ativo;
-                if (campo.querySelectorAll) {
-                    campo.querySelectorAll('input, select').forEach(
-                        function (controlo) {
-                            controlo.disabled = !ativo;
-                        }
-                    );
-                }
             });
+            document.getElementById(
+                'af-modelo-' + modelo + '-distancia'
+            ).disabled = !ativo || !limiteDistancia;
+            var maxEnvios = document.getElementById(
+                'af-modelo-' + modelo + '-max-envios'
+            );
+            maxEnvios.disabled = !ativo || !multiplos;
+            maxEnvios.title = multiplos
+                ? 'Máximo de envios deste modelo para cada alvo'
+                : 'Ativa os ataques múltiplos para usar este limite';
         });
-        document.getElementById('af-raio-novas').disabled =
-            !lerCheckbox('af-mapear-novas');
-        document.getElementById('af-max-novas').disabled =
-            !lerCheckbox('af-mapear-novas');
-        document.getElementById('af-max-demolicoes').disabled =
-            !lerCheckbox('af-demolir-muralhas');
-        document.getElementById('af-pausa-rondas').disabled =
-            lerCheckbox('af-modo-speed');
     }
 
     function mostrarMensagemDefinicoes(texto) {
@@ -1853,6 +1846,9 @@
 
         tiposSemTropas.principal = false;
         tiposSemTropas.batedor = false;
+        tiposSemTropas['modelo-a'] = false;
+        tiposSemTropas['modelo-b'] = false;
+        tiposSemTropas['modelo-c'] = false;
         ultimoTipoEnviado = null;
 
         if (
@@ -2004,6 +2000,14 @@
         var indice = 0;
         var enviadosPrincipais = 0;
         var batedoresEnviados = 0;
+        var enviosPorAlvo = {};
+        var enviosPorModelo = { a: 0, b: 0, c: 0 };
+
+        function resumoEnviosModelos() {
+            return 'A: ' + enviosPorModelo.a +
+                ' | B: ' + enviosPorModelo.b +
+                ' | C: ' + enviosPorModelo.c;
+        }
 
         function enviarProximo() {
             if (!estaLigado() || aMudarAldeia || aRecuperar) {
@@ -2024,6 +2028,10 @@
             while (indice < fila.length && !tarefa) {
                 var candidata = fila[indice++];
                 var botaoAtual = obterBotaoAtualTarefa(candidata);
+                var chaveAlvo = String(candidata.alvoId || 'sem-id');
+                var limiteAlvoAtingido =
+                    !CONFIG.permitirMultiplosAtaquesAlvo &&
+                    Number(enviosPorAlvo[chaveAlvo] || 0) > 0;
                 var semBatedores =
                     candidata.tipo === 'batedor' &&
                     quantidadeUnidade('spy') === 0;
@@ -2033,6 +2041,7 @@
                 }
 
                 if (
+                    !limiteAlvoAtingido &&
                     !tiposSemTropas[candidata.tipo] &&
                     botaoAtual &&
                     botaoAtual.isConnected &&
@@ -2046,7 +2055,8 @@
             if (!tarefa) {
                 finalizarListaComMapa(
                     enviadosPrincipais,
-                    batedoresEnviados
+                    batedoresEnviados,
+                    resumoEnviosModelos()
                 );
                 return;
             }
@@ -2075,10 +2085,19 @@
                 } else {
                     enviadosPrincipais += 1;
                 }
+                var chaveAlvo = String(tarefa.alvoId || 'sem-id');
+                enviosPorAlvo[chaveAlvo] = Number(
+                    enviosPorAlvo[chaveAlvo] || 0
+                ) + 1;
+                if (Object.prototype.hasOwnProperty.call(
+                    enviosPorModelo,
+                    tarefa.modelo
+                )) {
+                    enviosPorModelo[tarefa.modelo] += 1;
+                }
 
                 atualizarBotao(
-                    'Farm: ' + enviadosPrincipais +
-                    ' | Batedores: ' + batedoresEnviados
+                    'Farm — ' + resumoEnviosModelos()
                 );
                 armarWatchdog();
                 agendar(enviarProximo, CONFIG.intervaloAtaque);
@@ -2104,19 +2123,25 @@
             });
         }
 
-        atualizarBotao('A iniciar reconhecimento e farm…');
+        atualizarBotao('A iniciar farm por distância e prioridade…');
         enviarProximo();
     }
 
-    function finalizarListaComMapa(enviosPrincipais, batedoresDaLista) {
+    function finalizarListaComMapa(
+        enviosPrincipais,
+        batedoresDaLista,
+        resumoModelos
+    ) {
         if (
             !MODULOS_ATIVOS.mapaEspionagem ||
             !CONFIG.mapearNovasBarbaras ||
             mapaProcessadoNesteCiclo
         ) {
             mudarAldeia(
-                'Farm: ' + enviosPrincipais +
-                ' | Batedores: ' + batedoresDaLista
+                resumoModelos || (
+                    'Farm: ' + enviosPrincipais +
+                    ' | Batedores: ' + batedoresDaLista
+                )
             );
             return;
         }
@@ -2376,7 +2401,7 @@
     }
 
     function obterIdModelo(modelo) {
-        var letra = modelo === 'a' ? 'a' : 'b';
+        var letra = ['a', 'b', 'c'].indexOf(modelo) !== -1 ? modelo : 'a';
         var classe = '.farm_icon_' + letra;
         var botaoModelo = document.querySelector(
             '#plunder_list a' + classe + ', #am_widget_Farm a' + classe
@@ -3597,25 +3622,109 @@
         });
     }
 
+    function obterConfiguracaoModelo(modelo) {
+        var maiuscula = String(modelo || '').toUpperCase();
+        var prefixo = 'modelo' + maiuscula;
+        return {
+            ativo: Boolean(CONFIG[prefixo + 'Ativo']),
+            limiteDistancia: Boolean(CONFIG[prefixo + 'LimiteDistancia']),
+            distanciaMaxima: Number(CONFIG[prefixo + 'DistanciaMaxima']),
+            saqueTotal: Boolean(CONFIG[prefixo + 'SaqueTotal']),
+            saqueParcial: Boolean(CONFIG[prefixo + 'SaqueParcial']),
+            maxEnviosAlvo: Number(CONFIG[prefixo + 'MaxEnviosAlvo']) || 1
+        };
+    }
+
+    function obterTipoSaqueAlvo(alvo) {
+        var linha = alvo && alvo.matches && alvo.matches('tr')
+            ? alvo
+            : alvo && alvo.closest
+                ? alvo.closest('tr')
+                : null;
+        if (!linha) {
+            return null;
+        }
+
+        var imagensMaxLoot = linha.querySelectorAll('img[src*="max_loot"]');
+        for (var indice = 0; indice < imagensMaxLoot.length; indice += 1) {
+            var origem = imagensMaxLoot[indice].getAttribute('src') || '';
+            var valor = origem.match(/max_loot\/(0|1)(?:\.|$)/i);
+            if (valor) {
+                return valor[1] === '1' ? 'total' : 'parcial';
+            }
+        }
+
+        var partes = [
+            linha.className || '',
+            linha.getAttribute('data-loot') || '',
+            linha.getAttribute('data-loot-type') || '',
+            linha.getAttribute('data-haul') || ''
+        ];
+        linha.querySelectorAll(
+            '[title], [alt], [data-loot], [data-loot-type], [data-haul]'
+        ).forEach(function (elemento) {
+            partes.push(elemento.getAttribute('title') || '');
+            partes.push(elemento.getAttribute('alt') || '');
+            partes.push(elemento.getAttribute('data-loot') || '');
+            partes.push(elemento.getAttribute('data-loot-type') || '');
+            partes.push(elemento.getAttribute('data-haul') || '');
+        });
+
+        var descricao = partes.join(' ').toLowerCase().normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[_-]+/g, ' ');
+        if (
+            /(?:saque|pilhagem)\s+(?:total|complet[oa])/.test(descricao) ||
+            /(?:full|complete)\s+(?:loot|haul|plunder)/.test(descricao) ||
+            /(?:loot|haul|plunder)\s+(?:full|complete)/.test(descricao)
+        ) {
+            return 'total';
+        }
+        if (
+            /(?:saque|pilhagem)\s+parcial/.test(descricao) ||
+            /partial\s+(?:loot|haul|plunder)/.test(descricao) ||
+            /(?:loot|haul|plunder)\s+partial/.test(descricao)
+        ) {
+            return 'parcial';
+        }
+        return null;
+    }
+
+    function modeloPermiteTipoSaque(alvo, configuracao) {
+        if (!configuracao.saqueTotal && !configuracao.saqueParcial) {
+            return false;
+        }
+
+        var tipo = obterTipoSaqueAlvo(alvo);
+        if (tipo === 'total') {
+            return configuracao.saqueTotal;
+        }
+        if (tipo === 'parcial') {
+            return configuracao.saqueParcial;
+        }
+
+        return configuracao.saqueTotal && configuracao.saqueParcial;
+    }
+
+    function modeloPermiteDistancia(alvo, configuracao) {
+        if (!configuracao.limiteDistancia) {
+            return true;
+        }
+        var distancia = obterDistanciaAlvo(alvo);
+        return Number.isFinite(distancia) &&
+            distancia <= configuracao.distanciaMaxima;
+    }
+
     function criarPlanoFarm() {
-        var modelosNecessarios = [];
-        var modeloAAtivo = CONFIG.modeloAtivo && CONFIG.modeloAAtivo;
-        var modeloBAtivo = CONFIG.modeloAtivo && CONFIG.modeloBAtivo;
-
-        if (CONFIG.modeloCComInfoAtivo) {
-            modelosNecessarios.push('c');
-        }
-
-        if (modeloAAtivo) {
-            modelosNecessarios.push('a');
-        }
-
-        if (modeloBAtivo) {
-            modelosNecessarios.push('b');
-        }
-
+        var ordemModelos = String(CONFIG.prioridadeModelos || 'a-b-c')
+            .split('-')
+            .filter(function (modelo, indice, todos) {
+                return ['a', 'b', 'c'].indexOf(modelo) !== -1 &&
+                    todos.indexOf(modelo) === indice &&
+                    obterConfiguracaoModelo(modelo).ativo;
+            });
         var botoesRelevantes = [];
-        modelosNecessarios.forEach(function (modelo) {
+        ordemModelos.forEach(function (modelo) {
             obterBotoesFarm(modelo).forEach(function (item) {
                 if (botoesRelevantes.indexOf(item) === -1) {
                     botoesRelevantes.push(item);
@@ -3632,20 +3741,16 @@
         });
         alvos.sort(compararAlvosPorDistancia);
 
-        var tarefasModeloC = [];
-        var tarefasModeloA = [];
-        var tarefasModeloB = [];
+        var tarefas = [];
         var jogadoresIgnorados = 0;
         var alvosBarbaros = 0;
-        var semBatedores = modeloBAtivo && quantidadeUnidade('spy') === 0;
 
         alvos.forEach(function (alvo) {
             var referencia = null;
-            modelosNecessarios.some(function (modelo) {
+            ordemModelos.some(function (modelo) {
                 referencia = obterBotaoNoAlvo(alvo, modelo);
                 return Boolean(referencia);
             });
-
             if (!referencia) {
                 return;
             }
@@ -3656,98 +3761,50 @@
             }
             alvosBarbaros += 1;
 
-            var permiteA = modeloAAtivo && modeloPodeAtacarAlvo(alvo, 'a');
-            var permiteB = modeloBAtivo && modeloPodeAtacarAlvo(alvo, 'b');
-            var permiteC = deveUsarModeloC(alvo);
-            if (!permiteA && !permiteB && !permiteC) {
-                return;
-            }
-
             if (
                 linhaJaEnviadaNesteCiclo(referencia) ||
-                (CONFIG.ignorarAtacados && linhaTemAtaque(referencia)) ||
-                !dentroDoLimiteDistancia(referencia)
+                (!CONFIG.permitirMultiplosAtaquesAlvo &&
+                    linhaTemAtaque(referencia))
             ) {
                 return;
             }
 
-            if (!dentroDoLimiteMuralha(referencia)) {
-                return;
-            }
-
-            if (permiteC) {
+            ordemModelos.forEach(function (modelo) {
+                var configuracao = obterConfiguracaoModelo(modelo);
+                var botaoModelo = obterBotaoNoAlvo(alvo, modelo);
                 if (
-                    tarefasModeloC.length + tarefasModeloA.length <
-                        CONFIG.maxAtaquesPorAldeia
+                    !botaoModelo ||
+                    botaoEstaDesativado(botaoModelo) ||
+                    !modeloPermiteDistancia(alvo, configuracao) ||
+                    !modeloPermiteTipoSaque(alvo, configuracao)
                 ) {
-                    tarefasModeloC.push({
-                        botao: obterBotaoNoAlvo(alvo, 'c'),
-                        alvoId: obterIdAlvoLinha(alvo),
-                        tipo: 'principal',
-                        modelo: 'c',
-                        modeloId: obterIdModeloDoElemento(
-                            obterBotaoNoAlvo(alvo, 'c')
-                        )
-                    });
+                    return;
                 }
-                return;
-            }
 
-            if (
-                permiteA &&
-                tarefasModeloC.length + tarefasModeloA.length <
-                    CONFIG.maxAtaquesPorAldeia
-            ) {
-                var botaoA = obterBotaoNoAlvo(alvo, 'a');
-                if (botaoA && !botaoEstaDesativado(botaoA)) {
-                    tarefasModeloA.push({
-                        botao: botaoA,
+                var repeticoes = CONFIG.permitirMultiplosAtaquesAlvo
+                    ? configuracao.maxEnviosAlvo
+                    : 1;
+                for (var repeticao = 1; repeticao <= repeticoes; repeticao += 1) {
+                    tarefas.push({
+                        botao: botaoModelo,
                         alvoId: obterIdAlvoLinha(alvo),
-                        tipo: 'principal',
-                        modelo: 'a',
-                        modeloId: obterIdModeloDoElemento(botaoA) ||
-                            obterIdModelo('a')
+                        tipo: 'modelo-' + modelo,
+                        modelo: modelo,
+                        modeloId: obterIdModeloDoElemento(botaoModelo) ||
+                            obterIdModelo(modelo),
+                        repeticao: repeticao
                     });
                 }
-                return;
-            }
-
-            if (
-                permiteB &&
-                !semBatedores &&
-                tarefasModeloB.length < CONFIG.maxBatedoresPorAldeia
-            ) {
-                var botaoB = obterBotaoNoAlvo(alvo, 'b');
-                if (botaoB && !botaoEstaDesativado(botaoB)) {
-                    tarefasModeloB.push({
-                        botao: botaoB,
-                        alvoId: obterIdAlvoLinha(alvo),
-                        tipo: 'batedor',
-                        modelo: 'b',
-                        modeloId: obterIdModeloDoElemento(botaoB) ||
-                            obterIdModelo('b')
-                    });
-                }
-            }
+            });
         });
 
-        var tarefasOrdenadas = ordenarTarefasFarm(
-            tarefasModeloC.concat(
-                tarefasModeloA,
-                tarefasModeloB
-            )
-        );
-
         return {
-            tarefas: tarefasOrdenadas,
+            tarefas: ordenarTarefasFarm(tarefas),
             temBotoes: botoesRelevantes.length > 0,
             temBotoesAtivos: botoesRelevantes.some(function (item) {
                 return !botaoEstaDesativado(item);
             }),
-            semTropasParaTarefas:
-                semBatedores &&
-                tarefasModeloC.length === 0 &&
-                tarefasModeloA.length === 0,
+            semTropasParaTarefas: false,
             jogadoresIgnorados: jogadoresIgnorados,
             alvosBarbaros: alvosBarbaros
         };
@@ -4039,7 +4096,10 @@
         if (!MODULOS_ATIVOS.gestaoRondas) {
             limparTimers();
             desligarObservador();
-            atualizarBotao(motivo + ' — Ponto 1 concluído nesta aldeia');
+            atualizarBotao(
+                motivo +
+                ' — farm concluído; mudança de aldeia entra no Ponto 5'
+            );
             return;
         }
 
