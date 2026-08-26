@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.0.4
+// @version      1.0.5
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.0.4',
+        version: '1.0.5',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -37,7 +37,8 @@
         workerHeartbeatMs: 3000,
         workerFreshMs: 90000,
         monitorMs: 2500,
-        attackBaseMs: 650,
+        defaultAttackMs: 650,
+        minAttackMs: 200,
         idlePollMs: 2500,
     });
 
@@ -50,7 +51,13 @@
         run: `twPtAutoFarm.v1.${world}.run`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 3,
+        schema: 4,
+        general: {
+            attackIntervalMs: 650,
+            roundPauseSeconds: 60,
+            refreshAtEnd: true,
+            refreshAtStart: true,
+        },
         models: {
             a: defaultModel(true),
             b: defaultModel(true),
@@ -69,6 +76,8 @@
         farmTimer: 0,
         farmRunning: false,
         farmGeneration: 0,
+        roundTimer: 0,
+        idleScans: 0,
         farmSent: 0,
         processedRows: new WeakSet(),
         processedTargets: new Set(),
@@ -142,11 +151,11 @@
             if (event.key === keys.settings) {
                 state.settings = loadSettings();
                 renderSettingsUi();
-                if (state.ownsWorker) scheduleFarmStep(100);
+                if (state.ownsWorker) resumeRoundWorkflow();
             }
             if (event.key === keys.run) {
                 renderModelCounts();
-                if (state.ownsWorker) scheduleFarmStep(100);
+                if (state.ownsWorker) resumeRoundWorkflow();
             }
         });
 
@@ -268,6 +277,16 @@
             #${APP.settingsId} .af-red-blue{background:linear-gradient(90deg,#df3c2c 0 50%,#2387e8 50%)}
             #${APP.settingsId} .af-red-yellow{background:linear-gradient(90deg,#df3c2c 0 50%,#ffd21a 50%)}
             #${APP.settingsId} .af-model-off .af-model-body{pointer-events:none}
+            #${APP.settingsId} .af-general-wrap{margin-top:8px;padding-top:7px;border-top:1px solid #c6a767}
+            #${APP.settingsId} .af-general-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+            #${APP.settingsId} .af-general-field,#${APP.settingsId} .af-general-check{min-height:36px;padding:5px 7px;border:1px solid #d1b475;border-radius:3px;background:#fff4d6}
+            #${APP.settingsId} .af-general-field{display:grid;grid-template-columns:1fr 84px;align-items:center;gap:7px}
+            #${APP.settingsId} .af-general-field>span{color:#75532b;font-weight:bold;font-size:10px;text-transform:uppercase}
+            #${APP.settingsId} .af-general-input{display:flex;align-items:center;gap:4px}
+            #${APP.settingsId} .af-general-input input{width:58px}
+            #${APP.settingsId} .af-general-input small{color:#8a6c3e;font-size:9px;white-space:nowrap}
+            #${APP.settingsId} .af-general-check{display:flex;align-items:center;gap:7px;color:#65451f;font-weight:bold;cursor:pointer}
+            @media(max-width:1100px){#${APP.settingsId} .af-general-grid{grid-template-columns:1fr 1fr}}
             @media(max-width:950px){#${APP.settingsId} .af-model-grid{grid-template-columns:1fr}#${APP.settingsId} .af-settings-title{font-size:17px}}
         `;
         (document.head || document.documentElement).appendChild(style);
@@ -310,6 +329,33 @@
                         ${modelCard('a', 'A')}
                         ${modelCard('b', 'B')}
                         ${modelCard('c', 'C')}
+                    </div>
+                    <div class="af-general-wrap">
+                        <div class="af-section-title">TEMPOS E RONDAS</div>
+                        <div class="af-general-grid">
+                            <label class="af-general-field">
+                                <span>Entre ataques</span>
+                                <span class="af-general-input">
+                                    <input type="number" min="200" max="60000" step="10" data-setting="general.attackIntervalMs" aria-label="Intervalo entre ataques em milissegundos">
+                                    <small>ms ±10%</small>
+                                </span>
+                            </label>
+                            <label class="af-general-field">
+                                <span>Entre rondas</span>
+                                <span class="af-general-input">
+                                    <input type="number" min="1" max="86400" step="1" data-setting="general.roundPauseSeconds" aria-label="Pausa entre rondas em segundos">
+                                    <small>seg.</small>
+                                </span>
+                            </label>
+                            <label class="af-general-check">
+                                <input type="checkbox" data-setting="general.refreshAtEnd">
+                                <span>Refresh no fim da ronda</span>
+                            </label>
+                            <label class="af-general-check">
+                                <input type="checkbox" data-setting="general.refreshAtStart">
+                                <span>Refresh no início da ronda</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             `;
@@ -426,7 +472,7 @@
         window.dispatchEvent(new CustomEvent('twPtAutoFarm:settings', {
             detail: { world, settings: clone(state.settings) },
         }));
-        if (state.ownsWorker) scheduleFarmStep(100);
+        if (state.ownsWorker) resumeRoundWorkflow();
     }
 
     function renderSettingsUi() {
@@ -689,19 +735,29 @@
             const status = state.panel.querySelector('[data-role="state"]');
             if (status) status.textContent = label;
         }
+        const round = readRunState()?.round;
+        if (enabled && round?.phase === 'waiting' && round.pauseUntil > Date.now()) {
+            showRoundCountdown(Math.ceil((round.pauseUntil - Date.now()) / 1000));
+        } else if (!enabled || round?.phase !== 'waiting') {
+            hideRoundCountdown();
+        }
         renderModelCounts();
     }
 
     function startFarmLoop() {
         if (!isFarmPage() || !isEnabled() || !state.ownsWorker || state.destroyed) return;
-        scheduleFarmStep(150);
+        resumeRoundWorkflow();
     }
 
     function stopFarmLoop() {
         state.farmGeneration += 1;
         window.clearTimeout(state.farmTimer);
+        window.clearTimeout(state.roundTimer);
         state.farmTimer = 0;
+        state.roundTimer = 0;
         state.farmRunning = false;
+        state.idleScans = 0;
+        hideRoundCountdown();
     }
 
     function scheduleFarmStep(delayMs) {
@@ -714,22 +770,180 @@
     async function runFarmStep() {
         state.farmTimer = 0;
         if (!isEnabled() || !state.ownsWorker || state.destroyed || state.farmRunning) return;
+        if (ensureRunState().round.phase !== 'farming') {
+            resumeRoundWorkflow();
+            return;
+        }
 
         const generation = state.farmGeneration;
         state.farmRunning = true;
         let task = null;
+        let finishRequested = false;
         try {
             task = findNextFarmTask();
-            if (task) await sendFarmTask(task);
+            if (task) {
+                state.idleScans = 0;
+                await sendFarmTask(task);
+            } else if (getFarmRows().length > 0 && !allActiveModelsExhausted()) {
+                state.idleScans += 1;
+                finishRequested = state.idleScans >= 3;
+            } else {
+                state.idleScans = 0;
+            }
         } catch (error) {
             console.error(`[${APP.shortName}] Falha ao enviar um modelo.`, error);
         } finally {
             if (generation !== state.farmGeneration) return;
             state.farmRunning = false;
             if (isEnabled() && state.ownsWorker && !state.destroyed) {
-                scheduleFarmStep(task ? randomizedAttackDelay() : APP.idlePollMs);
+                if (finishRequested) finishRound();
+                else scheduleFarmStep(task ? randomizedAttackDelay() : APP.idlePollMs);
             }
         }
+    }
+
+    function resumeRoundWorkflow() {
+        if (!isFarmPage() || !isEnabled() || !state.ownsWorker || state.destroyed) return;
+        const run = ensureRunState();
+        const settings = state.settings || loadSettings();
+
+        if (run.round.phase === 'start') {
+            if (settings.general.refreshAtStart) {
+                run.round.phase = 'start_reloading';
+                writeRunState(run);
+                refreshPageForRound();
+            } else {
+                beginRound(run);
+            }
+            return;
+        }
+
+        if (run.round.phase === 'start_reloading') {
+            beginRound(run);
+            return;
+        }
+
+        if (run.round.phase === 'end_reloading') {
+            beginRoundPause(run);
+            return;
+        }
+
+        if (run.round.phase === 'waiting') {
+            scheduleRoundWait(run);
+            return;
+        }
+
+        hideRoundCountdown();
+        scheduleFarmStep(150);
+    }
+
+    function beginRound(run) {
+        clearRoundProgress();
+        run.round.phase = 'farming';
+        run.round.pauseUntil = 0;
+        writeRunState(run);
+        hideRoundCountdown();
+        scheduleFarmStep(200);
+    }
+
+    function finishRound() {
+        state.idleScans = 0;
+        const run = ensureRunState();
+        const settings = state.settings || loadSettings();
+
+        if (settings.general.refreshAtEnd) {
+            run.round.phase = 'end_reloading';
+            run.round.pauseUntil = 0;
+            writeRunState(run);
+            refreshPageForRound();
+            return;
+        }
+        beginRoundPause(run);
+    }
+
+    function beginRoundPause(run) {
+        const settings = state.settings || loadSettings();
+        run.round.phase = 'waiting';
+        run.round.pauseUntil = Date.now() + (settings.general.roundPauseSeconds * 1000);
+        writeRunState(run);
+        scheduleRoundWait(run);
+    }
+
+    function scheduleRoundWait(runValue) {
+        window.clearTimeout(state.roundTimer);
+        const run = runValue || ensureRunState();
+        const remaining = Math.max(0, run.round.pauseUntil - Date.now());
+        if (remaining <= 0) {
+            startNextRound(run);
+            return;
+        }
+
+        showRoundCountdown(Math.ceil(remaining / 1000));
+        state.roundTimer = window.setTimeout(() => {
+            state.roundTimer = 0;
+            if (isEnabled() && state.ownsWorker && !state.destroyed) {
+                scheduleRoundWait(ensureRunState());
+            }
+        }, Math.min(1000, remaining));
+    }
+
+    function startNextRound(run) {
+        const settings = state.settings || loadSettings();
+        run.round.number += 1;
+        run.round.pauseUntil = 0;
+        hideRoundCountdown();
+
+        if (settings.general.refreshAtStart) {
+            run.round.phase = 'start_reloading';
+            writeRunState(run);
+            refreshPageForRound();
+            return;
+        }
+        beginRound(run);
+    }
+
+    function refreshPageForRound() {
+        state.farmGeneration += 1;
+        window.clearTimeout(state.farmTimer);
+        window.clearTimeout(state.roundTimer);
+        state.farmTimer = 0;
+        state.roundTimer = 0;
+        state.farmRunning = false;
+        hideRoundCountdown();
+        window.setTimeout(() => window.location.reload(), 60);
+    }
+
+    function clearRoundProgress() {
+        state.processedTargets.clear();
+        state.processedRows = new WeakSet();
+        state.idleScans = 0;
+        getFarmRows().forEach(row => delete row.dataset.twPtAutofarmSent);
+    }
+
+    function allActiveModelsExhausted() {
+        const settings = state.settings || loadSettings();
+        const active = ['a', 'b', 'c'].filter(model => settings.models[model].enabled);
+        return active.length > 0 && active.every(model => {
+            const limit = settings.models[model].maxAttacks;
+            return limit.enabled && getModelCount(model) >= limit.max;
+        });
+    }
+
+    function showRoundCountdown(totalSeconds) {
+        const display = state.button?.querySelector('[data-auto-farm-countdown]');
+        if (!display) return;
+        const seconds = Math.max(0, Math.round(Number(totalSeconds) || 0));
+        const minutes = Math.floor(seconds / 60);
+        const remainder = String(seconds % 60).padStart(2, '0');
+        display.textContent = `R ${minutes}:${remainder}`;
+        display.hidden = false;
+    }
+
+    function hideRoundCountdown() {
+        const display = state.button?.querySelector('[data-auto-farm-countdown]');
+        if (!display) return;
+        display.textContent = '';
+        display.hidden = true;
     }
 
     function findNextFarmTask() {
@@ -754,6 +968,7 @@
                     row,
                     button: selected.button,
                     model: selected.model,
+                    reportColor: selected.reportColor,
                     targetKey: getTargetKey(row),
                 };
             }
@@ -784,6 +999,8 @@
 
     function selectModelForRow(row) {
         const settings = state.settings || loadSettings();
+        const reportColor = getReportColor(row);
+        if (!reportColor) return null;
         for (const model of ['a', 'b', 'c']) {
             const config = settings.models[model];
             const button = row.querySelector(`a.farm_icon_${model}`);
@@ -792,16 +1009,16 @@
                 modelHasCapacity(model, config) &&
                 button &&
                 !isFarmButtonDisabled(button) &&
-                modelMatchesRow(row, config)
+                modelMatchesRow(row, config, reportColor)
             ) {
-                return { model, button };
+                return { model, button, reportColor };
             }
         }
         return null;
     }
 
-    function modelMatchesRow(row, config) {
-        const reportColor = getReportColor(row);
+    function modelMatchesRow(row, config, detectedColor) {
+        const reportColor = detectedColor || getReportColor(row);
         if (!reportColor || !config.reports[reportColor]) return false;
 
         if (config.wall.enabled) {
@@ -823,6 +1040,19 @@
 
     async function sendFarmTask(task) {
         if (!task.button?.isConnected || isFarmButtonDisabled(task.button)) return;
+        const currentColor = getReportColor(task.row);
+        const currentConfig = state.settings?.models?.[task.model];
+        if (
+            !currentColor ||
+            currentColor !== task.reportColor ||
+            !currentConfig?.reports?.[currentColor]
+        ) {
+            console.warn(
+                `[${APP.shortName}] Envio ${task.model.toUpperCase()} cancelado: ` +
+                `a cor atual (${currentColor || 'desconhecida'}) não está permitida.`
+            );
+            return;
+        }
 
         state.processedRows.add(task.row);
         task.row.dataset.twPtAutofarmSent = '1';
@@ -830,10 +1060,13 @@
 
         task.button.click();
         state.farmSent += 1;
-        incrementModelCount(task.model);
+        incrementModelCount(task.model, {
+            color: currentColor,
+            targetKey: task.targetKey,
+        });
         console.info(
             `[${APP.shortName}] Modelo ${task.model.toUpperCase()} enviado` +
-            `${task.targetKey ? ` para ${task.targetKey}` : ''}.`
+            `${task.targetKey ? ` para ${task.targetKey}` : ''} — cor ${currentColor}.`
         );
         await waitForFarmRequest(6000);
     }
@@ -851,8 +1084,9 @@
     }
 
     function randomizedAttackDelay() {
-        const variation = APP.attackBaseMs * 0.10;
-        return Math.round(APP.attackBaseMs - variation + (Math.random() * variation * 2));
+        const base = state.settings?.general?.attackIntervalMs || APP.defaultAttackMs;
+        const variation = base * 0.10;
+        return Math.round(base - variation + (Math.random() * variation * 2));
     }
 
     function getReportColor(row) {
@@ -867,26 +1101,29 @@
         ].join(','));
 
         for (const element of candidates) {
-            const description = [
+            const explicitValues = [
+                element.getAttribute('data-report-color'),
+                element.getAttribute('data-color'),
                 element.getAttribute('src'),
                 element.getAttribute('class'),
                 element.getAttribute('title'),
                 element.getAttribute('alt'),
-                element.getAttribute('data-report-color'),
-                element.getAttribute('data-color'),
-            ].filter(Boolean).join(' ');
-            const color = normalizeReportColor(description);
-            if (color) return color;
+            ];
+            for (const value of explicitValues) {
+                const color = normalizeReportColor(value);
+                if (color) return color;
+            }
         }
         return null;
     }
 
     function normalizeReportColor(value) {
         const text = normalizeText(value);
-        const red = /red|vermelh/.test(text);
-        const blue = /blue|azul/.test(text);
-        const yellow = /yellow|amarel/.test(text);
-        const green = /green|verde/.test(text);
+        const tokens = new Set(text.split(/[^a-z]+/).filter(Boolean));
+        const red = tokens.has('red') || tokens.has('vermelho') || tokens.has('vermelha');
+        const blue = tokens.has('blue') || tokens.has('azul');
+        const yellow = tokens.has('yellow') || tokens.has('amarelo') || tokens.has('amarela');
+        const green = tokens.has('green') || tokens.has('verde');
         if (red && blue) return 'redBlue';
         if (red && yellow) return 'redYellow';
         if (blue) return 'blue';
@@ -1039,6 +1276,8 @@
             sessionId: makeId(),
             startedAt: Date.now(),
             counts: { a: 0, b: 0, c: 0 },
+            round: { number: 1, phase: 'start', pauseUntil: 0 },
+            lastSend: null,
         };
         localStorage.setItem(keys.run, JSON.stringify(run));
         state.farmSent = 0;
@@ -1064,6 +1303,8 @@
                     b: integerValue(run.counts.b, 0, 0, 1000000),
                     c: integerValue(run.counts.c, 0, 0, 1000000),
                 },
+                round: normalizeRoundState(run.round),
+                lastSend: normalizeLastSend(run.lastSend),
             };
         } catch (_) {
             return null;
@@ -1074,10 +1315,16 @@
         return readRunState()?.counts?.[model] || 0;
     }
 
-    function incrementModelCount(model) {
+    function incrementModelCount(model, details = {}) {
         const run = ensureRunState();
         run.counts[model] = getModelCount(model) + 1;
-        localStorage.setItem(keys.run, JSON.stringify(run));
+        run.lastSend = {
+            model,
+            color: String(details.color || ''),
+            targetKey: String(details.targetKey || ''),
+            at: Date.now(),
+        };
+        writeRunState(run);
         renderModelCounts();
     }
 
@@ -1098,6 +1345,37 @@
                 ? `${count} de ${limit.max} ataques enviados nesta ativação`
                 : `${count} ataques enviados nesta ativação, sem limite`;
         });
+    }
+
+    function normalizeRoundState(value) {
+        const allowed = new Set(['start', 'start_reloading', 'farming', 'end_reloading', 'waiting']);
+        const source = value && typeof value === 'object' ? value : {};
+        return {
+            number: integerValue(source.number, 1, 1, 1000000),
+            phase: allowed.has(source.phase) ? source.phase : 'farming',
+            pauseUntil: Math.max(0, Number(source.pauseUntil) || 0),
+        };
+    }
+
+    function normalizeLastSend(value) {
+        if (!value || typeof value !== 'object') return null;
+        const model = ['a', 'b', 'c'].includes(value.model) ? value.model : '';
+        const color = ['blue', 'green', 'yellow', 'red', 'redBlue', 'redYellow'].includes(value.color)
+            ? value.color
+            : '';
+        if (!model || !color) return null;
+        return {
+            model,
+            color,
+            targetKey: String(value.targetKey || ''),
+            at: Number(value.at) || 0,
+        };
+    }
+
+    function writeRunState(run) {
+        localStorage.setItem(keys.run, JSON.stringify(run));
+        renderModelCounts();
+        return run;
     }
 
     function readWorker() {
@@ -1173,6 +1451,7 @@
     function normalizeSettings(value) {
         const source = value && typeof value === 'object' ? value : {};
         const models = {};
+        const generalSource = source.general || {};
 
         ['a', 'b', 'c'].forEach(modelKey => {
             const fallback = DEFAULT_SETTINGS.models[modelKey];
@@ -1206,7 +1485,32 @@
             };
         });
 
-        return { schema: 3, models };
+        return {
+            schema: 4,
+            general: {
+                attackIntervalMs: integerValue(
+                    generalSource.attackIntervalMs,
+                    DEFAULT_SETTINGS.general.attackIntervalMs,
+                    APP.minAttackMs,
+                    60000
+                ),
+                roundPauseSeconds: integerValue(
+                    generalSource.roundPauseSeconds,
+                    DEFAULT_SETTINGS.general.roundPauseSeconds,
+                    1,
+                    86400
+                ),
+                refreshAtEnd: booleanValue(
+                    generalSource.refreshAtEnd,
+                    DEFAULT_SETTINGS.general.refreshAtEnd
+                ),
+                refreshAtStart: booleanValue(
+                    generalSource.refreshAtStart,
+                    DEFAULT_SETTINGS.general.refreshAtStart
+                ),
+            },
+            models,
+        };
     }
 
     function booleanValue(value, fallback) {
