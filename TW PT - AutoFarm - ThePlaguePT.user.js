@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.1.0
+// @version      1.1.2
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.1.0',
+        version: '1.1.2',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -299,6 +299,7 @@
             #${APP.settingsId} .af-spy-card.af-spy-off{opacity:.58}
             #${APP.settingsId} .af-spy-head{display:flex;align-items:center;gap:7px;min-height:32px;padding:4px 8px;border-bottom:1px solid #d3b778;background:#f8e8bc}
             #${APP.settingsId} .af-spy-badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:22px;border:1px solid #594325;border-radius:4px;background:linear-gradient(#55758a,#263d4b);box-shadow:inset 0 1px #ffffff73,0 1px 2px #0005;color:#fff4d2;font-size:14px}
+            #${APP.settingsId} .af-spy-badge img{display:block;width:18px;height:18px;object-fit:contain}
             #${APP.settingsId} .af-spy-name{font-weight:bold;font-size:12px;flex:1}
             #${APP.settingsId} .af-spy-status{margin-right:8px;color:#80643b;font-size:9px;white-space:nowrap}
             #${APP.settingsId} .af-spy-body{padding:7px 8px}
@@ -377,7 +378,7 @@
                         <div class="af-section-title">ESPIAR ALDEIAS BB</div>
                         <article class="af-spy-card">
                             <header class="af-spy-head">
-                                <span class="af-spy-badge" aria-hidden="true">🔭</span>
+                                <span class="af-spy-badge" aria-hidden="true"><img src="/graphic/unit/unit_spy.png" alt=""></span>
                                 <span class="af-spy-name">Modelo Espião BB</span>
                                 <span class="af-spy-status" data-role="spy-status">Inativo</span>
                                 <label class="af-switch">
@@ -1092,7 +1093,7 @@
 
         const commandData = serializeGameForm(commandForm);
         commandData.set('spy', String(scouts));
-        if (commandData.has('target')) commandData.set('target', String(target.id));
+        applyDirectAttackTarget(commandForm, commandData, target);
         addGameSubmitControl(commandForm, commandData, ['attack']);
         const confirmationPage = await submitGameForm(
             commandForm,
@@ -1112,6 +1113,8 @@
         }
 
         const confirmationData = serializeGameForm(confirmationForm);
+        confirmationData.set('spy', String(scouts));
+        applyDirectAttackTarget(confirmationForm, confirmationData, target);
         addGameSubmitControl(confirmationForm, confirmationData, ['submit', 'send', 'attack']);
         const finalPage = await submitGameForm(
             confirmationForm,
@@ -1124,6 +1127,21 @@
         if (finalError || finalDocument.querySelector('#command-confirm-form')) {
             throw new Error(finalError || 'A espionagem não foi confirmada pelo jogo.');
         }
+    }
+
+    function applyDirectAttackTarget(form, data, target) {
+        const id = String(target.id);
+        const coordinates = `${target.x}|${target.y}`;
+
+        // O formulário do Ponto de Encontro nem sempre inclui o campo oculto
+        // quando é carregado em segundo plano. O ID tem de seguir sempre no POST.
+        data.set('target', id);
+        if (form.querySelector('[name="target_id"]')) data.set('target_id', id);
+        if (form.querySelector('[name="x"]')) data.set('x', String(target.x));
+        if (form.querySelector('[name="y"]')) data.set('y', String(target.y));
+        if (form.querySelector('[name="target_x"]')) data.set('target_x', String(target.x));
+        if (form.querySelector('[name="target_y"]')) data.set('target_y', String(target.y));
+        if (form.querySelector('[name="input"]')) data.set('input', coordinates);
     }
 
     function buildDirectAttackUrl(targetId, sourceId) {
