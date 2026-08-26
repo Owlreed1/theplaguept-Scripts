@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.0.1
+// @version      1.0.2
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,13 +25,14 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.0.1',
+        version: '1.0.2',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
         toolbarStyleId: 'tp-theplaguept-script-bar-style',
         styleId: 'twPtAutoFarm-style',
         statusId: 'twPtAutoFarm-worker-status',
+        settingsId: 'twPtAutoFarm-settings',
         workerHeartbeatMs: 3000,
         workerFreshMs: 90000,
         monitorMs: 2500,
@@ -42,6 +43,15 @@
     const keys = Object.freeze({
         enabled: `twPtAutoFarm.v1.${world}.enabled`,
         worker: `twPtAutoFarm.v1.${world}.worker`,
+        settings: `twPtAutoFarm.v1.${world}.settings`,
+    });
+    const DEFAULT_SETTINGS = Object.freeze({
+        schema: 1,
+        models: {
+            a: defaultModel(true),
+            b: defaultModel(true),
+            c: defaultModel(false),
+        },
     });
     const workerWindowName = `TW_PT_AutoFarm_${world}`;
     const workerLockName = `twPtAutoFarm-worker-${world}`;
@@ -49,6 +59,9 @@
     const state = {
         button: null,
         panel: null,
+        settingsPanel: null,
+        settings: null,
+        savedTimer: 0,
         workerWindow: null,
         monitorTimer: 0,
         heartbeatTimer: 0,
@@ -69,6 +82,7 @@
         disable,
         openWorker: () => openWorker(true),
         isEnabled,
+        getSettings: () => clone(state.settings || loadSettings()),
         getStatus: () => ({
             enabled: isEnabled(),
             world,
@@ -81,6 +95,7 @@
     ready(init);
 
     function init() {
+        state.settings = loadSettings();
         injectStyles();
         createButton();
         bindEvents();
@@ -88,6 +103,7 @@
 
         if (isFarmPage()) {
             createWorkerPanel();
+            createModelsPanel();
             if (isEnabled()) startWorker();
         }
 
@@ -111,6 +127,10 @@
             }
 
             if (event.key === keys.worker) updateUi();
+            if (event.key === keys.settings) {
+                state.settings = loadSettings();
+                renderSettingsUi();
+            }
         });
 
         window.addEventListener('beforeunload', destroy, { once: true });
@@ -186,6 +206,51 @@
             #${APP.statusId}[data-state="duplicate"] [data-role="state"],#${APP.statusId}[data-state="waiting"] [data-role="state"]{color:#9a5b0b}
             #${APP.statusId}[data-state="off"] [data-role="state"]{color:#8a1c17}
             #${APP.statusId} small{display:block;margin-top:3px;color:#84683a}
+            #${APP.settingsId}{margin:8px 0 12px;border:1px solid #c8a86a;background:#f6e8bd;color:#3c2a14;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}
+            #${APP.settingsId} *{box-sizing:border-box}
+            #${APP.settingsId} .af-settings-title{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 12px;border-bottom:1px solid #d3b97d;background:linear-gradient(to bottom,#f9edca,#f0dca8);font:20px Georgia,'Times New Roman',serif;color:#3d2915}
+            #${APP.settingsId} .af-settings-title small{font:10px Verdana,Arial,sans-serif;color:#80643b}
+            #${APP.settingsId} .af-models-wrap{padding:12px}
+            #${APP.settingsId} .af-section-title{display:flex;align-items:center;gap:9px;margin:0 0 8px;color:#75501f;font-weight:bold;letter-spacing:1.2px}
+            #${APP.settingsId} .af-section-title::after{content:'';height:1px;flex:1;background:#b99658}
+            #${APP.settingsId} .af-model-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+            #${APP.settingsId} .af-model-card{min-width:0;border:1px solid #c4a15d;border-radius:4px;background:#faefd0;box-shadow:0 1px 2px #70502024;overflow:hidden;transition:opacity .15s ease}
+            #${APP.settingsId} .af-model-card.af-model-off{opacity:.56}
+            #${APP.settingsId} .af-model-head{display:flex;align-items:center;gap:8px;min-height:38px;padding:6px 10px;border-bottom:1px solid #d3b778;background:#f8e8bc}
+            #${APP.settingsId} .af-model-badge{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border:1px solid #594325;border-radius:4px;background:linear-gradient(#7f6846,#3f3020);box-shadow:inset 0 1px #ffffff73,0 1px 2px #0005;color:#f8e8bd;font:bold 17px Georgia,serif;text-shadow:1px 1px #000}
+            #${APP.settingsId} .af-model-name{font-weight:bold;font-size:12px;flex:1}
+            #${APP.settingsId} .af-switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+            #${APP.settingsId} .af-switch input{position:absolute;opacity:0;pointer-events:none}
+            #${APP.settingsId} .af-switch-track{position:relative;width:32px;height:18px;border:1px solid #a37b35;border-radius:10px;background:#ecd8a5;box-shadow:inset 0 1px 2px #0003}
+            #${APP.settingsId} .af-switch-track::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#9a855b;box-shadow:0 1px 2px #0005;transition:left .14s ease,background .14s ease}
+            #${APP.settingsId} .af-switch input:checked+.af-switch-track{background:#b48335}
+            #${APP.settingsId} .af-switch input:checked+.af-switch-track::after{left:16px;background:#f5dfaa}
+            #${APP.settingsId} .af-switch input:focus-visible+.af-switch-track{outline:2px solid #3777c7;outline-offset:1px}
+            #${APP.settingsId} .af-model-body{padding:7px 10px 9px}
+            #${APP.settingsId} .af-filter-row{display:grid;grid-template-columns:minmax(118px,1fr) 18px 52px;align-items:center;gap:6px;min-height:36px;border-bottom:1px dashed #dcc38b}
+            #${APP.settingsId} .af-filter-label,#${APP.settingsId} .af-subtitle{color:#806037;font-weight:bold;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+            #${APP.settingsId} .af-filter-label{display:flex;align-items:center;gap:5px;white-space:nowrap}
+            #${APP.settingsId} .af-filter-label img{width:16px;height:16px;object-fit:contain}
+            #${APP.settingsId} input[type="checkbox"]{width:15px;height:15px;margin:0;accent-color:#76501c;cursor:pointer}
+            #${APP.settingsId} input[type="number"]{width:100%;height:27px;padding:3px 6px;border:1px solid #d2b275;border-radius:3px;background:#fffaf0;color:#3b2814;font:11px Verdana,Arial,sans-serif}
+            #${APP.settingsId} input:disabled{cursor:not-allowed;opacity:.62;background:#f0e3bf}
+            #${APP.settingsId} .af-resource-row{grid-template-columns:minmax(118px,1fr) 18px 1fr auto 1fr}
+            #${APP.settingsId} .af-resource-icons{display:inline-flex;gap:2px}
+            #${APP.settingsId} .af-resource-icons img{width:13px;height:13px}
+            #${APP.settingsId} .af-subtitle{margin:8px 0 5px}
+            #${APP.settingsId} .af-loot-types{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding-bottom:7px;border-bottom:1px dashed #dcc38b}
+            #${APP.settingsId} .af-check-option{display:flex;align-items:center;gap:5px;min-height:27px;padding:4px 6px;border:1px solid #d4b777;border-radius:3px;background:#fff7df;font-weight:bold;font-size:10px;text-transform:uppercase;color:#77562d;cursor:pointer}
+            #${APP.settingsId} .af-reports{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+            #${APP.settingsId} .af-report-option{position:relative;display:flex;align-items:center;gap:5px;min-height:27px;padding:4px 7px;border:1px solid #d8c28d;border-radius:3px;background:#eadcaf;color:#7b6743;cursor:pointer;user-select:none}
+            #${APP.settingsId} .af-report-option.af-selected{border-color:#9c651b;background:#fff8e5;color:#3f2d18;font-weight:bold}
+            #${APP.settingsId} .af-report-option input{position:absolute;opacity:0;pointer-events:none}
+            #${APP.settingsId} .af-report-option:focus-within{outline:2px solid #3777c7;outline-offset:1px}
+            #${APP.settingsId} .af-report-dot{width:11px;height:11px;flex:0 0 11px;border-radius:50%;box-shadow:inset 0 1px #fff8,0 1px 2px #0004}
+            #${APP.settingsId} .af-blue{background:#2387e8}#${APP.settingsId} .af-green{background:#58bf38}#${APP.settingsId} .af-yellow{background:#ffd21a}#${APP.settingsId} .af-red{background:#df3c2c}
+            #${APP.settingsId} .af-red-blue{background:linear-gradient(90deg,#df3c2c 0 50%,#2387e8 50%)}
+            #${APP.settingsId} .af-red-yellow{background:linear-gradient(90deg,#df3c2c 0 50%,#ffd21a 50%)}
+            #${APP.settingsId} .af-model-off .af-model-body{pointer-events:none}
+            @media(max-width:950px){#${APP.settingsId} .af-model-grid{grid-template-columns:1fr}#${APP.settingsId} .af-settings-title{font-size:17px}}
         `;
         (document.head || document.documentElement).appendChild(style);
     }
@@ -206,6 +271,186 @@
             else document.body.prepend(panel);
         }
         state.panel = panel;
+    }
+
+    function createModelsPanel() {
+        let panel = document.getElementById(APP.settingsId);
+        if (!panel) {
+            panel = document.createElement('section');
+            panel.id = APP.settingsId;
+            panel.setAttribute('aria-label', 'Definições dos modelos do AutoFarm');
+            panel.innerHTML = `
+                <header class="af-settings-title">
+                    <span>Auto Farm — Definições</span>
+                    <small data-role="saved">Guardado automaticamente — ${escapeHtml(world)}</small>
+                </header>
+                <div class="af-models-wrap">
+                    <div class="af-section-title">MODELOS</div>
+                    <div class="af-model-grid">
+                        ${modelCard('a', 'A')}
+                        ${modelCard('b', 'B')}
+                        ${modelCard('c', 'C')}
+                    </div>
+                </div>
+            `;
+
+            panel.addEventListener('change', event => {
+                if (!(event.target instanceof HTMLInputElement) || !event.target.dataset.setting) return;
+                saveSettingsFromPanel();
+            });
+
+            if (state.panel?.parentNode) {
+                state.panel.insertAdjacentElement('afterend', panel);
+            } else {
+                const anchor = document.querySelector('#am_widget_Farm, #content_value, #contentContainer');
+                if (anchor?.parentNode) anchor.parentNode.insertBefore(panel, anchor);
+                else document.body.prepend(panel);
+            }
+        }
+
+        state.settingsPanel = panel;
+        renderSettingsUi();
+    }
+
+    function modelCard(modelKey, letter) {
+        const base = `models.${modelKey}`;
+        const reportOptions = [
+            ['blue', 'Azul', 'af-blue'],
+            ['green', 'Verde', 'af-green'],
+            ['yellow', 'Amarelo', 'af-yellow'],
+            ['red', 'Vermelho', 'af-red'],
+            ['redBlue', 'Verm./azul', 'af-red-blue'],
+            ['redYellow', 'Verm./amar.', 'af-red-yellow'],
+        ];
+
+        return `
+            <article class="af-model-card" data-model="${modelKey}">
+                <header class="af-model-head">
+                    <span class="af-model-badge" aria-hidden="true">${letter}</span>
+                    <span class="af-model-name">Modelo ${letter}</span>
+                    <label class="af-switch">
+                        <input class="af-model-enabled" type="checkbox" data-setting="${base}.enabled">
+                        <span class="af-switch-track" aria-hidden="true"></span>
+                        <span>Ativo</span>
+                    </label>
+                </header>
+                <div class="af-model-body">
+                    <div class="af-filter-row" data-filter="wall">
+                        <span class="af-filter-label"><img src="/graphic/buildings/wall.png" alt="">Muralha máx.</span>
+                        <input type="checkbox" data-setting="${base}.wall.enabled" aria-label="Limitar muralha do Modelo ${letter}">
+                        <input type="number" min="0" max="20" step="1" data-setting="${base}.wall.max" aria-label="Nível máximo de muralha do Modelo ${letter}">
+                    </div>
+                    <div class="af-filter-row" data-filter="distance">
+                        <span class="af-filter-label"><span aria-hidden="true">⚑</span>Distância máx.</span>
+                        <input type="checkbox" data-setting="${base}.distance.enabled" aria-label="Limitar distância do Modelo ${letter}">
+                        <input type="number" min="0" max="999" step="1" data-setting="${base}.distance.max" aria-label="Distância máxima do Modelo ${letter}">
+                    </div>
+                    <div class="af-filter-row af-resource-row" data-filter="resources">
+                        <span class="af-filter-label">
+                            <span class="af-resource-icons" aria-hidden="true">
+                                <img src="/graphic/holz.png" alt=""><img src="/graphic/lehm.png" alt=""><img src="/graphic/eisen.png" alt="">
+                            </span>
+                            Recursos
+                        </span>
+                        <input type="checkbox" data-setting="${base}.resources.enabled" aria-label="Limitar recursos do Modelo ${letter}">
+                        <input type="number" min="0" max="1000000000" step="1" data-setting="${base}.resources.min" aria-label="Recursos mínimos do Modelo ${letter}">
+                        <span aria-hidden="true">–</span>
+                        <input type="number" min="0" max="1000000000" step="1" data-setting="${base}.resources.max" aria-label="Recursos máximos do Modelo ${letter}">
+                    </div>
+
+                    <div class="af-subtitle">Tipo de saque</div>
+                    <div class="af-loot-types">
+                        <label class="af-check-option">
+                            <input type="checkbox" data-setting="${base}.loot.full">
+                            <span aria-hidden="true">💰</span>Saque total
+                        </label>
+                        <label class="af-check-option">
+                            <input type="checkbox" data-setting="${base}.loot.partial">
+                            <span aria-hidden="true">🪙</span>Saque parcial
+                        </label>
+                    </div>
+
+                    <div class="af-subtitle">Relatórios</div>
+                    <div class="af-reports">
+                        ${reportOptions.map(([key, label, dotClass]) => `
+                            <label class="af-report-option" data-report="${key}">
+                                <input type="checkbox" data-setting="${base}.reports.${key}">
+                                <span class="af-report-dot ${dotClass}" aria-hidden="true"></span>
+                                <span>${label}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            </article>
+        `;
+    }
+
+    function saveSettingsFromPanel() {
+        if (!state.settingsPanel) return;
+        const next = clone(state.settings || DEFAULT_SETTINGS);
+
+        state.settingsPanel.querySelectorAll('input[data-setting]').forEach(input => {
+            const value = input.type === 'checkbox' ? input.checked : Number(input.value);
+            setByPath(next, input.dataset.setting, value);
+        });
+
+        state.settings = normalizeSettings(next);
+        try {
+            localStorage.setItem(keys.settings, JSON.stringify(state.settings));
+        } catch (error) {
+            console.error(`[${APP.shortName}] Não foi possível guardar as definições.`, error);
+            notify('error', 'Não foi possível guardar as definições do AutoFarm.');
+            return;
+        }
+
+        renderSettingsUi();
+        showSavedState();
+        window.dispatchEvent(new CustomEvent('twPtAutoFarm:settings', {
+            detail: { world, settings: clone(state.settings) },
+        }));
+    }
+
+    function renderSettingsUi() {
+        if (!state.settingsPanel || !state.settings) return;
+
+        state.settingsPanel.querySelectorAll('input[data-setting]').forEach(input => {
+            const value = getByPath(state.settings, input.dataset.setting);
+            if (input.type === 'checkbox') input.checked = Boolean(value);
+            else input.value = String(value);
+        });
+
+        state.settingsPanel.querySelectorAll('.af-model-card').forEach(card => {
+            const modelKey = card.dataset.model;
+            const model = state.settings.models[modelKey];
+            const active = Boolean(model.enabled);
+            card.classList.toggle('af-model-off', !active);
+
+            card.querySelectorAll('input').forEach(input => {
+                input.disabled = !active && !input.classList.contains('af-model-enabled');
+            });
+
+            card.querySelectorAll('.af-filter-row').forEach(row => {
+                const filter = model[row.dataset.filter];
+                row.querySelectorAll('input[type="number"]').forEach(input => {
+                    input.disabled = !active || !filter.enabled;
+                });
+            });
+
+            card.querySelectorAll('.af-report-option').forEach(option => {
+                const checkbox = option.querySelector('input[type="checkbox"]');
+                option.classList.toggle('af-selected', Boolean(checkbox?.checked));
+            });
+        });
+    }
+
+    function showSavedState() {
+        const label = state.settingsPanel?.querySelector('[data-role="saved"]');
+        if (!label) return;
+        window.clearTimeout(state.savedTimer);
+        label.textContent = `✓ Guardado agora — ${world}`;
+        state.savedTimer = window.setTimeout(() => {
+            label.textContent = `Guardado automaticamente — ${world}`;
+        }, 1600);
     }
 
     function enable(openTab) {
@@ -471,6 +716,101 @@
         return String(value).toLowerCase().replace(/[^a-z0-9_-]+/g, '_').slice(0, 80) || 'unknown-world';
     }
 
+    function defaultModel(enabled) {
+        return {
+            enabled,
+            wall: { enabled: false, max: 20 },
+            distance: { enabled: false, max: 50 },
+            resources: { enabled: false, min: 0, max: 0 },
+            loot: { full: true, partial: true },
+            reports: {
+                blue: true,
+                green: true,
+                yellow: false,
+                red: false,
+                redBlue: false,
+                redYellow: false,
+            },
+        };
+    }
+
+    function loadSettings() {
+        try {
+            return normalizeSettings(JSON.parse(localStorage.getItem(keys.settings) || 'null'));
+        } catch (error) {
+            console.warn(`[${APP.shortName}] Definições inválidas; foram usadas as predefinições.`, error);
+            return normalizeSettings(null);
+        }
+    }
+
+    function normalizeSettings(value) {
+        const source = value && typeof value === 'object' ? value : {};
+        const models = {};
+
+        ['a', 'b', 'c'].forEach(modelKey => {
+            const fallback = DEFAULT_SETTINGS.models[modelKey];
+            const model = source.models?.[modelKey] || {};
+            models[modelKey] = {
+                enabled: booleanValue(model.enabled, fallback.enabled),
+                wall: {
+                    enabled: booleanValue(model.wall?.enabled, fallback.wall.enabled),
+                    max: integerValue(model.wall?.max, fallback.wall.max, 0, 20),
+                },
+                distance: {
+                    enabled: booleanValue(model.distance?.enabled, fallback.distance.enabled),
+                    max: integerValue(model.distance?.max, fallback.distance.max, 0, 999),
+                },
+                resources: {
+                    enabled: booleanValue(model.resources?.enabled, fallback.resources.enabled),
+                    min: integerValue(model.resources?.min, fallback.resources.min, 0, 1000000000),
+                    max: integerValue(model.resources?.max, fallback.resources.max, 0, 1000000000),
+                },
+                loot: {
+                    full: booleanValue(model.loot?.full, fallback.loot.full),
+                    partial: booleanValue(model.loot?.partial, fallback.loot.partial),
+                },
+                reports: {
+                    blue: booleanValue(model.reports?.blue, fallback.reports.blue),
+                    green: booleanValue(model.reports?.green, fallback.reports.green),
+                    yellow: booleanValue(model.reports?.yellow, fallback.reports.yellow),
+                    red: booleanValue(model.reports?.red, fallback.reports.red),
+                    redBlue: booleanValue(model.reports?.redBlue, fallback.reports.redBlue),
+                    redYellow: booleanValue(model.reports?.redYellow, fallback.reports.redYellow),
+                },
+            };
+        });
+
+        return { schema: 1, models };
+    }
+
+    function booleanValue(value, fallback) {
+        return typeof value === 'boolean' ? value : fallback;
+    }
+
+    function integerValue(value, fallback, min, max) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return fallback;
+        return Math.min(max, Math.max(min, Math.round(number)));
+    }
+
+    function getByPath(object, path) {
+        return String(path).split('.').reduce((value, key) => value?.[key], object);
+    }
+
+    function setByPath(object, path, value) {
+        const parts = String(path).split('.');
+        const last = parts.pop();
+        const target = parts.reduce((parent, key) => {
+            if (!parent[key] || typeof parent[key] !== 'object') parent[key] = {};
+            return parent[key];
+        }, object);
+        target[last] = value;
+    }
+
+    function clone(value) {
+        return JSON.parse(JSON.stringify(value));
+    }
+
     function makeId() {
         if (window.crypto?.randomUUID) return window.crypto.randomUUID();
         return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -493,6 +833,7 @@
         if (state.destroyed) return;
         state.destroyed = true;
         window.clearInterval(state.monitorTimer);
+        window.clearTimeout(state.savedTimer);
         stopWorker();
     }
 
