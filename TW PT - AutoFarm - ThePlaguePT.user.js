@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.0.5
+// @version      1.0.6
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.0.5',
+        version: '1.0.6',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -51,12 +51,10 @@
         run: `twPtAutoFarm.v1.${world}.run`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 4,
+        schema: 5,
         general: {
             attackIntervalMs: 650,
             roundPauseSeconds: 60,
-            refreshAtEnd: true,
-            refreshAtStart: true,
         },
         models: {
             a: defaultModel(true),
@@ -278,15 +276,13 @@
             #${APP.settingsId} .af-red-yellow{background:linear-gradient(90deg,#df3c2c 0 50%,#ffd21a 50%)}
             #${APP.settingsId} .af-model-off .af-model-body{pointer-events:none}
             #${APP.settingsId} .af-general-wrap{margin-top:8px;padding-top:7px;border-top:1px solid #c6a767}
-            #${APP.settingsId} .af-general-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
-            #${APP.settingsId} .af-general-field,#${APP.settingsId} .af-general-check{min-height:36px;padding:5px 7px;border:1px solid #d1b475;border-radius:3px;background:#fff4d6}
-            #${APP.settingsId} .af-general-field{display:grid;grid-template-columns:1fr 84px;align-items:center;gap:7px}
+            #${APP.settingsId} .af-general-grid{display:grid;grid-template-columns:repeat(2,minmax(240px,360px));justify-content:start;gap:8px}
+            #${APP.settingsId} .af-general-field{min-height:34px;padding:4px 8px;border:1px solid #d1b475;border-radius:3px;background:#fff4d6;display:grid;grid-template-columns:minmax(110px,1fr) 112px;align-items:center;gap:8px}
             #${APP.settingsId} .af-general-field>span{color:#75532b;font-weight:bold;font-size:10px;text-transform:uppercase}
             #${APP.settingsId} .af-general-input{display:flex;align-items:center;gap:4px}
-            #${APP.settingsId} .af-general-input input{width:58px}
+            #${APP.settingsId} .af-general-input input{width:64px}
             #${APP.settingsId} .af-general-input small{color:#8a6c3e;font-size:9px;white-space:nowrap}
-            #${APP.settingsId} .af-general-check{display:flex;align-items:center;gap:7px;color:#65451f;font-weight:bold;cursor:pointer}
-            @media(max-width:1100px){#${APP.settingsId} .af-general-grid{grid-template-columns:1fr 1fr}}
+            @media(max-width:800px){#${APP.settingsId} .af-general-grid{grid-template-columns:1fr}}
             @media(max-width:950px){#${APP.settingsId} .af-model-grid{grid-template-columns:1fr}#${APP.settingsId} .af-settings-title{font-size:17px}}
         `;
         (document.head || document.documentElement).appendChild(style);
@@ -344,16 +340,8 @@
                                 <span>Entre rondas</span>
                                 <span class="af-general-input">
                                     <input type="number" min="1" max="86400" step="1" data-setting="general.roundPauseSeconds" aria-label="Pausa entre rondas em segundos">
-                                    <small>seg.</small>
+                                    <small>seg. ±10%</small>
                                 </span>
-                            </label>
-                            <label class="af-general-check">
-                                <input type="checkbox" data-setting="general.refreshAtEnd">
-                                <span>Refresh no fim da ronda</span>
-                            </label>
-                            <label class="af-general-check">
-                                <input type="checkbox" data-setting="general.refreshAtStart">
-                                <span>Refresh no início da ronda</span>
                             </label>
                         </div>
                     </div>
@@ -805,16 +793,11 @@
     function resumeRoundWorkflow() {
         if (!isFarmPage() || !isEnabled() || !state.ownsWorker || state.destroyed) return;
         const run = ensureRunState();
-        const settings = state.settings || loadSettings();
 
         if (run.round.phase === 'start') {
-            if (settings.general.refreshAtStart) {
-                run.round.phase = 'start_reloading';
-                writeRunState(run);
-                refreshPageForRound();
-            } else {
-                beginRound(run);
-            }
+            run.round.phase = 'start_reloading';
+            writeRunState(run);
+            refreshPageForRound();
             return;
         }
 
@@ -849,22 +832,16 @@
     function finishRound() {
         state.idleScans = 0;
         const run = ensureRunState();
-        const settings = state.settings || loadSettings();
-
-        if (settings.general.refreshAtEnd) {
-            run.round.phase = 'end_reloading';
-            run.round.pauseUntil = 0;
-            writeRunState(run);
-            refreshPageForRound();
-            return;
-        }
-        beginRoundPause(run);
+        run.round.phase = 'end_reloading';
+        run.round.pauseUntil = 0;
+        writeRunState(run);
+        refreshPageForRound();
     }
 
     function beginRoundPause(run) {
         const settings = state.settings || loadSettings();
         run.round.phase = 'waiting';
-        run.round.pauseUntil = Date.now() + (settings.general.roundPauseSeconds * 1000);
+        run.round.pauseUntil = Date.now() + randomizedRoundPauseMs(settings.general.roundPauseSeconds);
         writeRunState(run);
         scheduleRoundWait(run);
     }
@@ -888,18 +865,12 @@
     }
 
     function startNextRound(run) {
-        const settings = state.settings || loadSettings();
         run.round.number += 1;
         run.round.pauseUntil = 0;
         hideRoundCountdown();
-
-        if (settings.general.refreshAtStart) {
-            run.round.phase = 'start_reloading';
-            writeRunState(run);
-            refreshPageForRound();
-            return;
-        }
-        beginRound(run);
+        run.round.phase = 'start_reloading';
+        writeRunState(run);
+        refreshPageForRound();
     }
 
     function refreshPageForRound() {
@@ -935,7 +906,7 @@
         const seconds = Math.max(0, Math.round(Number(totalSeconds) || 0));
         const minutes = Math.floor(seconds / 60);
         const remainder = String(seconds % 60).padStart(2, '0');
-        display.textContent = `R ${minutes}:${remainder}`;
+        display.textContent = `${minutes}:${remainder}`;
         display.hidden = false;
     }
 
@@ -1089,6 +1060,12 @@
         return Math.round(base - variation + (Math.random() * variation * 2));
     }
 
+    function randomizedRoundPauseMs(baseSeconds) {
+        const base = Math.max(1, Number(baseSeconds) || DEFAULT_SETTINGS.general.roundPauseSeconds) * 1000;
+        const variation = base * 0.10;
+        return Math.round(base - variation + (Math.random() * variation * 2));
+    }
+
     function getReportColor(row) {
         const candidates = row.querySelectorAll([
             '.report_dot',
@@ -1108,11 +1085,17 @@
                 element.getAttribute('class'),
                 element.getAttribute('title'),
                 element.getAttribute('alt'),
+                element.getAttribute('style'),
             ];
             for (const value of explicitValues) {
                 const color = normalizeReportColor(value);
                 if (color) return color;
             }
+            const computed = window.getComputedStyle?.(element);
+            const computedTokenColor = normalizeReportColor(computed?.backgroundImage);
+            if (computedTokenColor) return computedTokenColor;
+            const computedRgbColor = reportColorFromRgb(computed?.backgroundColor);
+            if (computedRgbColor) return computedRgbColor;
         }
         return null;
     }
@@ -1130,6 +1113,19 @@
         if (green) return 'green';
         if (yellow) return 'yellow';
         if (red) return 'red';
+        return null;
+    }
+
+    function reportColorFromRgb(value) {
+        const match = String(value || '').match(/rgba?[(]\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+        if (!match) return null;
+        const red = Number(match[1]);
+        const green = Number(match[2]);
+        const blue = Number(match[3]);
+        if (green > red + 25 && green > blue + 25) return 'green';
+        if (blue > red + 25 && blue > green + 15) return 'blue';
+        if (red > 170 && green > 120 && blue < 120 && Math.abs(red - green) < 110) return 'yellow';
+        if (red > green + 35 && red > blue + 35) return 'red';
         return null;
     }
 
@@ -1486,7 +1482,7 @@
         });
 
         return {
-            schema: 4,
+            schema: 5,
             general: {
                 attackIntervalMs: integerValue(
                     generalSource.attackIntervalMs,
@@ -1499,14 +1495,6 @@
                     DEFAULT_SETTINGS.general.roundPauseSeconds,
                     1,
                     86400
-                ),
-                refreshAtEnd: booleanValue(
-                    generalSource.refreshAtEnd,
-                    DEFAULT_SETTINGS.general.refreshAtEnd
-                ),
-                refreshAtStart: booleanValue(
-                    generalSource.refreshAtStart,
-                    DEFAULT_SETTINGS.general.refreshAtStart
                 ),
             },
             models,
