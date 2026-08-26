@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.0.3
+// @version      1.0.4
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.0.3',
+        version: '1.0.4',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -33,6 +33,7 @@
         styleId: 'twPtAutoFarm-style',
         statusId: 'twPtAutoFarm-worker-status',
         settingsId: 'twPtAutoFarm-settings',
+        settingsToggleId: 'twPtAutoFarm-settings-toggle',
         workerHeartbeatMs: 3000,
         workerFreshMs: 90000,
         monitorMs: 2500,
@@ -46,9 +47,10 @@
         enabled: `twPtAutoFarm.v1.${world}.enabled`,
         worker: `twPtAutoFarm.v1.${world}.worker`,
         settings: `twPtAutoFarm.v1.${world}.settings`,
+        run: `twPtAutoFarm.v1.${world}.run`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 2,
+        schema: 3,
         models: {
             a: defaultModel(true),
             b: defaultModel(true),
@@ -98,6 +100,7 @@
             ownsWorker: state.ownsWorker,
             worker: readWorker(),
             farmSent: state.farmSent,
+            run: readRunState(),
         }),
     });
 
@@ -139,6 +142,10 @@
             if (event.key === keys.settings) {
                 state.settings = loadSettings();
                 renderSettingsUi();
+                if (state.ownsWorker) scheduleFarmStep(100);
+            }
+            if (event.key === keys.run) {
+                renderModelCounts();
                 if (state.ownsWorker) scheduleFarmStep(100);
             }
         });
@@ -219,6 +226,10 @@
             #${APP.settingsId} *{box-sizing:border-box}
             #${APP.settingsId} .af-settings-title{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border-bottom:1px solid #d3b97d;background:linear-gradient(to bottom,#f9edca,#f0dca8);font:17px Georgia,'Times New Roman',serif;color:#3d2915}
             #${APP.settingsId} .af-settings-title small{font:10px Verdana,Arial,sans-serif;color:#80643b}
+            #${APP.settingsId} .af-settings-actions{display:flex;align-items:center;gap:8px}
+            #${APP.settingsId} .af-settings-toggle{min-width:74px;height:27px;padding:3px 10px;border:1px solid #4f120f;border-radius:3px;background:linear-gradient(#b33a34,#8f2420 55%,#681611);box-shadow:inset 0 1px #ffffff59,0 1px 3px #0005;color:#fff;font:bold 11px Verdana,Arial,sans-serif;text-shadow:1px 1px #000;cursor:pointer}
+            #${APP.settingsId} .af-settings-toggle.af-ligado{background:linear-gradient(#5f9f3d,#3f7c27 55%,#28551a)}
+            #${APP.settingsId} .af-settings-toggle:hover,#${APP.settingsId} .af-settings-toggle:focus-visible{filter:brightness(1.15)}
             #${APP.settingsId} .af-models-wrap{padding:8px}
             #${APP.settingsId} .af-section-title{display:flex;align-items:center;gap:8px;margin:0 0 6px;color:#75501f;font-weight:bold;letter-spacing:1.2px}
             #${APP.settingsId} .af-section-title::after{content:'';height:1px;flex:1;background:#b99658}
@@ -228,6 +239,7 @@
             #${APP.settingsId} .af-model-head{display:flex;align-items:center;gap:7px;min-height:32px;padding:4px 8px;border-bottom:1px solid #d3b778;background:#f8e8bc}
             #${APP.settingsId} .af-model-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid #594325;border-radius:4px;background:linear-gradient(#7f6846,#3f3020);box-shadow:inset 0 1px #ffffff73,0 1px 2px #0005;color:#f8e8bd;font:bold 15px Georgia,serif;text-shadow:1px 1px #000}
             #${APP.settingsId} .af-model-name{font-weight:bold;font-size:12px;flex:1}
+            #${APP.settingsId} .af-model-count{padding:2px 5px;border:1px solid #c5a66a;border-radius:8px;background:#f3dfae;color:#77552a;font:bold 9px Verdana,Arial,sans-serif;white-space:nowrap}
             #${APP.settingsId} .af-switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
             #${APP.settingsId} .af-switch input{position:absolute;opacity:0;pointer-events:none}
             #${APP.settingsId} .af-switch-track{position:relative;width:32px;height:18px;border:1px solid #a37b35;border-radius:10px;background:#ecd8a5;box-shadow:inset 0 1px 2px #0003}
@@ -287,7 +299,10 @@
             panel.innerHTML = `
                 <header class="af-settings-title">
                     <span>Auto Farm — Definições</span>
-                    <small data-role="saved">Guardado automaticamente</small>
+                    <span class="af-settings-actions">
+                        <small data-role="saved">Guardado automaticamente</small>
+                        <button id="${APP.settingsToggleId}" class="af-settings-toggle" type="button">Ligar</button>
+                    </span>
                 </header>
                 <div class="af-models-wrap">
                     <div class="af-section-title">MODELOS</div>
@@ -302,6 +317,11 @@
             panel.addEventListener('change', event => {
                 if (!(event.target instanceof HTMLInputElement) || !event.target.dataset.setting) return;
                 saveSettingsFromPanel();
+            });
+            panel.querySelector(`#${APP.settingsToggleId}`)?.addEventListener('click', event => {
+                event.preventDefault();
+                if (isEnabled()) disable();
+                else enable(false);
             });
 
             if (state.panel?.parentNode) {
@@ -333,6 +353,7 @@
                 <header class="af-model-head">
                     <span class="af-model-badge" aria-hidden="true">${letter}</span>
                     <span class="af-model-name">Modelo ${letter}</span>
+                    <span class="af-model-count" data-model-count="${modelKey}">0</span>
                     <label class="af-switch">
                         <input class="af-model-enabled" type="checkbox" data-setting="${base}.enabled">
                         <span class="af-switch-track" aria-hidden="true"></span>
@@ -349,6 +370,11 @@
                         <span class="af-filter-label"><span aria-hidden="true">⚑</span>Distância máx.</span>
                         <input type="checkbox" data-setting="${base}.distance.enabled" aria-label="Limitar distância do Modelo ${letter}">
                         <input type="number" min="0" max="999" step="1" data-setting="${base}.distance.max" aria-label="Distância máxima do Modelo ${letter}">
+                    </div>
+                    <div class="af-filter-row" data-filter="maxAttacks">
+                        <span class="af-filter-label"><span aria-hidden="true">⚔</span>Máx. ataques</span>
+                        <input type="checkbox" data-setting="${base}.maxAttacks.enabled" aria-label="Limitar ataques do Modelo ${letter}">
+                        <input type="number" min="1" max="10000" step="1" data-setting="${base}.maxAttacks.max" aria-label="Máximo de ataques do Modelo ${letter}">
                     </div>
                     <div class="af-subtitle">Tipo de saque</div>
                     <div class="af-loot-types">
@@ -434,6 +460,7 @@
                 option.classList.toggle('af-selected', Boolean(checkbox?.checked));
             });
         });
+        renderModelCounts();
     }
 
     function showSavedState() {
@@ -447,6 +474,9 @@
     }
 
     function enable(openTab) {
+        const wasEnabled = isEnabled();
+        if (!wasEnabled) resetRunState();
+        else ensureRunState();
         localStorage.setItem(keys.enabled, '1');
         state.popupBlocked = false;
 
@@ -553,6 +583,7 @@
 
     function claimWorker() {
         if (!isEnabled() || state.destroyed) return;
+        ensureRunState();
         state.ownsWorker = true;
         state.duplicateWorker = false;
         publishHeartbeat();
@@ -645,11 +676,20 @@
             state.button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
         }
 
+        const settingsToggle = document.getElementById(APP.settingsToggleId);
+        if (settingsToggle) {
+            settingsToggle.textContent = enabled ? 'Desligar' : 'Ligar';
+            settingsToggle.classList.toggle('af-ligado', enabled);
+            settingsToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            settingsToggle.setAttribute('aria-label', enabled ? 'Desligar AutoFarm' : 'Ligar AutoFarm');
+        }
+
         if (state.panel) {
             state.panel.dataset.state = panelState;
             const status = state.panel.querySelector('[data-role="state"]');
             if (status) status.textContent = label;
         }
+        renderModelCounts();
     }
 
     function startFarmLoop() {
@@ -749,6 +789,7 @@
             const button = row.querySelector(`a.farm_icon_${model}`);
             if (
                 config.enabled &&
+                modelHasCapacity(model, config) &&
                 button &&
                 !isFarmButtonDisabled(button) &&
                 modelMatchesRow(row, config)
@@ -789,6 +830,7 @@
 
         task.button.click();
         state.farmSent += 1;
+        incrementModelCount(task.model);
         console.info(
             `[${APP.shortName}] Modelo ${task.model.toUpperCase()} enviado` +
             `${task.targetKey ? ` para ${task.targetKey}` : ''}.`
@@ -992,6 +1034,72 @@
         return new Promise(resolve => window.setTimeout(resolve, ms));
     }
 
+    function resetRunState() {
+        const run = {
+            sessionId: makeId(),
+            startedAt: Date.now(),
+            counts: { a: 0, b: 0, c: 0 },
+        };
+        localStorage.setItem(keys.run, JSON.stringify(run));
+        state.farmSent = 0;
+        state.processedTargets.clear();
+        state.processedRows = new WeakSet();
+        renderModelCounts();
+        return run;
+    }
+
+    function ensureRunState() {
+        return readRunState() || resetRunState();
+    }
+
+    function readRunState() {
+        try {
+            const run = JSON.parse(localStorage.getItem(keys.run) || 'null');
+            if (!run || typeof run !== 'object' || !run.sessionId || !run.counts) return null;
+            return {
+                sessionId: String(run.sessionId),
+                startedAt: Number(run.startedAt) || Date.now(),
+                counts: {
+                    a: integerValue(run.counts.a, 0, 0, 1000000),
+                    b: integerValue(run.counts.b, 0, 0, 1000000),
+                    c: integerValue(run.counts.c, 0, 0, 1000000),
+                },
+            };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function getModelCount(model) {
+        return readRunState()?.counts?.[model] || 0;
+    }
+
+    function incrementModelCount(model) {
+        const run = ensureRunState();
+        run.counts[model] = getModelCount(model) + 1;
+        localStorage.setItem(keys.run, JSON.stringify(run));
+        renderModelCounts();
+    }
+
+    function modelHasCapacity(model, config) {
+        return !config.maxAttacks.enabled || getModelCount(model) < config.maxAttacks.max;
+    }
+
+    function renderModelCounts() {
+        if (!state.settingsPanel || !state.settings) return;
+        const run = readRunState();
+        ['a', 'b', 'c'].forEach(model => {
+            const count = run?.counts?.[model] || 0;
+            const limit = state.settings.models[model].maxAttacks;
+            const badge = state.settingsPanel.querySelector(`[data-model-count="${model}"]`);
+            if (!badge) return;
+            badge.textContent = limit.enabled ? `${count}/${limit.max}` : `${count}/∞`;
+            badge.title = limit.enabled
+                ? `${count} de ${limit.max} ataques enviados nesta ativação`
+                : `${count} ataques enviados nesta ativação, sem limite`;
+        });
+    }
+
     function readWorker() {
         try {
             const value = JSON.parse(localStorage.getItem(keys.worker) || 'null');
@@ -1040,6 +1148,7 @@
             enabled,
             wall: { enabled: false, max: 20 },
             distance: { enabled: false, max: 50 },
+            maxAttacks: { enabled: false, max: 100 },
             loot: { full: true, partial: true },
             reports: {
                 blue: true,
@@ -1078,6 +1187,10 @@
                     enabled: booleanValue(model.distance?.enabled, fallback.distance.enabled),
                     max: integerValue(model.distance?.max, fallback.distance.max, 0, 999),
                 },
+                maxAttacks: {
+                    enabled: booleanValue(model.maxAttacks?.enabled, fallback.maxAttacks.enabled),
+                    max: integerValue(model.maxAttacks?.max, fallback.maxAttacks.max, 1, 10000),
+                },
                 loot: {
                     full: booleanValue(model.loot?.full, fallback.loot.full),
                     partial: booleanValue(model.loot?.partial, fallback.loot.partial),
@@ -1093,7 +1206,7 @@
             };
         });
 
-        return { schema: 2, models };
+        return { schema: 3, models };
     }
 
     function booleanValue(value, fallback) {
