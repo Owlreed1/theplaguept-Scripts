@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.0.6
+// @version      1.0.7
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.0.6',
+        version: '1.0.7',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -51,7 +51,7 @@
         run: `twPtAutoFarm.v1.${world}.run`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 5,
+        schema: 6,
         general: {
             attackIntervalMs: 650,
             roundPauseSeconds: 60,
@@ -77,6 +77,7 @@
         roundTimer: 0,
         idleScans: 0,
         farmSent: 0,
+        pendingTargetDueAt: 0,
         processedRows: new WeakSet(),
         processedTargets: new Set(),
         workerWindow: null,
@@ -409,6 +410,16 @@
                         <span class="af-filter-label"><span aria-hidden="true">⚔</span>Máx. ataques</span>
                         <input type="checkbox" data-setting="${base}.maxAttacks.enabled" aria-label="Limitar ataques do Modelo ${letter}">
                         <input type="number" min="1" max="10000" step="1" data-setting="${base}.maxAttacks.max" aria-label="Máximo de ataques do Modelo ${letter}">
+                    </div>
+                    <div class="af-filter-row" data-filter="sameVillage">
+                        <span class="af-filter-label"><span aria-hidden="true">↻</span>Ataques/alvo</span>
+                        <input type="checkbox" data-setting="${base}.sameVillage.enabled" aria-label="Permitir vários ataques do Modelo ${letter} à mesma aldeia">
+                        <input type="number" min="2" max="50" step="1" data-setting="${base}.sameVillage.max" aria-label="Máximo de ataques do Modelo ${letter} à mesma aldeia por ronda">
+                    </div>
+                    <div class="af-filter-row" data-filter="sameVillage">
+                        <span class="af-filter-label" title="A separação real varia automaticamente dez por cento"><span aria-hidden="true">⏱</span>Dif. chegada (s) ±10%</span>
+                        <span aria-hidden="true"></span>
+                        <input type="number" min="1" max="86400" step="1" data-setting="${base}.sameVillage.separationSeconds" aria-label="Diferença de chegada em segundos dos ataques do Modelo ${letter}">
                     </div>
                     <div class="af-subtitle">Tipo de saque</div>
                     <div class="af-loot-types">
@@ -767,16 +778,18 @@
         state.farmRunning = true;
         let task = null;
         let finishRequested = false;
+        let pendingDelay = 0;
         try {
             task = findNextFarmTask();
             if (task) {
                 state.idleScans = 0;
                 await sendFarmTask(task);
-            } else if (getFarmRows().length > 0 && !allActiveModelsExhausted()) {
+            } else if (state.pendingTargetDueAt > Date.now()) {
+                state.idleScans = 0;
+                pendingDelay = state.pendingTargetDueAt - Date.now();
+            } else {
                 state.idleScans += 1;
                 finishRequested = state.idleScans >= 3;
-            } else {
-                state.idleScans = 0;
             }
         } catch (error) {
             console.error(`[${APP.shortName}] Falha ao enviar um modelo.`, error);
@@ -785,7 +798,8 @@
             state.farmRunning = false;
             if (isEnabled() && state.ownsWorker && !state.destroyed) {
                 if (finishRequested) finishRound();
-                else scheduleFarmStep(task ? randomizedAttackDelay() : APP.idlePollMs);
+                else if (task) scheduleFarmStep(randomizedAttackDelay());
+                else scheduleFarmStep(pendingDelay > 0 ? Math.min(APP.idlePollMs, pendingDelay) : APP.idlePollMs);
             }
         }
     }
@@ -821,7 +835,7 @@
     }
 
     function beginRound(run) {
-        clearRoundProgress();
+        clearRoundProgress(run);
         run.round.phase = 'farming';
         run.round.pauseUntil = 0;
         writeRunState(run);
@@ -884,10 +898,13 @@
         window.setTimeout(() => window.location.reload(), 60);
     }
 
-    function clearRoundProgress() {
+    function clearRoundProgress(runValue) {
+        const run = runValue || ensureRunState();
+        run.round.targets = {};
         state.processedTargets.clear();
         state.processedRows = new WeakSet();
         state.idleScans = 0;
+        state.pendingTargetDueAt = 0;
         getFarmRows().forEach(row => delete row.dataset.twPtAutofarmSent);
     }
 
@@ -918,12 +935,11 @@
     }
 
     function findNextFarmTask() {
-        const rows = getFarmRows().filter(row => {
-            const targetKey = getTargetKey(row);
-            return !state.processedRows.has(row) &&
-                row.dataset.twPtAutofarmSent !== '1' &&
-                (!targetKey || !state.processedTargets.has(targetKey));
-        });
+        const rows = getFarmRows();
+        const settings = state.settings || loadSettings();
+        const run = ensureRunState();
+        const now = Date.now();
+        state.pendingTargetDueAt = 0;
 
         rows.sort((first, second) => {
             const firstDistance = getTargetDistance(first);
@@ -933,6 +949,48 @@
         });
 
         for (const row of rows) {
+            const targetKey = getTargetKey(row);
+            const progress = targetKey ? run.round.targets[targetKey] : null;
+
+            if (progress) {
+                const config = settings.models[progress.model];
+                const maximum = getSameVillageLimit(config);
+                if (progress.sent >= maximum) {
+                    row.dataset.twPtAutofarmSent = '1';
+                    state.processedTargets.add(targetKey);
+                    continue;
+                }
+
+                const button = row.querySelector(`a.farm_icon_${progress.model}`);
+                const reportColor = getReportColor(row);
+                if (
+                    !config?.enabled ||
+                    !modelHasCapacity(progress.model, config) ||
+                    !button ||
+                    isFarmButtonDisabled(button) ||
+                    !reportColor ||
+                    !modelMatchesRow(row, config, reportColor)
+                ) {
+                    continue;
+                }
+
+                if (progress.nextAt > now) {
+                    state.pendingTargetDueAt = state.pendingTargetDueAt > 0
+                        ? Math.min(state.pendingTargetDueAt, progress.nextAt)
+                        : progress.nextAt;
+                    continue;
+                }
+
+                return {
+                    row,
+                    button,
+                    model: progress.model,
+                    reportColor,
+                    targetKey,
+                };
+            }
+
+            if (state.processedRows.has(row) || row.dataset.twPtAutofarmSent === '1') continue;
             const selected = selectModelForRow(row);
             if (selected) {
                 return {
@@ -940,7 +998,7 @@
                     button: selected.button,
                     model: selected.model,
                     reportColor: selected.reportColor,
-                    targetKey: getTargetKey(row),
+                    targetKey,
                 };
             }
         }
@@ -1025,19 +1083,21 @@
             return;
         }
 
-        state.processedRows.add(task.row);
-        task.row.dataset.twPtAutofarmSent = '1';
-        if (task.targetKey) state.processedTargets.add(task.targetKey);
-
         task.button.click();
         state.farmSent += 1;
-        incrementModelCount(task.model, {
+        const progress = recordFarmSend(task.model, {
             color: currentColor,
             targetKey: task.targetKey,
         });
+        if (!task.targetKey || progress.complete) {
+            state.processedRows.add(task.row);
+            task.row.dataset.twPtAutofarmSent = '1';
+            if (task.targetKey) state.processedTargets.add(task.targetKey);
+        }
         console.info(
             `[${APP.shortName}] Modelo ${task.model.toUpperCase()} enviado` +
-            `${task.targetKey ? ` para ${task.targetKey}` : ''} — cor ${currentColor}.`
+            `${task.targetKey ? ` para ${task.targetKey}` : ''} — cor ${currentColor}` +
+            `${progress.maximum > 1 ? `, envio ${progress.sent}/${progress.maximum}` : ''}.`
         );
         await waitForFarmRequest(6000);
     }
@@ -1062,6 +1122,12 @@
 
     function randomizedRoundPauseMs(baseSeconds) {
         const base = Math.max(1, Number(baseSeconds) || DEFAULT_SETTINGS.general.roundPauseSeconds) * 1000;
+        const variation = base * 0.10;
+        return Math.round(base - variation + (Math.random() * variation * 2));
+    }
+
+    function randomizedArrivalSeparationMs(baseSeconds) {
+        const base = Math.max(1, Number(baseSeconds) || 1) * 1000;
         const variation = base * 0.10;
         return Math.round(base - variation + (Math.random() * variation * 2));
     }
@@ -1272,7 +1338,7 @@
             sessionId: makeId(),
             startedAt: Date.now(),
             counts: { a: 0, b: 0, c: 0 },
-            round: { number: 1, phase: 'start', pauseUntil: 0 },
+            round: { number: 1, phase: 'start', pauseUntil: 0, targets: {} },
             lastSend: null,
         };
         localStorage.setItem(keys.run, JSON.stringify(run));
@@ -1311,17 +1377,39 @@
         return readRunState()?.counts?.[model] || 0;
     }
 
-    function incrementModelCount(model, details = {}) {
+    function recordFarmSend(model, details = {}) {
         const run = ensureRunState();
-        run.counts[model] = getModelCount(model) + 1;
+        const config = state.settings?.models?.[model] || loadSettings().models[model];
+        const targetKey = String(details.targetKey || '');
+        const previous = targetKey ? run.round.targets[targetKey] : null;
+        const maximum = getSameVillageLimit(config);
+        const sent = previous?.model === model ? previous.sent + 1 : 1;
+        const complete = !targetKey || sent >= maximum;
+        const now = Date.now();
+
+        run.counts[model] = (run.counts[model] || 0) + 1;
+        if (targetKey) {
+            run.round.targets[targetKey] = {
+                model,
+                sent,
+                nextAt: complete ? 0 : now + randomizedArrivalSeparationMs(config.sameVillage.separationSeconds),
+                lastAt: now,
+            };
+        }
         run.lastSend = {
             model,
             color: String(details.color || ''),
-            targetKey: String(details.targetKey || ''),
-            at: Date.now(),
+            targetKey,
+            at: now,
         };
         writeRunState(run);
-        renderModelCounts();
+        return { sent, maximum, complete };
+    }
+
+    function getSameVillageLimit(config) {
+        return config?.sameVillage?.enabled
+            ? integerValue(config.sameVillage.max, 2, 2, 50)
+            : 1;
     }
 
     function modelHasCapacity(model, config) {
@@ -1350,7 +1438,27 @@
             number: integerValue(source.number, 1, 1, 1000000),
             phase: allowed.has(source.phase) ? source.phase : 'farming',
             pauseUntil: Math.max(0, Number(source.pauseUntil) || 0),
+            targets: normalizeRoundTargets(source.targets),
         };
+    }
+
+    function normalizeRoundTargets(value) {
+        const targets = {};
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return targets;
+
+        Object.entries(value).slice(0, 3000).forEach(([targetKey, progress]) => {
+            if (!/^(?:village:\d+|coord:\d{1,3}[|]\d{1,3})$/.test(targetKey)) return;
+            if (!progress || typeof progress !== 'object') return;
+            const model = ['a', 'b', 'c'].includes(progress.model) ? progress.model : '';
+            if (!model) return;
+            targets[targetKey] = {
+                model,
+                sent: integerValue(progress.sent, 1, 1, 50),
+                nextAt: Math.max(0, Number(progress.nextAt) || 0),
+                lastAt: Math.max(0, Number(progress.lastAt) || 0),
+            };
+        });
+        return targets;
     }
 
     function normalizeLastSend(value) {
@@ -1423,6 +1531,7 @@
             wall: { enabled: false, max: 20 },
             distance: { enabled: false, max: 50 },
             maxAttacks: { enabled: false, max: 100 },
+            sameVillage: { enabled: false, max: 2, separationSeconds: 60 },
             loot: { full: true, partial: true },
             reports: {
                 blue: true,
@@ -1466,6 +1575,16 @@
                     enabled: booleanValue(model.maxAttacks?.enabled, fallback.maxAttacks.enabled),
                     max: integerValue(model.maxAttacks?.max, fallback.maxAttacks.max, 1, 10000),
                 },
+                sameVillage: {
+                    enabled: booleanValue(model.sameVillage?.enabled, fallback.sameVillage.enabled),
+                    max: integerValue(model.sameVillage?.max, fallback.sameVillage.max, 2, 50),
+                    separationSeconds: integerValue(
+                        model.sameVillage?.separationSeconds,
+                        fallback.sameVillage.separationSeconds,
+                        1,
+                        86400
+                    ),
+                },
                 loot: {
                     full: booleanValue(model.loot?.full, fallback.loot.full),
                     partial: booleanValue(model.loot?.partial, fallback.loot.partial),
@@ -1482,7 +1601,7 @@
         });
 
         return {
-            schema: 5,
+            schema: 6,
             general: {
                 attackIntervalMs: integerValue(
                     generalSource.attackIntervalMs,
