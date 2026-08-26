@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.0.2
+// @version      1.0.3
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.0.2',
+        version: '1.0.3',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -36,6 +36,8 @@
         workerHeartbeatMs: 3000,
         workerFreshMs: 90000,
         monitorMs: 2500,
+        attackBaseMs: 650,
+        idlePollMs: 2500,
     });
 
     const world = getWorld();
@@ -46,7 +48,7 @@
         settings: `twPtAutoFarm.v1.${world}.settings`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 1,
+        schema: 2,
         models: {
             a: defaultModel(true),
             b: defaultModel(true),
@@ -62,6 +64,12 @@
         settingsPanel: null,
         settings: null,
         savedTimer: 0,
+        farmTimer: 0,
+        farmRunning: false,
+        farmGeneration: 0,
+        farmSent: 0,
+        processedRows: new WeakSet(),
+        processedTargets: new Set(),
         workerWindow: null,
         monitorTimer: 0,
         heartbeatTimer: 0,
@@ -89,6 +97,7 @@
             farmPage: isFarmPage(),
             ownsWorker: state.ownsWorker,
             worker: readWorker(),
+            farmSent: state.farmSent,
         }),
     });
 
@@ -130,6 +139,7 @@
             if (event.key === keys.settings) {
                 state.settings = loadSettings();
                 renderSettingsUi();
+                if (state.ownsWorker) scheduleFarmStep(100);
             }
         });
 
@@ -199,25 +209,24 @@
             #${APP.buttonId} [data-auto-farm-countdown][hidden]{display:none!important}
             #${APP.toolbarId}>#${APP.buttonId}::after{content:attr(data-tp-title);position:absolute!important;display:none!important;top:33px!important;left:50%!important;transform:translateX(-50%)!important;min-width:max-content!important;max-width:380px!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
             #${APP.toolbarId}>#${APP.buttonId}:hover::after,#${APP.toolbarId}>#${APP.buttonId}:focus-visible::after{display:block!important}
-            #${APP.statusId}{margin:8px 0;padding:7px 10px;border:1px solid #c1a264;background:#f4e4b8;color:#3b260f;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}
+            #${APP.statusId}{margin:5px 0;padding:5px 9px;border:1px solid #c1a264;background:#f4e4b8;color:#3b260f;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}
             #${APP.statusId} strong{margin-right:9px;color:#5d2d12}
             #${APP.statusId} [data-role="state"]{font-weight:bold}
             #${APP.statusId}[data-state="active"] [data-role="state"]{color:#287119}
             #${APP.statusId}[data-state="duplicate"] [data-role="state"],#${APP.statusId}[data-state="waiting"] [data-role="state"]{color:#9a5b0b}
             #${APP.statusId}[data-state="off"] [data-role="state"]{color:#8a1c17}
-            #${APP.statusId} small{display:block;margin-top:3px;color:#84683a}
-            #${APP.settingsId}{margin:8px 0 12px;border:1px solid #c8a86a;background:#f6e8bd;color:#3c2a14;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}
+            #${APP.settingsId}{margin:6px 0 9px;border:1px solid #c8a86a;background:#f6e8bd;color:#3c2a14;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}
             #${APP.settingsId} *{box-sizing:border-box}
-            #${APP.settingsId} .af-settings-title{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 12px;border-bottom:1px solid #d3b97d;background:linear-gradient(to bottom,#f9edca,#f0dca8);font:20px Georgia,'Times New Roman',serif;color:#3d2915}
+            #${APP.settingsId} .af-settings-title{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border-bottom:1px solid #d3b97d;background:linear-gradient(to bottom,#f9edca,#f0dca8);font:17px Georgia,'Times New Roman',serif;color:#3d2915}
             #${APP.settingsId} .af-settings-title small{font:10px Verdana,Arial,sans-serif;color:#80643b}
-            #${APP.settingsId} .af-models-wrap{padding:12px}
-            #${APP.settingsId} .af-section-title{display:flex;align-items:center;gap:9px;margin:0 0 8px;color:#75501f;font-weight:bold;letter-spacing:1.2px}
+            #${APP.settingsId} .af-models-wrap{padding:8px}
+            #${APP.settingsId} .af-section-title{display:flex;align-items:center;gap:8px;margin:0 0 6px;color:#75501f;font-weight:bold;letter-spacing:1.2px}
             #${APP.settingsId} .af-section-title::after{content:'';height:1px;flex:1;background:#b99658}
-            #${APP.settingsId} .af-model-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+            #${APP.settingsId} .af-model-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
             #${APP.settingsId} .af-model-card{min-width:0;border:1px solid #c4a15d;border-radius:4px;background:#faefd0;box-shadow:0 1px 2px #70502024;overflow:hidden;transition:opacity .15s ease}
             #${APP.settingsId} .af-model-card.af-model-off{opacity:.56}
-            #${APP.settingsId} .af-model-head{display:flex;align-items:center;gap:8px;min-height:38px;padding:6px 10px;border-bottom:1px solid #d3b778;background:#f8e8bc}
-            #${APP.settingsId} .af-model-badge{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border:1px solid #594325;border-radius:4px;background:linear-gradient(#7f6846,#3f3020);box-shadow:inset 0 1px #ffffff73,0 1px 2px #0005;color:#f8e8bd;font:bold 17px Georgia,serif;text-shadow:1px 1px #000}
+            #${APP.settingsId} .af-model-head{display:flex;align-items:center;gap:7px;min-height:32px;padding:4px 8px;border-bottom:1px solid #d3b778;background:#f8e8bc}
+            #${APP.settingsId} .af-model-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid #594325;border-radius:4px;background:linear-gradient(#7f6846,#3f3020);box-shadow:inset 0 1px #ffffff73,0 1px 2px #0005;color:#f8e8bd;font:bold 15px Georgia,serif;text-shadow:1px 1px #000}
             #${APP.settingsId} .af-model-name{font-weight:bold;font-size:12px;flex:1}
             #${APP.settingsId} .af-switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
             #${APP.settingsId} .af-switch input{position:absolute;opacity:0;pointer-events:none}
@@ -226,22 +235,19 @@
             #${APP.settingsId} .af-switch input:checked+.af-switch-track{background:#b48335}
             #${APP.settingsId} .af-switch input:checked+.af-switch-track::after{left:16px;background:#f5dfaa}
             #${APP.settingsId} .af-switch input:focus-visible+.af-switch-track{outline:2px solid #3777c7;outline-offset:1px}
-            #${APP.settingsId} .af-model-body{padding:7px 10px 9px}
-            #${APP.settingsId} .af-filter-row{display:grid;grid-template-columns:minmax(118px,1fr) 18px 52px;align-items:center;gap:6px;min-height:36px;border-bottom:1px dashed #dcc38b}
+            #${APP.settingsId} .af-model-body{padding:5px 8px 7px}
+            #${APP.settingsId} .af-filter-row{display:grid;grid-template-columns:minmax(112px,1fr) 18px 52px;align-items:center;gap:5px;min-height:30px;border-bottom:1px dashed #dcc38b}
             #${APP.settingsId} .af-filter-label,#${APP.settingsId} .af-subtitle{color:#806037;font-weight:bold;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
             #${APP.settingsId} .af-filter-label{display:flex;align-items:center;gap:5px;white-space:nowrap}
             #${APP.settingsId} .af-filter-label img{width:16px;height:16px;object-fit:contain}
             #${APP.settingsId} input[type="checkbox"]{width:15px;height:15px;margin:0;accent-color:#76501c;cursor:pointer}
-            #${APP.settingsId} input[type="number"]{width:100%;height:27px;padding:3px 6px;border:1px solid #d2b275;border-radius:3px;background:#fffaf0;color:#3b2814;font:11px Verdana,Arial,sans-serif}
+            #${APP.settingsId} input[type="number"]{width:100%;height:24px;padding:2px 5px;border:1px solid #d2b275;border-radius:3px;background:#fffaf0;color:#3b2814;font:11px Verdana,Arial,sans-serif}
             #${APP.settingsId} input:disabled{cursor:not-allowed;opacity:.62;background:#f0e3bf}
-            #${APP.settingsId} .af-resource-row{grid-template-columns:minmax(118px,1fr) 18px 1fr auto 1fr}
-            #${APP.settingsId} .af-resource-icons{display:inline-flex;gap:2px}
-            #${APP.settingsId} .af-resource-icons img{width:13px;height:13px}
-            #${APP.settingsId} .af-subtitle{margin:8px 0 5px}
-            #${APP.settingsId} .af-loot-types{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding-bottom:7px;border-bottom:1px dashed #dcc38b}
-            #${APP.settingsId} .af-check-option{display:flex;align-items:center;gap:5px;min-height:27px;padding:4px 6px;border:1px solid #d4b777;border-radius:3px;background:#fff7df;font-weight:bold;font-size:10px;text-transform:uppercase;color:#77562d;cursor:pointer}
+            #${APP.settingsId} .af-subtitle{margin:5px 0 4px}
+            #${APP.settingsId} .af-loot-types{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding-bottom:5px;border-bottom:1px dashed #dcc38b}
+            #${APP.settingsId} .af-check-option{display:flex;align-items:center;gap:4px;min-height:24px;padding:3px 5px;border:1px solid #d4b777;border-radius:3px;background:#fff7df;font-weight:bold;font-size:10px;text-transform:uppercase;color:#77562d;cursor:pointer}
             #${APP.settingsId} .af-reports{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-            #${APP.settingsId} .af-report-option{position:relative;display:flex;align-items:center;gap:5px;min-height:27px;padding:4px 7px;border:1px solid #d8c28d;border-radius:3px;background:#eadcaf;color:#7b6743;cursor:pointer;user-select:none}
+            #${APP.settingsId} .af-report-option{position:relative;display:flex;align-items:center;gap:5px;min-height:24px;padding:3px 6px;border:1px solid #d8c28d;border-radius:3px;background:#eadcaf;color:#7b6743;cursor:pointer;user-select:none}
             #${APP.settingsId} .af-report-option.af-selected{border-color:#9c651b;background:#fff8e5;color:#3f2d18;font-weight:bold}
             #${APP.settingsId} .af-report-option input{position:absolute;opacity:0;pointer-events:none}
             #${APP.settingsId} .af-report-option:focus-within{outline:2px solid #3777c7;outline-offset:1px}
@@ -263,7 +269,6 @@
             panel.innerHTML = `
                 <strong>${escapeHtml(APP.name)} v${APP.version}</strong>
                 <span data-role="state"></span>
-                <small>Base limpa: nesta fase não envia ataques nem muda de aldeia.</small>
             `;
 
             const anchor = document.querySelector('#am_widget_Farm, #content_value, #contentContainer');
@@ -282,7 +287,7 @@
             panel.innerHTML = `
                 <header class="af-settings-title">
                     <span>Auto Farm — Definições</span>
-                    <small data-role="saved">Guardado automaticamente — ${escapeHtml(world)}</small>
+                    <small data-role="saved">Guardado automaticamente</small>
                 </header>
                 <div class="af-models-wrap">
                     <div class="af-section-title">MODELOS</div>
@@ -345,19 +350,6 @@
                         <input type="checkbox" data-setting="${base}.distance.enabled" aria-label="Limitar distância do Modelo ${letter}">
                         <input type="number" min="0" max="999" step="1" data-setting="${base}.distance.max" aria-label="Distância máxima do Modelo ${letter}">
                     </div>
-                    <div class="af-filter-row af-resource-row" data-filter="resources">
-                        <span class="af-filter-label">
-                            <span class="af-resource-icons" aria-hidden="true">
-                                <img src="/graphic/holz.png" alt=""><img src="/graphic/lehm.png" alt=""><img src="/graphic/eisen.png" alt="">
-                            </span>
-                            Recursos
-                        </span>
-                        <input type="checkbox" data-setting="${base}.resources.enabled" aria-label="Limitar recursos do Modelo ${letter}">
-                        <input type="number" min="0" max="1000000000" step="1" data-setting="${base}.resources.min" aria-label="Recursos mínimos do Modelo ${letter}">
-                        <span aria-hidden="true">–</span>
-                        <input type="number" min="0" max="1000000000" step="1" data-setting="${base}.resources.max" aria-label="Recursos máximos do Modelo ${letter}">
-                    </div>
-
                     <div class="af-subtitle">Tipo de saque</div>
                     <div class="af-loot-types">
                         <label class="af-check-option">
@@ -408,6 +400,7 @@
         window.dispatchEvent(new CustomEvent('twPtAutoFarm:settings', {
             detail: { world, settings: clone(state.settings) },
         }));
+        if (state.ownsWorker) scheduleFarmStep(100);
     }
 
     function renderSettingsUi() {
@@ -447,9 +440,9 @@
         const label = state.settingsPanel?.querySelector('[data-role="saved"]');
         if (!label) return;
         window.clearTimeout(state.savedTimer);
-        label.textContent = `✓ Guardado agora — ${world}`;
+        label.textContent = '✓ Guardado agora';
         state.savedTimer = window.setTimeout(() => {
-            label.textContent = `Guardado automaticamente — ${world}`;
+            label.textContent = 'Guardado automaticamente';
         }, 1600);
     }
 
@@ -566,6 +559,7 @@
         window.clearInterval(state.heartbeatTimer);
         state.heartbeatTimer = window.setInterval(publishHeartbeat, APP.workerHeartbeatMs);
         updateUi();
+        startFarmLoop();
     }
 
     function startFallbackLease() {
@@ -604,6 +598,7 @@
     }
 
     function stopWorker(releaseLock = true) {
+        stopFarmLoop();
         window.clearInterval(state.heartbeatTimer);
         window.clearInterval(state.fallbackLeaseTimer);
         state.heartbeatTimer = 0;
@@ -628,35 +623,19 @@
         window.clearInterval(state.monitorTimer);
         state.monitorTimer = window.setInterval(() => {
             if (state.workerWindow?.closed) state.workerWindow = null;
+            if (isFarmPage() && isEnabled() && !state.ownsWorker && !state.acquiringWorker) {
+                const worker = readWorker();
+                if (!isFreshWorker(worker)) startWorker();
+            }
             updateUi();
         }, APP.monitorMs);
     }
 
     function updateUi() {
         const enabled = isEnabled();
-        const worker = readWorker();
-        const workerFresh = isFreshWorker(worker);
-        let visualState = 'off';
-        let label = `Desligado em ${world}`;
-        let panelState = 'off';
-
-        if (enabled && (state.ownsWorker || workerFresh)) {
-            visualState = 'on';
-            panelState = state.ownsWorker ? 'active' : 'duplicate';
-            label = state.ownsWorker
-                ? `Ligado — este separador controla ${world}`
-                : `Ligado — worker ativo em ${world}`;
-        } else if (enabled && state.popupBlocked) {
-            visualState = 'error';
-            panelState = 'waiting';
-            label = `Ligado, mas o separador foi bloqueado em ${world}`;
-        } else if (enabled) {
-            visualState = 'waiting';
-            panelState = state.duplicateWorker ? 'duplicate' : 'waiting';
-            label = state.duplicateWorker
-                ? `Ligado — existe outro worker em ${world}`
-                : `Ligado — à espera do Assistente de Saque em ${world}`;
-        }
+        const visualState = enabled ? 'on' : 'off';
+        const label = enabled ? 'Ligado' : 'Desligado';
+        const panelState = enabled ? 'active' : 'off';
 
         if (state.button) {
             state.button.dataset.state = visualState;
@@ -671,6 +650,346 @@
             const status = state.panel.querySelector('[data-role="state"]');
             if (status) status.textContent = label;
         }
+    }
+
+    function startFarmLoop() {
+        if (!isFarmPage() || !isEnabled() || !state.ownsWorker || state.destroyed) return;
+        scheduleFarmStep(150);
+    }
+
+    function stopFarmLoop() {
+        state.farmGeneration += 1;
+        window.clearTimeout(state.farmTimer);
+        state.farmTimer = 0;
+        state.farmRunning = false;
+    }
+
+    function scheduleFarmStep(delayMs) {
+        window.clearTimeout(state.farmTimer);
+        state.farmTimer = 0;
+        if (!isFarmPage() || !isEnabled() || !state.ownsWorker || state.destroyed || state.farmRunning) return;
+        state.farmTimer = window.setTimeout(runFarmStep, Math.max(50, Number(delayMs) || 50));
+    }
+
+    async function runFarmStep() {
+        state.farmTimer = 0;
+        if (!isEnabled() || !state.ownsWorker || state.destroyed || state.farmRunning) return;
+
+        const generation = state.farmGeneration;
+        state.farmRunning = true;
+        let task = null;
+        try {
+            task = findNextFarmTask();
+            if (task) await sendFarmTask(task);
+        } catch (error) {
+            console.error(`[${APP.shortName}] Falha ao enviar um modelo.`, error);
+        } finally {
+            if (generation !== state.farmGeneration) return;
+            state.farmRunning = false;
+            if (isEnabled() && state.ownsWorker && !state.destroyed) {
+                scheduleFarmStep(task ? randomizedAttackDelay() : APP.idlePollMs);
+            }
+        }
+    }
+
+    function findNextFarmTask() {
+        const rows = getFarmRows().filter(row => {
+            const targetKey = getTargetKey(row);
+            return !state.processedRows.has(row) &&
+                row.dataset.twPtAutofarmSent !== '1' &&
+                (!targetKey || !state.processedTargets.has(targetKey));
+        });
+
+        rows.sort((first, second) => {
+            const firstDistance = getTargetDistance(first);
+            const secondDistance = getTargetDistance(second);
+            if (firstDistance !== secondDistance) return firstDistance < secondDistance ? -1 : 1;
+            return getDomOrder(first, second);
+        });
+
+        for (const row of rows) {
+            const selected = selectModelForRow(row);
+            if (selected) {
+                return {
+                    row,
+                    button: selected.button,
+                    model: selected.model,
+                    targetKey: getTargetKey(row),
+                };
+            }
+        }
+        return null;
+    }
+
+    function getFarmRows() {
+        const selector = [
+            '#plunder_list a.farm_icon_a',
+            '#plunder_list a.farm_icon_b',
+            '#plunder_list a.farm_icon_c',
+            '#am_widget_Farm a.farm_icon_a',
+            '#am_widget_Farm a.farm_icon_b',
+            '#am_widget_Farm a.farm_icon_c',
+        ].join(',');
+        const rows = [];
+        const seen = new Set();
+        document.querySelectorAll(selector).forEach(button => {
+            const row = button.closest('tr');
+            if (row && !seen.has(row)) {
+                seen.add(row);
+                rows.push(row);
+            }
+        });
+        return rows;
+    }
+
+    function selectModelForRow(row) {
+        const settings = state.settings || loadSettings();
+        for (const model of ['a', 'b', 'c']) {
+            const config = settings.models[model];
+            const button = row.querySelector(`a.farm_icon_${model}`);
+            if (
+                config.enabled &&
+                button &&
+                !isFarmButtonDisabled(button) &&
+                modelMatchesRow(row, config)
+            ) {
+                return { model, button };
+            }
+        }
+        return null;
+    }
+
+    function modelMatchesRow(row, config) {
+        const reportColor = getReportColor(row);
+        if (!reportColor || !config.reports[reportColor]) return false;
+
+        if (config.wall.enabled) {
+            const wallLevel = getWallLevel(row);
+            if (!Number.isFinite(wallLevel) || wallLevel > config.wall.max) return false;
+        }
+
+        if (config.distance.enabled) {
+            const distance = getTargetDistance(row);
+            if (!Number.isFinite(distance) || distance > config.distance.max) return false;
+        }
+
+        const lootType = getLootType(row);
+        if (lootType === 'full' && !config.loot.full) return false;
+        if (lootType === 'partial' && !config.loot.partial) return false;
+        if (!lootType && !(config.loot.full && config.loot.partial)) return false;
+        return config.loot.full || config.loot.partial;
+    }
+
+    async function sendFarmTask(task) {
+        if (!task.button?.isConnected || isFarmButtonDisabled(task.button)) return;
+
+        state.processedRows.add(task.row);
+        task.row.dataset.twPtAutofarmSent = '1';
+        if (task.targetKey) state.processedTargets.add(task.targetKey);
+
+        task.button.click();
+        state.farmSent += 1;
+        console.info(
+            `[${APP.shortName}] Modelo ${task.model.toUpperCase()} enviado` +
+            `${task.targetKey ? ` para ${task.targetKey}` : ''}.`
+        );
+        await waitForFarmRequest(6000);
+    }
+
+    async function waitForFarmRequest(timeoutMs) {
+        const startedAt = Date.now();
+        await delay(80);
+        while (
+            window.jQuery &&
+            Number(window.jQuery.active || 0) > 0 &&
+            Date.now() - startedAt < timeoutMs
+        ) {
+            await delay(60);
+        }
+    }
+
+    function randomizedAttackDelay() {
+        const variation = APP.attackBaseMs * 0.10;
+        return Math.round(APP.attackBaseMs - variation + (Math.random() * variation * 2));
+    }
+
+    function getReportColor(row) {
+        const candidates = row.querySelectorAll([
+            '.report_dot',
+            '[class*="report_dot"]',
+            '[data-report-color]',
+            'img[src*="/dots/"]',
+            'img[src*="dots/"]',
+            'img[src*="dot_"]',
+            'img[src*="dot-"]',
+        ].join(','));
+
+        for (const element of candidates) {
+            const description = [
+                element.getAttribute('src'),
+                element.getAttribute('class'),
+                element.getAttribute('title'),
+                element.getAttribute('alt'),
+                element.getAttribute('data-report-color'),
+                element.getAttribute('data-color'),
+            ].filter(Boolean).join(' ');
+            const color = normalizeReportColor(description);
+            if (color) return color;
+        }
+        return null;
+    }
+
+    function normalizeReportColor(value) {
+        const text = normalizeText(value);
+        const red = /red|vermelh/.test(text);
+        const blue = /blue|azul/.test(text);
+        const yellow = /yellow|amarel/.test(text);
+        const green = /green|verde/.test(text);
+        if (red && blue) return 'redBlue';
+        if (red && yellow) return 'redYellow';
+        if (blue) return 'blue';
+        if (green) return 'green';
+        if (yellow) return 'yellow';
+        if (red) return 'red';
+        return null;
+    }
+
+    function getLootType(row) {
+        for (const image of row.querySelectorAll('img[src*="max_loot"]')) {
+            const match = String(image.getAttribute('src') || '').match(/max_loot\/(0|1)(?:\.|$)/i);
+            if (match) return match[1] === '1' ? 'full' : 'partial';
+        }
+
+        const descriptions = [
+            row.className,
+            row.getAttribute('data-loot'),
+            row.getAttribute('data-loot-type'),
+            row.getAttribute('data-haul'),
+        ];
+        row.querySelectorAll('[title],[alt],[data-loot],[data-loot-type],[data-haul]').forEach(element => {
+            descriptions.push(
+                element.getAttribute('title'),
+                element.getAttribute('alt'),
+                element.getAttribute('data-loot'),
+                element.getAttribute('data-loot-type'),
+                element.getAttribute('data-haul')
+            );
+        });
+        const text = normalizeText(descriptions.filter(Boolean).join(' '));
+        if (/(saque|pilhagem) (total|complet)|full (loot|haul|plunder)|(loot|haul|plunder) (full|complete)/.test(text)) {
+            return 'full';
+        }
+        if (/(saque|pilhagem) parcial|partial (loot|haul|plunder)|(loot|haul|plunder) partial/.test(text)) {
+            return 'partial';
+        }
+        return null;
+    }
+
+    function getWallLevel(row) {
+        const direct = row.getAttribute('data-wall-level') || row.getAttribute('data-muralha');
+        if (/^\d+$/.test(String(direct || '').trim())) return Math.min(20, Number(direct));
+
+        const marked = row.querySelector('[data-building="wall"],[data-wall-level],td.wall,td[class*="wall_level"]');
+        const index = findColumnIndex(row, /wall|muralha/);
+        const cell = marked || (index >= 0 ? row.cells[index] : null) || (row.cells.length > 6 ? row.cells[6] : null);
+        const text = String(cell?.textContent || '').trim();
+        return /^\d+$/.test(text) ? Math.min(20, Number(text)) : null;
+    }
+
+    function findColumnIndex(row, pattern) {
+        const table = row.closest('table');
+        if (!table) return -1;
+        for (const header of table.querySelectorAll('th')) {
+            const image = header.querySelector('img');
+            const description = normalizeText([
+                header.textContent,
+                header.className,
+                header.getAttribute('title'),
+                image?.getAttribute('src'),
+                image?.getAttribute('title'),
+                image?.getAttribute('alt'),
+            ].filter(Boolean).join(' '));
+            if (pattern.test(description)) return header.cellIndex;
+        }
+        return -1;
+    }
+
+    function getTargetDistance(row) {
+        const origin = getOriginCoordinates();
+        const target = getCoordinates(row.textContent);
+        if (origin && target) {
+            return Math.hypot(target.x - origin.x, target.y - origin.y);
+        }
+
+        const marked = row.querySelector('[data-distance],td.distance,td[class*="distance"]');
+        const direct = String(marked?.getAttribute('data-distance') || marked?.textContent || '')
+            .trim().replace(',', '.');
+        return /^\d+(?:\.\d+)?$/.test(direct) ? Number(direct) : Number.POSITIVE_INFINITY;
+    }
+
+    function getOriginCoordinates() {
+        const village = window.game_data?.village;
+        if (!village) return null;
+        if (village.coord) return getCoordinates(village.coord);
+        if (Number.isFinite(Number(village.x)) && Number.isFinite(Number(village.y))) {
+            return { x: Number(village.x), y: Number(village.y) };
+        }
+        return null;
+    }
+
+    function getCoordinates(value) {
+        const match = String(value || '').match(/(\d{1,3})\s*[|]\s*(\d{1,3})/);
+        return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
+    }
+
+    function getTargetKey(row) {
+        const idMatch = String(row.id || '').match(/^village_(\d+)/);
+        if (idMatch) return `village:${idMatch[1]}`;
+
+        const targetLink = row.querySelector('a[href*="target="]');
+        if (targetLink) {
+            try {
+                const target = new URL(targetLink.href, window.location.href).searchParams.get('target');
+                if (/^\d+$/.test(String(target || ''))) return `village:${target}`;
+            } catch (_) {
+                // Usa o onclick ou as coordenadas abaixo.
+            }
+        }
+
+        const farmButton = row.querySelector('a.farm_icon_a,a.farm_icon_b,a.farm_icon_c');
+        const onclick = farmButton?.getAttribute('onclick') || '';
+        const onclickMatch = onclick.match(/Accountmanager[.]farm[.]sendUnits\s*[(]\s*[^,]+\s*,\s*(\d+)/i);
+        if (onclickMatch) return `village:${onclickMatch[1]}`;
+
+        const coordinates = getCoordinates(row.textContent);
+        return coordinates ? `coord:${coordinates.x}|${coordinates.y}` : '';
+    }
+
+    function isFarmButtonDisabled(button) {
+        return !button ||
+            button.classList.contains('farm_icon_disabled') ||
+            button.getAttribute('aria-disabled') === 'true' ||
+            button.hasAttribute('disabled') ||
+            Boolean(button.closest('.farm_icon_disabled'));
+    }
+
+    function getDomOrder(first, second) {
+        if (first === second) return 0;
+        return first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    }
+
+    function normalizeText(value) {
+        return String(value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[_-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function delay(ms) {
+        return new Promise(resolve => window.setTimeout(resolve, ms));
     }
 
     function readWorker() {
@@ -721,7 +1040,6 @@
             enabled,
             wall: { enabled: false, max: 20 },
             distance: { enabled: false, max: 50 },
-            resources: { enabled: false, min: 0, max: 0 },
             loot: { full: true, partial: true },
             reports: {
                 blue: true,
@@ -760,11 +1078,6 @@
                     enabled: booleanValue(model.distance?.enabled, fallback.distance.enabled),
                     max: integerValue(model.distance?.max, fallback.distance.max, 0, 999),
                 },
-                resources: {
-                    enabled: booleanValue(model.resources?.enabled, fallback.resources.enabled),
-                    min: integerValue(model.resources?.min, fallback.resources.min, 0, 1000000000),
-                    max: integerValue(model.resources?.max, fallback.resources.max, 0, 1000000000),
-                },
                 loot: {
                     full: booleanValue(model.loot?.full, fallback.loot.full),
                     partial: booleanValue(model.loot?.partial, fallback.loot.partial),
@@ -780,7 +1093,7 @@
             };
         });
 
-        return { schema: 1, models };
+        return { schema: 2, models };
     }
 
     function booleanValue(value, fallback) {

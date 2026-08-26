@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.3.1
+// @version      2.3.3
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "Marcador - ThePlaguePT",
-        version: "2.3.1",
+        version: "2.3.3",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -57,11 +57,14 @@
         attackCoords: new Map(),
         attackLastUpdate: 0,
         villageOwners: null,
+        villageById: null,
         observer: null,
         refreshTimer: 0,
         pendingMiniRefresh: false,
         dragActive: false,
         dragFrame: 0,
+        resumeTimer: 0,
+        resumeRunning: false,
         panel: null,
         launcher: null,
         mapToolbar: null,
@@ -77,6 +80,7 @@
     injectStyles();
     createLauncher();
     registerHubShortcut();
+    setupWorldTabResume();
 
     if (gd.screen === "map" || /[?&]screen=map(?:&|$)/.test(location.search)) {
         waitForMap();
@@ -353,13 +357,61 @@
         const response = await fetch(`${location.origin}/map/village.txt`, { credentials: "same-origin" });
         if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
         const owners = new Map();
+        const villagesById = new Map();
         (await response.text()).split("\n").forEach((line) => {
             const fields = line.trim().split(",");
             if (fields.length < 5) return;
-            owners.set(`${Number(fields[2])}|${Number(fields[3])}`, Number(fields[4]));
+            const village = { id: Number(fields[0]), x: Number(fields[2]), y: Number(fields[3]), owner: Number(fields[4]) };
+            owners.set(`${village.x}|${village.y}`, village.owner);
+            villagesById.set(village.id, village);
         });
         state.villageOwners = owners;
+        state.villageById = villagesById;
         return owners;
+    }
+
+    function extractAttackTarget(row, ownKeys) {
+        const candidates = new Map();
+        const addCoordinates = (value) => {
+            for (const match of String(value || "").matchAll(/(\d{1,3})\s*\|\s*(\d{1,3})/g)) {
+                const x = Number(match[1]);
+                const y = Number(match[2]);
+                if (x <= 999 && y <= 999) candidates.set(`${x}|${y}`, { x, y });
+            }
+        };
+        const targetLabel = row.querySelector(".quickedit-label,[data-role='target'],[data-command-target],.command-target,.target");
+        if (targetLabel) {
+            addCoordinates(targetLabel.textContent);
+            addCoordinates(targetLabel.getAttribute("data-text"));
+            addCoordinates(targetLabel.getAttribute("data-coord"));
+            addCoordinates(targetLabel.getAttribute("title"));
+            addCoordinates(targetLabel.closest("td")?.textContent);
+        }
+        row.querySelectorAll("[data-coord],[data-coordinates],[data-text],[title],a[href*='info_village']").forEach((element) => {
+            addCoordinates(element.getAttribute("data-coord"));
+            addCoordinates(element.getAttribute("data-coordinates"));
+            addCoordinates(element.getAttribute("data-text"));
+            addCoordinates(element.getAttribute("title"));
+            addCoordinates(element.textContent);
+        });
+        addCoordinates(row.textContent);
+
+        const direct = [...candidates.values()].find(({ x, y }) => !ownKeys.has(`${x}|${y}`));
+        if (direct) return direct;
+
+        const ids = new Set();
+        row.querySelectorAll("[data-id],[data-village-id],[data-target-id],a[href*='info_village']").forEach((element) => {
+            [element.getAttribute("data-target-id"), element.getAttribute("data-village-id"), element.getAttribute("data-id")].forEach((value) => {
+                if (/^\d+$/.test(String(value || ""))) ids.add(Number(value));
+            });
+            const idMatch = String(element.getAttribute("href") || "").match(/[?&]id=(\d+)/);
+            if (idMatch) ids.add(Number(idMatch[1]));
+        });
+        for (const id of ids) {
+            const village = state.villageById?.get(id);
+            if (village && !ownKeys.has(`${village.x}|${village.y}`)) return { x: village.x, y: village.y, id };
+        }
+        return null;
     }
 
     function isFarmAssistantAttackRow(row) {
@@ -377,27 +429,23 @@
         const response = await fetch(url, { credentials: "same-origin" });
         if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
         const doc = new DOMParser().parseFromString(await response.text(), "text/html");
-        const owners = state.attackExcludeBarbarians ? await loadVillageOwners() : null;
-        const rows = [...doc.querySelectorAll("#commands_table tr.row_a, #commands_table tr.row_ax, #commands_table tr.row_b, #commands_table tr.row_bx")];
+        const owners = await loadVillageOwners();
+        const own = await loadOwnVillages();
+        const ownKeys = new Set(own.map(({ x, y }) => `${x}|${y}`));
+        const rows = [...doc.querySelectorAll("#commands_table tbody tr, #commands_table tr.command-row, #commands_table tr.row_a, #commands_table tr.row_ax, #commands_table tr.row_b, #commands_table tr.row_bx")];
         const found = new Map();
 
         for (const row of rows) {
-            // Nesta vista, quickedit-label é o destino do comando. Outros links
-            // presentes na linha podem apontar para a aldeia própria de origem.
-            const targetLabel = row.querySelector(".quickedit-label");
-            const targetLink = targetLabel?.closest("a") || targetLabel?.querySelector('a[href*="info_village"]') || null;
-            const match = (targetLabel?.textContent || "").match(/(\d{1,3})\s*\|\s*(\d{1,3})/);
-            if (!match) continue;
-            const x = Number(match[1]);
-            const y = Number(match[2]);
+            const target = extractAttackTarget(row, ownKeys);
+            if (!target) continue;
+            const { x, y } = target;
             const key = `${x}|${y}`;
-            const isBarbarian = owners ? owners.get(key) === 0 : false;
+            const isBarbarian = owners.get(key) === 0;
             const isFarm = isFarmAssistantAttackRow(row);
             if (state.attackExcludeBarbarians && isBarbarian) continue;
             if (state.attackExcludeFarm && isFarm) continue;
-            const idMatch = String(targetLink?.href || "").match(/[?&]id=(\d+)/);
             const previous = found.get(key);
-            found.set(key, { x, y, id: idMatch ? Number(idMatch[1]) : null, attack: true, isBarbarian, isFarm, count: (previous?.count || 0) + 1 });
+            found.set(key, { x, y, id: target.id || null, attack: true, isBarbarian, isFarm, count: (previous?.count || 0) + 1 });
         }
         state.attackCoords = found;
         state.attackLastUpdate = Date.now();
@@ -1166,6 +1214,47 @@
             return;
         }
         setTimeout(() => waitForMap(attempt + 1), 250);
+    }
+
+    function setupWorldTabResume() {
+        const queue = () => {
+            if (document.hidden) return;
+            clearTimeout(state.resumeTimer);
+            state.resumeTimer = setTimeout(resumeWorldTab, 120);
+        };
+        window.addEventListener("focus", queue, { passive: true });
+        window.addEventListener("pageshow", queue, { passive: true });
+        document.addEventListener("visibilitychange", queue, { passive: true });
+    }
+
+    async function resumeWorldTab() {
+        if (state.resumeRunning || document.hidden) return;
+        if (!(gd.screen === "map" || /[?&]screen=map(?:&|$)/.test(location.search))) return;
+        if (!document.querySelector("#map,#map_wrap,#map_container")) {
+            waitForMap();
+            return;
+        }
+        state.resumeRunning = true;
+        try {
+            if (!document.getElementById(`${APP.id}-launcher`)) createLauncher();
+            const toolbarMissing = !document.getElementById(`${APP.id}-mapToolbar`);
+            if (toolbarMissing || !document.getElementById(`${APP.id}-mapToggle`)) createMapToggle();
+            if (toolbarMissing || !document.getElementById(`${APP.id}-bonusMapToggle`)) createBonusMapToggle();
+            if (toolbarMissing || !document.getElementById(`${APP.id}-supportMapToggle`)) createSupportMapToggle();
+            if (toolbarMissing || !document.getElementById(`${APP.id}-supportTravelMapToggle`)) createSupportTravelMapToggle();
+            if (toolbarMissing || !document.getElementById(`${APP.id}-attackMapToggle`)) createAttackMapToggle();
+            if (!state.observer) observeMap();
+
+            const loaders = [];
+            if (state.bonusEnabled && state.bonusTypes.length) loaders.push(loadBonusBarbarians());
+            if (state.supportEnabled) loaders.push(loadSupportedVillages(true));
+            if (state.supportTravelEnabled) loaders.push(loadTravelingSupportVillages(true));
+            if (state.attackEnabled) loaders.push(loadAttackedVillages(true));
+            await Promise.allSettled(loaders);
+            refreshMarkers(true);
+        } finally {
+            state.resumeRunning = false;
+        }
     }
 
     function observeMap() {
