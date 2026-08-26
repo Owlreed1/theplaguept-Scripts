@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.0.7
+// @version      1.1.0
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.0.7',
+        version: '1.1.0',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -40,6 +40,8 @@
         defaultAttackMs: 650,
         minAttackMs: 200,
         idlePollMs: 2500,
+        requestTimeoutMs: 25000,
+        spyHistoryMs: 365 * 24 * 60 * 60 * 1000,
     });
 
     const world = getWorld();
@@ -49,9 +51,10 @@
         worker: `twPtAutoFarm.v1.${world}.worker`,
         settings: `twPtAutoFarm.v1.${world}.settings`,
         run: `twPtAutoFarm.v1.${world}.run`,
+        spyHistory: `twPtAutoFarm.v1.${world}.spyHistory`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 6,
+        schema: 7,
         general: {
             attackIntervalMs: 650,
             roundPauseSeconds: 60,
@@ -60,6 +63,13 @@
             a: defaultModel(true),
             b: defaultModel(true),
             c: defaultModel(false),
+        },
+        spy: {
+            enabled: false,
+            scoutsPerVillage: 1,
+            radius: 50,
+            maxPerRound: 25,
+            intervalMs: 650,
         },
     });
     const workerWindowName = `TW_PT_AutoFarm_${world}`;
@@ -78,6 +88,7 @@
         idleScans: 0,
         farmSent: 0,
         pendingTargetDueAt: 0,
+        spyRunning: false,
         processedRows: new WeakSet(),
         processedTargets: new Set(),
         workerWindow: null,
@@ -283,8 +294,24 @@
             #${APP.settingsId} .af-general-input{display:flex;align-items:center;gap:4px}
             #${APP.settingsId} .af-general-input input{width:64px}
             #${APP.settingsId} .af-general-input small{color:#8a6c3e;font-size:9px;white-space:nowrap}
+            #${APP.settingsId} .af-spy-wrap{margin-top:8px;padding-top:7px;border-top:1px solid #c6a767}
+            #${APP.settingsId} .af-spy-card{border:1px solid #c4a15d;border-radius:4px;background:#faefd0;box-shadow:0 1px 2px #70502024;overflow:hidden;transition:opacity .15s ease}
+            #${APP.settingsId} .af-spy-card.af-spy-off{opacity:.58}
+            #${APP.settingsId} .af-spy-head{display:flex;align-items:center;gap:7px;min-height:32px;padding:4px 8px;border-bottom:1px solid #d3b778;background:#f8e8bc}
+            #${APP.settingsId} .af-spy-badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:22px;border:1px solid #594325;border-radius:4px;background:linear-gradient(#55758a,#263d4b);box-shadow:inset 0 1px #ffffff73,0 1px 2px #0005;color:#fff4d2;font-size:14px}
+            #${APP.settingsId} .af-spy-name{font-weight:bold;font-size:12px;flex:1}
+            #${APP.settingsId} .af-spy-status{margin-right:8px;color:#80643b;font-size:9px;white-space:nowrap}
+            #${APP.settingsId} .af-spy-body{padding:7px 8px}
+            #${APP.settingsId} .af-spy-grid{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:6px}
+            #${APP.settingsId} .af-spy-field{min-height:42px;padding:4px 6px;border:1px solid #d1b475;border-radius:3px;background:#fff4d6;display:grid;grid-template-columns:minmax(80px,1fr) 64px;align-items:center;gap:6px}
+            #${APP.settingsId} .af-spy-field>span{color:#75532b;font-weight:bold;font-size:9px;text-transform:uppercase;line-height:13px}
+            #${APP.settingsId} .af-spy-field input{width:64px}
+            #${APP.settingsId} .af-spy-help{display:block;margin-top:6px;color:#87683d;font-size:9px;line-height:13px}
+            #${APP.settingsId} .af-spy-off .af-spy-body{pointer-events:none}
+            @media(max-width:1100px){#${APP.settingsId} .af-spy-grid{grid-template-columns:repeat(2,minmax(150px,1fr))}}
             @media(max-width:800px){#${APP.settingsId} .af-general-grid{grid-template-columns:1fr}}
             @media(max-width:950px){#${APP.settingsId} .af-model-grid{grid-template-columns:1fr}#${APP.settingsId} .af-settings-title{font-size:17px}}
+            @media(max-width:620px){#${APP.settingsId} .af-spy-grid{grid-template-columns:1fr}}
         `;
         (document.head || document.documentElement).appendChild(style);
     }
@@ -345,6 +372,42 @@
                                 </span>
                             </label>
                         </div>
+                    </div>
+                    <div class="af-spy-wrap">
+                        <div class="af-section-title">ESPIAR ALDEIAS BB</div>
+                        <article class="af-spy-card">
+                            <header class="af-spy-head">
+                                <span class="af-spy-badge" aria-hidden="true">🔭</span>
+                                <span class="af-spy-name">Modelo Espião BB</span>
+                                <span class="af-spy-status" data-role="spy-status">Inativo</span>
+                                <label class="af-switch">
+                                    <input class="af-spy-enabled" type="checkbox" data-setting="spy.enabled">
+                                    <span class="af-switch-track" aria-hidden="true"></span>
+                                    <span>Ativo</span>
+                                </label>
+                            </header>
+                            <div class="af-spy-body">
+                                <div class="af-spy-grid">
+                                    <label class="af-spy-field">
+                                        <span>Batedores/alvo</span>
+                                        <input type="number" min="1" max="100" step="1" data-setting="spy.scoutsPerVillage">
+                                    </label>
+                                    <label class="af-spy-field">
+                                        <span>Raio máximo</span>
+                                        <input type="number" min="1" max="200" step="1" data-setting="spy.radius">
+                                    </label>
+                                    <label class="af-spy-field">
+                                        <span>Máx./ronda</span>
+                                        <input type="number" min="1" max="500" step="1" data-setting="spy.maxPerRound">
+                                    </label>
+                                    <label class="af-spy-field">
+                                        <span>Entre espionagens (ms) ±10%</span>
+                                        <input type="number" min="200" max="60000" step="10" data-setting="spy.intervalMs" title="Milissegundos, com variação automática de ±10%">
+                                    </label>
+                                </div>
+                                <small class="af-spy-help">Usa ataques diretos com batedores. Lê o mapa, aceita apenas aldeias com proprietário 0 (bárbaras), ordena pelas mais próximas e ignora alvos já espiados por este módulo.</small>
+                            </div>
+                        </article>
                     </div>
                 </div>
             `;
@@ -505,7 +568,22 @@
                 option.classList.toggle('af-selected', Boolean(checkbox?.checked));
             });
         });
+
+        const spyCard = state.settingsPanel.querySelector('.af-spy-card');
+        if (spyCard) {
+            const active = Boolean(state.settings.spy.enabled);
+            spyCard.classList.toggle('af-spy-off', !active);
+            spyCard.querySelectorAll('input').forEach(input => {
+                input.disabled = !active && !input.classList.contains('af-spy-enabled');
+            });
+            if (!state.spyRunning) setSpyStatus(active ? 'Pronto' : 'Inativo');
+        }
         renderModelCounts();
+    }
+
+    function setSpyStatus(message) {
+        const label = state.settingsPanel?.querySelector('[data-role="spy-status"]');
+        if (label) label.textContent = String(message || '');
     }
 
     function showSavedState() {
@@ -755,7 +833,9 @@
         state.farmTimer = 0;
         state.roundTimer = 0;
         state.farmRunning = false;
+        state.spyRunning = false;
         state.idleScans = 0;
+        setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
         hideRoundCountdown();
     }
 
@@ -825,6 +905,11 @@
             return;
         }
 
+        if (run.round.phase === 'spying') {
+            startSpyPhase(run);
+            return;
+        }
+
         if (run.round.phase === 'waiting') {
             scheduleRoundWait(run);
             return;
@@ -846,10 +931,324 @@
     function finishRound() {
         state.idleScans = 0;
         const run = ensureRunState();
-        run.round.phase = 'end_reloading';
+        if (state.settings?.spy?.enabled) startSpyPhase(run);
+        else beginRoundPause(run);
+    }
+
+    function startSpyPhase(runValue) {
+        if (state.spyRunning || !isEnabled() || !state.ownsWorker || state.destroyed) return;
+        const config = state.settings?.spy || loadSettings().spy;
+        const run = runValue || ensureRunState();
+        if (!config.enabled) {
+            beginRoundPause(run);
+            return;
+        }
+
+        run.round.phase = 'spying';
         run.round.pauseUntil = 0;
+        run.round.spy = normalizeRoundSpy(run.round.spy);
         writeRunState(run);
-        refreshPageForRound();
+
+        const generation = state.farmGeneration;
+        state.spyRunning = true;
+        setSpyStatus('A preparar…');
+
+        runSpyPhase(generation).then(result => {
+            if (generation !== state.farmGeneration) return;
+            state.spyRunning = false;
+            setSpyStatus(`${result.sent} enviada(s)`);
+            if (isEnabled() && state.ownsWorker && !state.destroyed) {
+                beginRoundPause(ensureRunState());
+            }
+        }).catch(error => {
+            if (generation !== state.farmGeneration) return;
+            state.spyRunning = false;
+            const message = getAutomationErrorMessage(error);
+            setSpyStatus('Ignorado nesta ronda');
+            console.error(`[${APP.shortName}] A espionagem BB foi ignorada nesta ronda.`, error);
+            notify('error', `Espionagem BB ignorada: ${message.slice(0, 120)}`);
+            if (isEnabled() && state.ownsWorker && !state.destroyed) {
+                beginRoundPause(ensureRunState());
+            }
+        });
+    }
+
+    async function runSpyPhase(generation) {
+        const origin = getOriginCoordinates();
+        const sourceId = getVillageId();
+        if (!origin || !/^\d+$/.test(sourceId)) {
+            throw new Error('Não foi possível identificar a aldeia de origem.');
+        }
+
+        const initialRun = ensureRunState();
+        const config = state.settings.spy;
+        const remaining = Math.max(0, config.maxPerRound - initialRun.round.spy.sent);
+        if (remaining === 0) return { sent: initialRun.round.spy.sent, reason: 'limite atingido' };
+
+        setSpyStatus('A ler o mapa…');
+        const villages = await fetchBarbarianVillages();
+        if (generation !== state.farmGeneration || !isEnabled() || !state.ownsWorker) {
+            return { sent: initialRun.round.spy.sent, reason: 'interrompido' };
+        }
+
+        const history = readSpyHistory();
+        const attempted = initialRun.round.spy.attempted;
+        const candidates = villages.map(village => ({
+            ...village,
+            distance: Math.hypot(village.x - origin.x, village.y - origin.y),
+        })).filter(village => (
+            village.distance <= config.radius &&
+            String(village.id) !== sourceId &&
+            !history[String(village.id)] &&
+            !attempted[String(village.id)]
+        )).sort((first, second) => (
+            first.distance - second.distance || first.id - second.id
+        )).slice(0, remaining);
+
+        if (candidates.length === 0) {
+            setSpyStatus('Sem novas BB no raio');
+            return { sent: initialRun.round.spy.sent, reason: 'sem candidatas' };
+        }
+
+        let sentNow = 0;
+        for (let index = 0; index < candidates.length; index += 1) {
+            const currentConfig = state.settings?.spy;
+            if (
+                generation !== state.farmGeneration ||
+                !isEnabled() ||
+                !state.ownsWorker ||
+                !currentConfig?.enabled
+            ) {
+                break;
+            }
+
+            const run = ensureRunState();
+            if (run.round.spy.sent >= currentConfig.maxPerRound) break;
+            const target = candidates[index];
+            setSpyStatus(`${index + 1}/${candidates.length} · ${target.x}|${target.y}`);
+
+            try {
+                await sendDirectSpyAttack(target, currentConfig.scoutsPerVillage, sourceId);
+            } catch (error) {
+                const message = getAutomationErrorMessage(error);
+                run.round.spy.attempted[String(target.id)] = message.slice(0, 40) || 'erro';
+                writeRunState(run);
+                if (errorMeansNoScouts(message)) {
+                    setSpyStatus('Sem batedores');
+                    break;
+                }
+                if (errorMeansPlayerVillage(message)) continue;
+                throw error;
+            }
+
+            run.round.spy.sent += 1;
+            run.round.spy.attempted[String(target.id)] = 'enviado';
+            writeRunState(run);
+            history[String(target.id)] = Date.now();
+            writeSpyHistory(history);
+            sentNow += 1;
+            console.info(
+                `[${APP.shortName}] Espionagem BB enviada para ${target.x}|${target.y} ` +
+                `(${target.distance.toFixed(1)} campos), com ${currentConfig.scoutsPerVillage} batedor(es).`
+            );
+
+            if (index < candidates.length - 1) {
+                await delay(randomizedSpyDelay(currentConfig.intervalMs));
+            }
+        }
+
+        return {
+            sent: ensureRunState().round.spy.sent,
+            sentNow,
+            reason: 'concluído',
+        };
+    }
+
+    async function fetchBarbarianVillages() {
+        const url = new URL('/map/village.txt', window.location.origin).href;
+        const response = await requestGamePage(url, { method: 'GET' }, APP.requestTimeoutMs);
+        const villages = [];
+        response.text.split(/\r?\n/).forEach(line => {
+            const fields = line.split(',');
+            if (fields.length < 5 || Number(fields[4]) !== 0) return;
+            const id = Number(fields[0]);
+            const x = Number(fields[2]);
+            const y = Number(fields[3]);
+            if (Number.isInteger(id) && id > 0 && Number.isFinite(x) && Number.isFinite(y)) {
+                villages.push({ id, x, y });
+            }
+        });
+        return villages;
+    }
+
+    async function sendDirectSpyAttack(target, scouts, sourceId) {
+        const initialUrl = buildDirectAttackUrl(target.id, sourceId);
+        const initialPage = await requestGamePage(initialUrl, { method: 'GET' }, APP.requestTimeoutMs);
+        const initialDocument = new DOMParser().parseFromString(initialPage.text, 'text/html');
+        const commandForm = initialDocument.querySelector('#command-data-form');
+        if (!commandForm) {
+            throw new Error(extractGamePageError(initialDocument) || 'Formulário de ataque indisponível.');
+        }
+
+        const commandData = serializeGameForm(commandForm);
+        commandData.set('spy', String(scouts));
+        if (commandData.has('target')) commandData.set('target', String(target.id));
+        addGameSubmitControl(commandForm, commandData, ['attack']);
+        const confirmationPage = await submitGameForm(
+            commandForm,
+            initialPage.url,
+            commandData,
+            APP.requestTimeoutMs
+        );
+        const confirmationDocument = new DOMParser().parseFromString(confirmationPage.text, 'text/html');
+        const confirmationForm = confirmationDocument.querySelector(
+            '#command-confirm-form, form[action*="action=command"]'
+        );
+        if (!confirmationForm) {
+            throw new Error(
+                extractGamePageError(confirmationDocument) ||
+                'O jogo não apresentou a confirmação da espionagem.'
+            );
+        }
+
+        const confirmationData = serializeGameForm(confirmationForm);
+        addGameSubmitControl(confirmationForm, confirmationData, ['submit', 'send', 'attack']);
+        const finalPage = await submitGameForm(
+            confirmationForm,
+            confirmationPage.url,
+            confirmationData,
+            APP.requestTimeoutMs
+        );
+        const finalDocument = new DOMParser().parseFromString(finalPage.text, 'text/html');
+        const finalError = extractGamePageError(finalDocument);
+        if (finalError || finalDocument.querySelector('#command-confirm-form')) {
+            throw new Error(finalError || 'A espionagem não foi confirmada pelo jogo.');
+        }
+    }
+
+    function buildDirectAttackUrl(targetId, sourceId) {
+        const url = window.game_data?.link_base_pure
+            ? new URL(`${window.game_data.link_base_pure}place`, window.location.href)
+            : new URL(window.location.href);
+        url.searchParams.set('screen', 'place');
+        url.searchParams.set('village', sourceId);
+        url.searchParams.set('target', String(targetId));
+        return url.href;
+    }
+
+    function serializeGameForm(form) {
+        const data = new URLSearchParams();
+        form.querySelectorAll('input,select,textarea').forEach(field => {
+            if (!field.name || field.disabled) return;
+            const type = String(field.type || '').toLowerCase();
+            if (['submit', 'button', 'image', 'reset', 'file'].includes(type)) return;
+            if ((type === 'checkbox' || type === 'radio') && !field.checked) return;
+            if (field instanceof HTMLSelectElement && field.multiple) {
+                Array.from(field.options).forEach(option => {
+                    if (option.selected) data.append(field.name, option.value);
+                });
+            } else {
+                data.append(field.name, field.value);
+            }
+        });
+        return data;
+    }
+
+    function addGameSubmitControl(form, data, names) {
+        for (const name of names) {
+            const control = form.querySelector(`button[name="${name}"],input[name="${name}"]`);
+            if (control) {
+                data.set(name, control.value || '1');
+                return;
+            }
+        }
+    }
+
+    async function submitGameForm(form, baseUrl, data, timeoutMs) {
+        const url = new URL(form.getAttribute('action') || baseUrl, baseUrl);
+        const method = String(form.method || 'POST').toUpperCase();
+        if (method === 'GET') {
+            data.forEach((value, key) => url.searchParams.append(key, value));
+            return requestGamePage(url.href, { method: 'GET' }, timeoutMs);
+        }
+        return requestGamePage(url.href, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: data.toString(),
+        }, timeoutMs);
+    }
+
+    async function requestGamePage(url, options, timeoutMs) {
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch(url, {
+                credentials: 'same-origin',
+                redirect: 'follow',
+                ...options,
+                signal: controller.signal,
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`Pedido recusado pelo jogo (${response.status}).`);
+            return { text, url: response.url || url };
+        } catch (error) {
+            if (error?.name === 'AbortError') throw new Error('O pedido ao jogo excedeu o tempo limite.');
+            throw error;
+        } finally {
+            window.clearTimeout(timer);
+        }
+    }
+
+    function extractGamePageError(documentValue) {
+        return String(documentValue.querySelector(
+            '#error,.error_box,.error-message,.error-msg'
+        )?.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function readSpyHistory() {
+        const now = Date.now();
+        const clean = {};
+        try {
+            const stored = JSON.parse(localStorage.getItem(keys.spyHistory) || '{}');
+            Object.entries(stored || {}).slice(0, 10000).forEach(([id, timestamp]) => {
+                const moment = Number(timestamp);
+                if (/^\d+$/.test(id) && moment > 0 && now - moment < APP.spyHistoryMs) {
+                    clean[id] = moment;
+                }
+            });
+        } catch (_) {
+            // Um histórico inválido é simplesmente reconstruído.
+        }
+        writeSpyHistory(clean);
+        return clean;
+    }
+
+    function writeSpyHistory(history) {
+        localStorage.setItem(keys.spyHistory, JSON.stringify(history || {}));
+    }
+
+    function randomizedSpyDelay(baseMs) {
+        const base = Math.max(APP.minAttackMs, Number(baseMs) || APP.defaultAttackMs);
+        const variation = base * 0.10;
+        return Math.round(base - variation + (Math.random() * variation * 2));
+    }
+
+    function getAutomationErrorMessage(error) {
+        if (!error) return 'erro desconhecido';
+        if (typeof error === 'string') return error;
+        return String(error.message || error.error || error.responseText || error);
+    }
+
+    function errorMeansNoScouts(message) {
+        return /(?:not enough units|insufficient troops|tropas insuficientes|unidades insuficientes|não há tropas|não existem tropas|batedores insuficientes|no hay suficientes unidades|nicht genügend einheiten|pas assez d.unités)/i.test(
+            String(message || '')
+        );
+    }
+
+    function errorMeansPlayerVillage(message) {
+        return /(?:attack villages owned by players|atacar aldeias? (?:pertencentes a|de|que pertencem a) jogadores|atacar aldeas?.*jugadores|d.rfer.*spieler|villages?.*joueurs)/i.test(
+            String(message || '')
+        );
     }
 
     function beginRoundPause(run) {
@@ -901,6 +1300,7 @@
     function clearRoundProgress(runValue) {
         const run = runValue || ensureRunState();
         run.round.targets = {};
+        run.round.spy = { sent: 0, attempted: {} };
         state.processedTargets.clear();
         state.processedRows = new WeakSet();
         state.idleScans = 0;
@@ -1338,7 +1738,13 @@
             sessionId: makeId(),
             startedAt: Date.now(),
             counts: { a: 0, b: 0, c: 0 },
-            round: { number: 1, phase: 'start', pauseUntil: 0, targets: {} },
+            round: {
+                number: 1,
+                phase: 'start',
+                pauseUntil: 0,
+                targets: {},
+                spy: { sent: 0, attempted: {} },
+            },
             lastSend: null,
         };
         localStorage.setItem(keys.run, JSON.stringify(run));
@@ -1432,13 +1838,28 @@
     }
 
     function normalizeRoundState(value) {
-        const allowed = new Set(['start', 'start_reloading', 'farming', 'end_reloading', 'waiting']);
+        const allowed = new Set(['start', 'start_reloading', 'farming', 'spying', 'end_reloading', 'waiting']);
         const source = value && typeof value === 'object' ? value : {};
         return {
             number: integerValue(source.number, 1, 1, 1000000),
             phase: allowed.has(source.phase) ? source.phase : 'farming',
             pauseUntil: Math.max(0, Number(source.pauseUntil) || 0),
             targets: normalizeRoundTargets(source.targets),
+            spy: normalizeRoundSpy(source.spy),
+        };
+    }
+
+    function normalizeRoundSpy(value) {
+        const source = value && typeof value === 'object' ? value : {};
+        const attempted = {};
+        if (source.attempted && typeof source.attempted === 'object' && !Array.isArray(source.attempted)) {
+            Object.entries(source.attempted).slice(0, 1000).forEach(([id, result]) => {
+                if (/^\d+$/.test(id)) attempted[id] = String(result || 'tentado').slice(0, 40);
+            });
+        }
+        return {
+            sent: integerValue(source.sent, 0, 0, 500),
+            attempted,
         };
     }
 
@@ -1557,6 +1978,7 @@
         const source = value && typeof value === 'object' ? value : {};
         const models = {};
         const generalSource = source.general || {};
+        const spySource = source.spy || {};
 
         ['a', 'b', 'c'].forEach(modelKey => {
             const fallback = DEFAULT_SETTINGS.models[modelKey];
@@ -1601,7 +2023,7 @@
         });
 
         return {
-            schema: 6,
+            schema: 7,
             general: {
                 attackIntervalMs: integerValue(
                     generalSource.attackIntervalMs,
@@ -1617,6 +2039,28 @@
                 ),
             },
             models,
+            spy: {
+                enabled: booleanValue(spySource.enabled, DEFAULT_SETTINGS.spy.enabled),
+                scoutsPerVillage: integerValue(
+                    spySource.scoutsPerVillage,
+                    DEFAULT_SETTINGS.spy.scoutsPerVillage,
+                    1,
+                    100
+                ),
+                radius: integerValue(spySource.radius, DEFAULT_SETTINGS.spy.radius, 1, 200),
+                maxPerRound: integerValue(
+                    spySource.maxPerRound,
+                    DEFAULT_SETTINGS.spy.maxPerRound,
+                    1,
+                    500
+                ),
+                intervalMs: integerValue(
+                    spySource.intervalMs,
+                    DEFAULT_SETTINGS.spy.intervalMs,
+                    APP.minAttackMs,
+                    60000
+                ),
+            },
         };
     }
 
