@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.1.3
+// @version      1.2.0
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.1.3',
+        version: '1.2.0',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -41,7 +41,22 @@
         minAttackMs: 200,
         idlePollMs: 2500,
         requestTimeoutMs: 25000,
+        returnSafetyMs: 15000,
         spyHistoryMs: 365 * 24 * 60 * 60 * 1000,
+    });
+    const UNIT_MINUTES_PER_FIELD = Object.freeze({
+        spear: 18,
+        sword: 22,
+        axe: 18,
+        archer: 18,
+        spy: 9,
+        light: 10,
+        marcher: 10,
+        heavy: 11,
+        ram: 30,
+        catapult: 30,
+        knight: 10,
+        snob: 35,
     });
 
     const world = getWorld();
@@ -52,9 +67,11 @@
         settings: `twPtAutoFarm.v1.${world}.settings`,
         run: `twPtAutoFarm.v1.${world}.run`,
         spyHistory: `twPtAutoFarm.v1.${world}.spyHistory`,
+        activeAttacks: `twPtAutoFarm.v1.${world}.activeAttacks`,
+        unitSpeed: `twPtAutoFarm.v1.${world}.unitSpeed`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 7,
+        schema: 8,
         general: {
             attackIntervalMs: 650,
             roundPauseSeconds: 60,
@@ -68,7 +85,7 @@
             enabled: false,
             scoutsPerVillage: 1,
             radius: 50,
-            maxPerRound: 25,
+            maxAttacks: 25,
             intervalMs: 650,
         },
     });
@@ -90,6 +107,8 @@
         pendingTargetDueAt: 0,
         spyRunning: false,
         spyAbortController: null,
+        unitSpeed: null,
+        unitSpeedPromise: null,
         processedRows: new WeakSet(),
         processedTargets: new Set(),
         workerWindow: null,
@@ -121,6 +140,7 @@
             worker: readWorker(),
             farmSent: state.farmSent,
             run: readRunState(),
+            activeAttacks: readActiveAttacks(),
         }),
     });
 
@@ -136,6 +156,7 @@
         if (isFarmPage()) {
             createWorkerPanel();
             createModelsPanel();
+            loadWorldUnitSpeed();
             if (isEnabled()) startWorker();
         }
 
@@ -165,6 +186,10 @@
                 if (state.ownsWorker) resumeRoundWorkflow();
             }
             if (event.key === keys.run) {
+                renderModelCounts();
+                if (state.ownsWorker) resumeRoundWorkflow();
+            }
+            if (event.key === keys.activeAttacks) {
                 renderModelCounts();
                 if (state.ownsWorker) resumeRoundWorkflow();
             }
@@ -259,7 +284,9 @@
             #${APP.settingsId} .af-model-head{display:flex;align-items:center;gap:7px;min-height:32px;padding:4px 8px;border-bottom:1px solid #d3b778;background:#f8e8bc}
             #${APP.settingsId} .af-model-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid #594325;border-radius:4px;background:linear-gradient(#7f6846,#3f3020);box-shadow:inset 0 1px #ffffff73,0 1px 2px #0005;color:#f8e8bd;font:bold 15px Georgia,serif;text-shadow:1px 1px #000}
             #${APP.settingsId} .af-model-name{font-weight:bold;font-size:12px;flex:1}
+            #${APP.settingsId} .af-model-counters{display:flex;align-items:center;gap:3px}
             #${APP.settingsId} .af-model-count{padding:2px 5px;border:1px solid #c5a66a;border-radius:8px;background:#f3dfae;color:#77552a;font:bold 9px Verdana,Arial,sans-serif;white-space:nowrap}
+            #${APP.settingsId} .af-model-round-count{background:#f9edca;color:#80643b;font-weight:normal}
             #${APP.settingsId} .af-switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
             #${APP.settingsId} .af-switch input{position:absolute;opacity:0;pointer-events:none}
             #${APP.settingsId} .af-switch-track{position:relative;width:32px;height:18px;border:1px solid #a37b35;border-radius:10px;background:#ecd8a5;box-shadow:inset 0 1px 2px #0003}
@@ -283,6 +310,7 @@
             #${APP.settingsId} .af-report-option.af-selected{border-color:#9c651b;background:#fff8e5;color:#3f2d18;font-weight:bold}
             #${APP.settingsId} .af-report-option input{position:absolute;opacity:0;pointer-events:none}
             #${APP.settingsId} .af-report-option:focus-within{outline:2px solid #3777c7;outline-offset:1px}
+            #${APP.settingsId} .af-report-help{display:block;margin-top:4px;color:#87683d;font-size:8px;line-height:11px}
             #${APP.settingsId} .af-report-dot{width:11px;height:11px;flex:0 0 11px;border-radius:50%;box-shadow:inset 0 1px #fff8,0 1px 2px #0004}
             #${APP.settingsId} .af-blue{background:#2387e8}#${APP.settingsId} .af-green{background:#58bf38}#${APP.settingsId} .af-yellow{background:#ffd21a}#${APP.settingsId} .af-red{background:#df3c2c}
             #${APP.settingsId} .af-red-blue{background:linear-gradient(90deg,#df3c2c 0 50%,#2387e8 50%)}
@@ -382,6 +410,10 @@
                                 <span class="af-spy-badge" aria-hidden="true"><img src="/graphic/unit/unit_spy.png" alt=""></span>
                                 <span class="af-spy-name">Modelo Espião BB</span>
                                 <span class="af-spy-status" data-role="spy-status">Inativo</span>
+                                <span class="af-model-counters">
+                                    <span class="af-model-count" data-spy-active-count>Curso 0/25</span>
+                                    <span class="af-model-count af-model-round-count" data-spy-round-count>Ronda 0</span>
+                                </span>
                                 <label class="af-switch">
                                     <input class="af-spy-enabled" type="checkbox" data-setting="spy.enabled">
                                     <span class="af-switch-track" aria-hidden="true"></span>
@@ -399,15 +431,15 @@
                                         <input type="number" min="1" max="200" step="1" data-setting="spy.radius">
                                     </label>
                                     <label class="af-spy-field">
-                                        <span>Máx./ronda</span>
-                                        <input type="number" min="1" max="500" step="1" data-setting="spy.maxPerRound">
+                                        <span>Máx. de ataques</span>
+                                        <input type="number" min="1" max="500" step="1" data-setting="spy.maxAttacks" title="Máximo de espionagens simultaneamente em curso">
                                     </label>
                                     <label class="af-spy-field">
                                         <span>Entre espionagens (ms) ±10%</span>
                                         <input type="number" min="200" max="60000" step="10" data-setting="spy.intervalMs" title="Milissegundos, com variação automática de ±10%">
                                     </label>
                                 </div>
-                                <small class="af-spy-help">Usa ataques diretos com batedores. Lê o mapa, aceita apenas aldeias com proprietário 0 (bárbaras), ordena pelas mais próximas e ignora alvos já espiados por este módulo.</small>
+                                <small class="af-spy-help">Usa ataques diretos com batedores. O máximo limita as espionagens simultaneamente em curso; cada vaga regressa quando o comando volta. Lê o mapa, aceita apenas aldeias com proprietário 0 (bárbaras), ordena pelas mais próximas e ignora alvos já espiados por este módulo.</small>
                             </div>
                         </article>
                     </div>
@@ -453,7 +485,10 @@
                 <header class="af-model-head">
                     <span class="af-model-badge" aria-hidden="true">${letter}</span>
                     <span class="af-model-name">Modelo ${letter}</span>
-                    <span class="af-model-count" data-model-count="${modelKey}">0</span>
+                    <span class="af-model-counters">
+                        <span class="af-model-count" data-model-active-count="${modelKey}">Curso 0/∞</span>
+                        <span class="af-model-count af-model-round-count" data-model-round-count="${modelKey}">Ronda 0</span>
+                    </span>
                     <label class="af-switch">
                         <input class="af-model-enabled" type="checkbox" data-setting="${base}.enabled">
                         <span class="af-switch-track" aria-hidden="true"></span>
@@ -472,9 +507,9 @@
                         <input type="number" min="0" max="999" step="1" data-setting="${base}.distance.max" aria-label="Distância máxima do Modelo ${letter}">
                     </div>
                     <div class="af-filter-row" data-filter="maxAttacks">
-                        <span class="af-filter-label"><span aria-hidden="true">⚔</span>Máx. ataques</span>
-                        <input type="checkbox" data-setting="${base}.maxAttacks.enabled" aria-label="Limitar ataques do Modelo ${letter}">
-                        <input type="number" min="1" max="10000" step="1" data-setting="${base}.maxAttacks.max" aria-label="Máximo de ataques do Modelo ${letter}">
+                        <span class="af-filter-label" title="Limita os comandos simultaneamente em curso"><span aria-hidden="true">⚔</span>Máx. de ataques</span>
+                        <input type="checkbox" data-setting="${base}.maxAttacks.enabled" aria-label="Limitar ataques simultaneamente em curso do Modelo ${letter}">
+                        <input type="number" min="1" max="10000" step="1" data-setting="${base}.maxAttacks.max" aria-label="Máximo de ataques simultaneamente em curso do Modelo ${letter}">
                     </div>
                     <div class="af-filter-row" data-filter="sameVillage">
                         <span class="af-filter-label"><span aria-hidden="true">↻</span>Ataques/alvo</span>
@@ -508,6 +543,7 @@
                             </label>
                         `).join('')}
                     </div>
+                    <small class="af-report-help">Cada cor é apenas um filtro: marcada permite o envio; desmarcada impede-o. Nenhuma cor tem prioridade.</small>
                 </div>
             </article>
         `;
@@ -985,7 +1021,7 @@
         runSpyPhase(generation).then(result => {
             if (generation !== state.farmGeneration) return;
             state.spyRunning = false;
-            setSpyStatus(`${result.sent} enviada(s)`);
+            setSpyStatus('Pronto');
             if (isEnabled() && state.ownsWorker && !state.destroyed) {
                 beginRoundPause(ensureRunState());
             }
@@ -1019,8 +1055,11 @@
 
         const initialRun = ensureRunState();
         const config = state.settings.spy;
-        const remaining = Math.max(0, config.maxPerRound - initialRun.round.spy.sent);
-        if (remaining === 0) return { sent: initialRun.round.spy.sent, reason: 'limite atingido' };
+        const availableSlots = Math.max(0, config.maxAttacks - getActiveAttackCount('spy'));
+        if (availableSlots === 0) {
+            return { sent: initialRun.round.spy.sent, reason: 'máximo de ataques em curso atingido' };
+        }
+        const unitSpeed = await loadWorldUnitSpeed();
 
         setSpyStatus('A ler o mapa…');
         const villages = await fetchBarbarianVillages();
@@ -1040,7 +1079,7 @@
             !attempted[String(village.id)]
         )).sort((first, second) => (
             first.distance - second.distance || first.id - second.id
-        )).slice(0, remaining);
+        )).slice(0, availableSlots);
 
         if (candidates.length === 0) {
             setSpyStatus('Sem novas BB no raio');
@@ -1060,7 +1099,7 @@
             }
 
             const run = ensureRunState();
-            if (run.round.spy.sent >= currentConfig.maxPerRound) break;
+            if (getActiveAttackCount('spy') >= currentConfig.maxAttacks) break;
             const target = candidates[index];
             setSpyStatus(`${index + 1}/${candidates.length} · ${target.x}|${target.y}`);
 
@@ -1080,6 +1119,15 @@
 
             run.round.spy.sent += 1;
             run.round.spy.attempted[String(target.id)] = 'enviado';
+            registerActiveAttack({
+                model: 'spy',
+                sourceId,
+                targetKey: `village:${target.id}`,
+                targetCoord: `${target.x}|${target.y}`,
+                distance: target.distance,
+                minutesPerField: UNIT_MINUTES_PER_FIELD.spy,
+                unitSpeed,
+            });
             writeRunState(run);
             history[String(target.id)] = Date.now();
             writeSpyHistory(history);
@@ -1355,9 +1403,11 @@
 
     function clearRoundProgress(runValue) {
         const run = runValue || ensureRunState();
+        run.counts = { a: 0, b: 0, c: 0 };
         run.round.targets = {};
         run.round.farmCompleted = false;
         run.round.spy = { sent: 0, attempted: {} };
+        setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
         state.processedTargets.clear();
         state.processedRows = new WeakSet();
         state.idleScans = 0;
@@ -1370,7 +1420,7 @@
         const active = ['a', 'b', 'c'].filter(model => settings.models[model].enabled);
         return active.length > 0 && active.every(model => {
             const limit = settings.models[model].maxAttacks;
-            return limit.enabled && getModelCount(model) >= limit.max;
+            return limit.enabled && getActiveAttackCount(model) >= limit.max;
         });
     }
 
@@ -1395,7 +1445,9 @@
         const rows = getFarmRows();
         const settings = state.settings || loadSettings();
         const run = ensureRunState();
+        const activeCounts = getActiveAttackCounts();
         const now = Date.now();
+        const eligibleTasks = [];
         state.pendingTargetDueAt = 0;
 
         rows.sort((first, second) => {
@@ -1422,7 +1474,7 @@
                 const reportColor = getReportColor(row);
                 if (
                     !config?.enabled ||
-                    !modelHasCapacity(progress.model, config) ||
+                    !modelHasCapacity(progress.model, config, activeCounts) ||
                     !button ||
                     isFarmButtonDisabled(button) ||
                     !reportColor ||
@@ -1438,28 +1490,29 @@
                     continue;
                 }
 
-                return {
+                eligibleTasks.push({
                     row,
                     button,
                     model: progress.model,
                     reportColor,
                     targetKey,
-                };
+                });
+                continue;
             }
 
             if (state.processedRows.has(row) || row.dataset.twPtAutofarmSent === '1') continue;
-            const selected = selectModelForRow(row);
+            const selected = selectModelForRow(row, activeCounts);
             if (selected) {
-                return {
+                eligibleTasks.push({
                     row,
                     button: selected.button,
                     model: selected.model,
                     reportColor: selected.reportColor,
                     targetKey,
-                };
+                });
             }
         }
-        return null;
+        return eligibleTasks[0] || null;
     }
 
     function getFarmRows() {
@@ -1483,7 +1536,7 @@
         return rows;
     }
 
-    function selectModelForRow(row) {
+    function selectModelForRow(row, activeCounts) {
         const settings = state.settings || loadSettings();
         const reportColor = getReportColor(row);
         if (!reportColor) return null;
@@ -1492,7 +1545,7 @@
             const button = row.querySelector(`a.farm_icon_${model}`);
             if (
                 config.enabled &&
-                modelHasCapacity(model, config) &&
+                modelHasCapacity(model, config, activeCounts) &&
                 button &&
                 !isFarmButtonDisabled(button) &&
                 modelMatchesRow(row, config, reportColor)
@@ -1526,25 +1579,45 @@
 
     async function sendFarmTask(task) {
         if (!task.button?.isConnected || isFarmButtonDisabled(task.button)) return;
-        const currentColor = getReportColor(task.row);
-        const currentConfig = state.settings?.models?.[task.model];
+        let currentColor = getReportColor(task.row);
+        let currentConfig = state.settings?.models?.[task.model];
         if (
             !currentColor ||
             currentColor !== task.reportColor ||
-            !currentConfig?.reports?.[currentColor]
+            !currentConfig?.reports?.[currentColor] ||
+            !modelHasCapacity(task.model, currentConfig)
         ) {
             console.warn(
                 `[${APP.shortName}] Envio ${task.model.toUpperCase()} cancelado: ` +
-                `a cor atual (${currentColor || 'desconhecida'}) não está permitida.`
+                `a cor atual (${currentColor || 'desconhecida'}) não está permitida ou o limite foi atingido.`
             );
             return;
         }
+
+        const unitSpeed = await loadWorldUnitSpeed();
+        const distance = getTargetDistance(task.row);
+        const target = getCoordinates(task.row.textContent);
+        const minutesPerField = getModelSlowestMinutesPerField(task.model);
+
+        currentColor = getReportColor(task.row);
+        currentConfig = state.settings?.models?.[task.model];
+        if (
+            !task.button?.isConnected ||
+            isFarmButtonDisabled(task.button) ||
+            currentColor !== task.reportColor ||
+            !currentConfig?.reports?.[currentColor] ||
+            !modelHasCapacity(task.model, currentConfig)
+        ) return;
 
         task.button.click();
         state.farmSent += 1;
         const progress = recordFarmSend(task.model, {
             color: currentColor,
             targetKey: task.targetKey,
+            targetCoord: target ? `${target.x}|${target.y}` : '',
+            distance,
+            minutesPerField,
+            unitSpeed,
         });
         if (!task.targetKey || progress.complete) {
             state.processedRows.add(task.row);
@@ -1837,10 +1910,6 @@
         }
     }
 
-    function getModelCount(model) {
-        return readRunState()?.counts?.[model] || 0;
-    }
-
     function recordFarmSend(model, details = {}) {
         const run = ensureRunState();
         const config = state.settings?.models?.[model] || loadSettings().models[model];
@@ -1866,6 +1935,16 @@
             targetKey,
             at: now,
         };
+        registerActiveAttack({
+            model,
+            sourceId: getVillageId(),
+            targetKey,
+            targetCoord: details.targetCoord,
+            distance: details.distance,
+            minutesPerField: details.minutesPerField,
+            unitSpeed: details.unitSpeed,
+            sentAt: now,
+        });
         writeRunState(run);
         return { sent, maximum, complete };
     }
@@ -1876,23 +1955,354 @@
             : 1;
     }
 
-    function modelHasCapacity(model, config) {
-        return !config.maxAttacks.enabled || getModelCount(model) < config.maxAttacks.max;
+    function modelHasCapacity(model, config, activeCounts) {
+        const active = activeCounts?.[model] ?? getActiveAttackCount(model);
+        return !config?.maxAttacks?.enabled || active < config.maxAttacks.max;
     }
 
     function renderModelCounts() {
         if (!state.settingsPanel || !state.settings) return;
         const run = readRunState();
         ['a', 'b', 'c'].forEach(model => {
-            const count = run?.counts?.[model] || 0;
+            const roundCount = run?.counts?.[model] || 0;
+            const activeCount = getActiveAttackCount(model);
             const limit = state.settings.models[model].maxAttacks;
-            const badge = state.settingsPanel.querySelector(`[data-model-count="${model}"]`);
-            if (!badge) return;
-            badge.textContent = limit.enabled ? `${count}/${limit.max}` : `${count}/∞`;
-            badge.title = limit.enabled
-                ? `${count} de ${limit.max} ataques enviados nesta ativação`
-                : `${count} ataques enviados nesta ativação, sem limite`;
+            const activeBadge = state.settingsPanel.querySelector(`[data-model-active-count="${model}"]`);
+            const roundBadge = state.settingsPanel.querySelector(`[data-model-round-count="${model}"]`);
+            const nextReturn = getNextActiveReturn(model);
+            if (activeBadge) {
+                activeBadge.textContent = `Curso ${activeCount}/${limit.enabled ? limit.max : '∞'}`;
+                activeBadge.title = nextReturn
+                    ? `${activeCount} ataque(s) em curso. Próxima vaga prevista: ${formatClock(nextReturn)}.`
+                    : `${activeCount} ataque(s) em curso.`;
+            }
+            if (roundBadge) {
+                roundBadge.textContent = `Ronda ${roundCount}`;
+                roundBadge.title = `${roundCount} ataque(s) lançados na ronda atual.`;
+            }
         });
+        const spyActive = getActiveAttackCount('spy');
+        const spyRound = run?.round?.spy?.sent || 0;
+        const spyMaximum = state.settings.spy.maxAttacks;
+        const spyActiveBadge = state.settingsPanel.querySelector('[data-spy-active-count]');
+        const spyRoundBadge = state.settingsPanel.querySelector('[data-spy-round-count]');
+        const spyNextReturn = getNextActiveReturn('spy');
+        if (spyActiveBadge) {
+            spyActiveBadge.textContent = `Curso ${spyActive}/${spyMaximum}`;
+            spyActiveBadge.title = spyNextReturn
+                ? `${spyActive} espionagem(ns) em curso. Próxima vaga prevista: ${formatClock(spyNextReturn)}.`
+                : `${spyActive} espionagem(ns) em curso.`;
+        }
+        if (spyRoundBadge) {
+            spyRoundBadge.textContent = `Ronda ${spyRound}`;
+            spyRoundBadge.title = `${spyRound} espionagem(ns) lançada(s) na ronda atual.`;
+        }
+        if (!state.spyRunning && state.settings.spy.enabled) setSpyStatus('Pronto');
+    }
+
+    function readActiveAttacks() {
+        const now = Date.now();
+        let stored = [];
+        let changed = false;
+        try {
+            const parsed = JSON.parse(localStorage.getItem(keys.activeAttacks) || '[]');
+            stored = Array.isArray(parsed) ? parsed : [];
+            if (!Array.isArray(parsed)) changed = true;
+        } catch (_) {
+            changed = true;
+        }
+
+        const clean = [];
+        stored.slice(-10000).forEach(value => {
+            if (!value || typeof value !== 'object') {
+                changed = true;
+                return;
+            }
+            const model = ['a', 'b', 'c', 'spy'].includes(value.model) ? value.model : '';
+            const returnAt = Number(value.returnAt) || 0;
+            if (!model || returnAt <= now) {
+                changed = true;
+                return;
+            }
+            clean.push({
+                id: String(value.id || makeId()),
+                model,
+                sourceId: String(value.sourceId || ''),
+                targetKey: String(value.targetKey || ''),
+                targetCoord: String(value.targetCoord || ''),
+                sentAt: Math.max(0, Number(value.sentAt) || now),
+                returnAt,
+                distance: Math.max(0, Number(value.distance) || 0),
+                minutesPerField: Math.max(1, Number(value.minutesPerField) || 35),
+                unitSpeed: Math.max(0.01, Number(value.unitSpeed) || 1),
+            });
+        });
+
+        if (changed || clean.length !== stored.length) writeActiveAttacks(clean);
+        return clean;
+    }
+
+    function writeActiveAttacks(attacks) {
+        try {
+            localStorage.setItem(keys.activeAttacks, JSON.stringify((attacks || []).slice(-10000)));
+        } catch (error) {
+            console.warn(`[${APP.shortName}] Não foi possível guardar os ataques em curso.`, error);
+        }
+    }
+
+    function registerActiveAttack(details) {
+        const sentAt = Math.max(0, Number(details.sentAt) || Date.now());
+        const distance = Number.isFinite(Number(details.distance))
+            ? Math.max(0.01, Number(details.distance))
+            : 999;
+        const minutesPerField = Math.max(1, Number(details.minutesPerField) || 35);
+        const unitSpeed = Math.max(0.01, Number(details.unitSpeed) || 1);
+        const travelMs = distance * minutesPerField * 60 * 1000 * unitSpeed;
+        const attack = {
+            id: makeId(),
+            model: details.model,
+            sourceId: String(details.sourceId || getVillageId() || ''),
+            targetKey: String(details.targetKey || ''),
+            targetCoord: String(details.targetCoord || ''),
+            sentAt,
+            returnAt: sentAt + Math.ceil(travelMs * 2) + APP.returnSafetyMs,
+            distance,
+            minutesPerField,
+            unitSpeed,
+        };
+        const attacks = readActiveAttacks();
+        attacks.push(attack);
+        writeActiveAttacks(attacks);
+        return attack;
+    }
+
+    function getActiveAttackCount(model) {
+        return getActiveAttackCounts()[model] || 0;
+    }
+
+    function getActiveAttackCounts() {
+        const sourceId = getVillageId();
+        const counts = { a: 0, b: 0, c: 0, spy: 0 };
+        readActiveAttacks().forEach(attack => {
+            if ((!sourceId || attack.sourceId === sourceId) && attack.model in counts) {
+                counts[attack.model] += 1;
+            }
+        });
+        return counts;
+    }
+
+    function getNextActiveReturn(model) {
+        const sourceId = getVillageId();
+        const returnTimes = readActiveAttacks().filter(attack => (
+            attack.model === model && (!sourceId || attack.sourceId === sourceId)
+        )).map(attack => attack.returnAt);
+        return returnTimes.length ? Math.min(...returnTimes) : 0;
+    }
+
+    function formatClock(timestamp) {
+        try {
+            return new Date(timestamp).toLocaleTimeString('pt-PT', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+            });
+        } catch (_) {
+            return new Date(timestamp).toLocaleTimeString();
+        }
+    }
+
+    async function loadWorldUnitSpeed() {
+        if (Number.isFinite(state.unitSpeed) && state.unitSpeed > 0) return state.unitSpeed;
+        if (state.unitSpeedPromise) return state.unitSpeedPromise;
+
+        const cached = Number(localStorage.getItem(keys.unitSpeed));
+        if (Number.isFinite(cached) && cached > 0) {
+            state.unitSpeed = cached;
+            return cached;
+        }
+
+        state.unitSpeedPromise = (async () => {
+            const controller = new AbortController();
+            const timer = window.setTimeout(() => controller.abort(), 8000);
+            try {
+                const response = await fetch('/interface.php?func=get_config', {
+                    credentials: 'same-origin',
+                    signal: controller.signal,
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const xml = new DOMParser().parseFromString(await response.text(), 'text/xml');
+                const value = Number(xml.querySelector('unit_speed')?.textContent);
+                if (!Number.isFinite(value) || value <= 0) throw new Error('unit_speed inválido');
+                state.unitSpeed = value;
+                localStorage.setItem(keys.unitSpeed, String(value));
+                return value;
+            } catch (error) {
+                console.warn(`[${APP.shortName}] Velocidade das unidades indisponível; usado o valor seguro 1.`, error);
+                state.unitSpeed = 1;
+                return 1;
+            } finally {
+                window.clearTimeout(timer);
+                state.unitSpeedPromise = null;
+            }
+        })();
+        return state.unitSpeedPromise;
+    }
+
+    function getModelSlowestMinutesPerField(model) {
+        const units = getFarmTemplateUnits(model);
+        const speeds = Object.entries(units)
+            .filter(([, amount]) => Number(amount) > 0)
+            .map(([unit]) => UNIT_MINUTES_PER_FIELD[unit])
+            .filter(Number.isFinite);
+        if (speeds.length) return Math.max(...speeds);
+
+        console.warn(
+            `[${APP.shortName}] Não foi possível ler as unidades do Modelo ${model.toUpperCase()}; ` +
+            'o regresso será calculado pela unidade mais lenta.'
+        );
+        return UNIT_MINUTES_PER_FIELD.snob;
+    }
+
+    function getFarmTemplateUnits(model) {
+        const result = {};
+        const templates = window.Accountmanager?.farm?.templates;
+        const templateId = getFarmTemplateId(model);
+        let template = templates?.[model] || templates?.[model.toUpperCase()] || null;
+        if (!template && templates && typeof templates === 'object') {
+            template = Object.values(templates).find(value => (
+                value && typeof value === 'object' &&
+                templateId && String(value.id || value.template_id || '') === String(templateId)
+            )) || null;
+        }
+        collectTemplateUnits(template, result);
+
+        if (!Object.values(result).some(value => value > 0)) {
+            Object.assign(result, getFarmTemplateUnitsFromDom(model, templateId));
+        }
+        if (!Object.values(result).some(value => value > 0)) {
+            Object.assign(result, getAvailableFarmUnitsFromDom());
+        }
+        return result;
+    }
+
+    function collectTemplateUnits(template, result) {
+        if (!template || typeof template !== 'object') return;
+        const sources = [template, template.units, template.unit_counts, template.troops]
+            .filter(value => value && typeof value === 'object');
+        Object.keys(UNIT_MINUTES_PER_FIELD).forEach(unit => {
+            for (const source of sources) {
+                const amount = Number(source[unit]);
+                if (Number.isFinite(amount) && amount >= 0) {
+                    result[unit] = amount;
+                    break;
+                }
+            }
+        });
+    }
+
+    function getFarmTemplateId(model) {
+        const button = document.querySelector(
+            `#plunder_list a.farm_icon_${model},#am_widget_Farm a.farm_icon_${model}`
+        );
+        if (!button) return '';
+        const values = [
+            button.getAttribute('data-template-id'),
+            button.getAttribute('data-template'),
+            button.dataset?.templateId,
+            button.dataset?.template,
+        ];
+        for (const value of values) {
+            if (/^\d+$/.test(String(value || ''))) return String(value);
+        }
+        const code = [
+            button.getAttribute('href'),
+            button.getAttribute('onclick'),
+            button.outerHTML,
+        ].filter(Boolean).join(' ');
+        const explicit = code.match(/(?:template_id|template)[^0-9]{0,12}(\d+)/i);
+        if (explicit) return explicit[1];
+        const call = code.match(/Accountmanager[.]farm[.]sendUnits\s*[(]\s*[^,]+\s*,\s*\d+\s*,\s*(\d+)/i);
+        return call?.[1] || '';
+    }
+
+    function getFarmTemplateUnitsFromDom(model, templateId) {
+        const result = {};
+        const root = document.querySelector('#am_widget_Farm');
+        if (!root) return result;
+        const unitInputs = Array.from(root.querySelectorAll('input')).filter(input => getInputUnitName(input));
+        const inputRows = Array.from(new Set(unitInputs.map(input => input.closest('tr')).filter(Boolean)));
+        const fallbackRow = inputRows[{ a: 0, b: 1, c: 2 }[model]] || null;
+
+        unitInputs.forEach(input => {
+            const row = input.closest('tr');
+            const unit = getInputUnitName(input);
+            if (!unit || !templateInputBelongsToModel(input, row, model, templateId, fallbackRow)) return;
+            const amount = Number(input.value);
+            if (Number.isFinite(amount) && amount >= 0) result[unit] = amount;
+        });
+        return result;
+    }
+
+    function getInputUnitName(input) {
+        const cell = input.closest('td,th');
+        const values = [
+            input.name,
+            input.id,
+            input.className,
+            input.getAttribute('data-unit'),
+            cell?.className,
+            cell?.querySelector('img')?.getAttribute('src'),
+        ].filter(Boolean).join(' ').toLowerCase();
+        return Object.keys(UNIT_MINUTES_PER_FIELD).find(unit => (
+            new RegExp(`(?:^|[^a-z])(?:unit[_-]?)?${unit}(?:[^a-z]|$)`).test(values)
+        )) || '';
+    }
+
+    function getAvailableFarmUnitsFromDom() {
+        const result = {};
+        const root = document.querySelector('#am_widget_Farm');
+        if (!root) return result;
+        root.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+            const unit = getInputUnitName(checkbox);
+            const cell = checkbox.closest('td,th');
+            const row = cell?.closest('tr');
+            if (!unit || !checkbox.checked || !cell || !row) return;
+
+            let amount = null;
+            let candidateRow = row.nextElementSibling;
+            for (let index = 0; candidateRow && index < 3; index += 1) {
+                const candidateCell = candidateRow.cells?.[cell.cellIndex];
+                const text = String(candidateCell?.textContent || '').trim().replace(/\s+/g, '');
+                if (/^\d{1,3}(?:[.]\d{3})*$/.test(text) || /^\d+$/.test(text)) {
+                    amount = Number(text.replace(/[.]/g, ''));
+                    break;
+                }
+                candidateRow = candidateRow.nextElementSibling;
+            }
+            if (Number.isFinite(amount) && amount > 0) result[unit] = amount;
+        });
+        return result;
+    }
+
+    function templateInputBelongsToModel(input, row, model, templateId, fallbackRow) {
+        const rows = [row, row?.previousElementSibling, row?.previousElementSibling?.previousElementSibling]
+            .filter(Boolean);
+        const structural = [
+            input.name,
+            input.id,
+            input.getAttribute('data-template-id'),
+            ...rows.map(value => value.outerHTML),
+        ].filter(Boolean).join(' ');
+        if (templateId && new RegExp(`(?:^|[^0-9])${templateId}(?:[^0-9]|$)`).test(structural)) {
+            return true;
+        }
+        if (new RegExp(`farm_icon_${model}|modelo?\\s+${model}|model\\s+${model}`, 'i').test(structural)) {
+            return true;
+        }
+        if (rows.some(value => Array.from(value.cells || []).some(cell => (
+            normalizeText(cell.textContent) === model
+        )))) return true;
+        return row === fallbackRow;
     }
 
     function normalizeRoundState(value) {
@@ -2082,7 +2492,7 @@
         });
 
         return {
-            schema: 7,
+            schema: 8,
             general: {
                 attackIntervalMs: integerValue(
                     generalSource.attackIntervalMs,
@@ -2107,9 +2517,9 @@
                     100
                 ),
                 radius: integerValue(spySource.radius, DEFAULT_SETTINGS.spy.radius, 1, 200),
-                maxPerRound: integerValue(
-                    spySource.maxPerRound,
-                    DEFAULT_SETTINGS.spy.maxPerRound,
+                maxAttacks: integerValue(
+                    spySource.maxAttacks ?? spySource.maxPerRound,
+                    DEFAULT_SETTINGS.spy.maxAttacks,
                     1,
                     500
                 ),
