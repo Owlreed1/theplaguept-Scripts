@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.2.1
+// @version      1.2.2
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.2.1',
+        version: '1.2.2',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -527,7 +527,7 @@
                     <div class="af-filter-row" data-filter="sameVillage">
                         <span class="af-filter-label"><span aria-hidden="true">↻</span>Ataques/alvo</span>
                         <input type="checkbox" data-setting="${base}.sameVillage.enabled" aria-label="Permitir vários ataques do Modelo ${letter} à mesma aldeia">
-                        <input type="number" min="2" max="50" step="1" data-setting="${base}.sameVillage.max" aria-label="Máximo de ataques do Modelo ${letter} à mesma aldeia por ronda">
+                        <input type="number" min="2" max="50" step="1" data-setting="${base}.sameVillage.max" aria-label="Máximo de ataques do Modelo ${letter} simultaneamente em curso para a mesma aldeia">
                     </div>
                     <div class="af-filter-row" data-filter="sameVillage">
                         <span class="af-filter-label" title="A separação real varia automaticamente dez por cento"><span aria-hidden="true">⏱</span>Dif. chegada (s) ±10%</span>
@@ -1458,7 +1458,8 @@
         const rows = getFarmRows();
         const settings = state.settings || loadSettings();
         const run = ensureRunState();
-        const activeCounts = getActiveAttackCounts();
+        const activeAttacks = getActiveAttacksForCurrentVillage();
+        const activeCounts = getActiveAttackCounts(activeAttacks);
         const now = Date.now();
         const eligibleTasks = [];
         state.pendingTargetDueAt = 0;
@@ -1477,7 +1478,13 @@
             if (progress) {
                 const config = settings.models[progress.model];
                 const maximum = getSameVillageLimit(config);
-                if (progress.sent >= maximum) {
+                const targetStatus = getActiveTargetStatus(
+                    progress.model,
+                    targetKey,
+                    config,
+                    activeAttacks
+                );
+                if (targetStatus.count >= maximum) {
                     row.dataset.twPtAutofarmSent = '1';
                     state.processedTargets.add(targetKey);
                     continue;
@@ -1496,10 +1503,11 @@
                     continue;
                 }
 
-                if (progress.nextAt > now) {
+                const nextAt = Math.max(progress.nextAt || 0, targetStatus.nextAt || 0);
+                if (nextAt > now) {
                     state.pendingTargetDueAt = state.pendingTargetDueAt > 0
-                        ? Math.min(state.pendingTargetDueAt, progress.nextAt)
-                        : progress.nextAt;
+                        ? Math.min(state.pendingTargetDueAt, nextAt)
+                        : nextAt;
                     continue;
                 }
 
@@ -1514,7 +1522,7 @@
             }
 
             if (state.processedRows.has(row) || row.dataset.twPtAutofarmSent === '1') continue;
-            const selected = selectModelForRow(row, activeCounts);
+            const selected = selectModelForRow(row, activeCounts, activeAttacks, targetKey, now);
             if (selected) {
                 eligibleTasks.push({
                     row,
@@ -1549,9 +1557,10 @@
         return rows;
     }
 
-    function selectModelForRow(row, activeCounts) {
+    function selectModelForRow(row, activeCounts, activeAttacks, targetKey, nowValue) {
         const settings = state.settings || loadSettings();
         const reportColor = getReportColor(row);
+        const now = Number(nowValue) || Date.now();
         if (!reportColor) return null;
         for (const model of ['a', 'b', 'c']) {
             const config = settings.models[model];
@@ -1563,6 +1572,14 @@
                 !isFarmButtonDisabled(button) &&
                 modelMatchesRow(row, config, reportColor)
             ) {
+                const targetStatus = getActiveTargetStatus(model, targetKey, config, activeAttacks);
+                if (targetStatus.count >= targetStatus.maximum) continue;
+                if (targetStatus.nextAt > now) {
+                    state.pendingTargetDueAt = state.pendingTargetDueAt > 0
+                        ? Math.min(state.pendingTargetDueAt, targetStatus.nextAt)
+                        : targetStatus.nextAt;
+                    continue;
+                }
                 return { model, button, reportColor };
             }
         }
@@ -1586,7 +1603,7 @@
         const lootType = getLootType(row);
         if (lootType === 'full' && !config.loot.full) return false;
         if (lootType === 'partial' && !config.loot.partial) return false;
-        if (!lootType && !(config.loot.full && config.loot.partial)) return false;
+        if (!lootType) return config.loot.full || config.loot.partial;
         return config.loot.full || config.loot.partial;
     }
 
@@ -1594,11 +1611,14 @@
         if (!task.button?.isConnected || isFarmButtonDisabled(task.button)) return;
         let currentColor = getReportColor(task.row);
         let currentConfig = state.settings?.models?.[task.model];
+        let targetStatus = getActiveTargetStatus(task.model, task.targetKey, currentConfig);
         if (
             !currentColor ||
             currentColor !== task.reportColor ||
             !currentConfig?.reports?.[currentColor] ||
-            !modelHasCapacity(task.model, currentConfig)
+            !modelHasCapacity(task.model, currentConfig) ||
+            targetStatus.count >= targetStatus.maximum ||
+            targetStatus.nextAt > Date.now()
         ) {
             console.warn(
                 `[${APP.shortName}] Envio ${task.model.toUpperCase()} cancelado: ` +
@@ -1614,12 +1634,15 @@
 
         currentColor = getReportColor(task.row);
         currentConfig = state.settings?.models?.[task.model];
+        targetStatus = getActiveTargetStatus(task.model, task.targetKey, currentConfig);
         if (
             !task.button?.isConnected ||
             isFarmButtonDisabled(task.button) ||
             currentColor !== task.reportColor ||
             !currentConfig?.reports?.[currentColor] ||
-            !modelHasCapacity(task.model, currentConfig)
+            !modelHasCapacity(task.model, currentConfig) ||
+            targetStatus.count >= targetStatus.maximum ||
+            targetStatus.nextAt > Date.now()
         ) return;
 
         task.button.click();
@@ -1927,18 +1950,21 @@
         const run = ensureRunState();
         const config = state.settings?.models?.[model] || loadSettings().models[model];
         const targetKey = String(details.targetKey || '');
-        const previous = targetKey ? run.round.targets[targetKey] : null;
         const maximum = getSameVillageLimit(config);
-        const sent = previous?.model === model ? previous.sent + 1 : 1;
+        const targetStatus = getActiveTargetStatus(model, targetKey, config);
+        const sent = targetKey ? targetStatus.count + 1 : 1;
         const complete = !targetKey || sent >= maximum;
         const now = Date.now();
+        const nextAt = complete
+            ? 0
+            : now + randomizedArrivalSeparationMs(config.sameVillage.separationSeconds);
 
         run.counts[model] = (run.counts[model] || 0) + 1;
         if (targetKey) {
             run.round.targets[targetKey] = {
                 model,
                 sent,
-                nextAt: complete ? 0 : now + randomizedArrivalSeparationMs(config.sameVillage.separationSeconds),
+                nextAt,
                 lastAt: now,
             };
         }
@@ -1957,6 +1983,7 @@
             minutesPerField: details.minutesPerField,
             unitSpeed: details.unitSpeed,
             sentAt: now,
+            nextTargetAt: nextAt,
         });
         writeRunState(run);
         return { sent, maximum, complete };
@@ -2050,6 +2077,7 @@
                 targetCoord: String(value.targetCoord || ''),
                 sentAt: Math.max(0, Number(value.sentAt) || now),
                 returnAt,
+                nextTargetAt: Math.max(0, Number(value.nextTargetAt) || 0),
                 distance: Math.max(0, Number(value.distance) || 0),
                 minutesPerField: Math.max(1, Number(value.minutesPerField) || 35),
                 unitSpeed: Math.max(0.01, Number(value.unitSpeed) || 1),
@@ -2084,6 +2112,7 @@
             targetCoord: String(details.targetCoord || ''),
             sentAt,
             returnAt: sentAt + Math.ceil(travelMs * 2) + APP.returnSafetyMs,
+            nextTargetAt: Math.max(0, Number(details.nextTargetAt) || 0),
             distance,
             minutesPerField,
             unitSpeed,
@@ -2098,15 +2127,40 @@
         return getActiveAttackCounts()[model] || 0;
     }
 
-    function getActiveAttackCounts() {
+    function getActiveAttacksForCurrentVillage() {
         const sourceId = getVillageId();
+        return readActiveAttacks().filter(attack => !sourceId || attack.sourceId === sourceId);
+    }
+
+    function getActiveAttackCounts(attacksValue) {
         const counts = { a: 0, b: 0, c: 0, spy: 0 };
-        readActiveAttacks().forEach(attack => {
-            if ((!sourceId || attack.sourceId === sourceId) && attack.model in counts) {
-                counts[attack.model] += 1;
-            }
+        const attacks = Array.isArray(attacksValue)
+            ? attacksValue
+            : getActiveAttacksForCurrentVillage();
+        attacks.forEach(attack => {
+            if (attack.model in counts) counts[attack.model] += 1;
         });
         return counts;
+    }
+
+    function getActiveTargetStatus(model, targetKey, config, attacksValue) {
+        const maximum = getSameVillageLimit(config);
+        if (!targetKey) return { count: 0, maximum, nextAt: 0 };
+        const attacks = Array.isArray(attacksValue)
+            ? attacksValue
+            : getActiveAttacksForCurrentVillage();
+        const matching = attacks.filter(attack => (
+            attack.model === model && attack.targetKey === targetKey
+        ));
+        let nextAt = 0;
+        matching.forEach(attack => {
+            const storedNextAt = Number(attack.nextTargetAt) || 0;
+            const migratedNextAt = config?.sameVillage?.enabled
+                ? attack.sentAt + (config.sameVillage.separationSeconds * 1000)
+                : 0;
+            nextAt = Math.max(nextAt, storedNextAt || migratedNextAt);
+        });
+        return { count: matching.length, maximum, nextAt };
     }
 
     function getNextActiveReturn(model) {
