@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.1
+// @version      1.3.2
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.1',
+        version: '1.3.2',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -111,6 +111,8 @@
         roundPreparing: false,
         groupsLoadGeneration: 0,
         idleScans: 0,
+        pageDeferredCandidates: 0,
+        pageFinalCheckDone: false,
         farmSent: 0,
         pendingTargetDueAt: 0,
         spyRunning: false,
@@ -1145,6 +1147,8 @@
         state.spyRunning = false;
         state.roundPreparing = false;
         state.idleScans = 0;
+        state.pageDeferredCandidates = 0;
+        state.pageFinalCheckDone = false;
         setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
         hideRoundCountdown();
     }
@@ -1180,6 +1184,21 @@
             } else {
                 state.idleScans += 1;
                 finishRequested = state.idleScans >= 3;
+                if (
+                    finishRequested &&
+                    state.pageDeferredCandidates > 0 &&
+                    !state.pageFinalCheckDone
+                ) {
+                    state.pageFinalCheckDone = true;
+                    await syncActiveAttacksWithGame(false);
+                    if (generation !== state.farmGeneration) return;
+                    task = findNextFarmTask();
+                    if (task) {
+                        finishRequested = false;
+                        state.idleScans = 0;
+                        await sendFarmTask(task);
+                    }
+                }
             }
         } catch (error) {
             console.error(`[${APP.shortName}] Falha ao enviar um modelo.`, error);
@@ -1726,6 +1745,8 @@
         state.processedTargets.clear();
         state.processedRows = new WeakSet();
         state.idleScans = 0;
+        state.pageDeferredCandidates = 0;
+        state.pageFinalCheckDone = false;
         state.pendingTargetDueAt = 0;
         getFarmRows().forEach(row => delete row.dataset.twPtAutofarmSent);
     }
@@ -2002,6 +2023,7 @@
         const now = Date.now();
         const eligibleTasks = [];
         state.pendingTargetDueAt = 0;
+        state.pageDeferredCandidates = 0;
 
         rows.sort((first, second) => {
             const firstDistance = getTargetDistance(first);
@@ -2033,7 +2055,6 @@
                 const reportColor = getReportColor(row);
                 if (
                     !config?.enabled ||
-                    !modelHasCapacity(progress.model, config, activeCounts) ||
                     !button ||
                     isFarmButtonDisabled(button) ||
                     !reportColor ||
@@ -2041,9 +2062,14 @@
                 ) {
                     continue;
                 }
+                if (!modelHasCapacity(progress.model, config, activeCounts)) {
+                    state.pageDeferredCandidates += 1;
+                    continue;
+                }
 
                 const nextAt = Math.max(progress.nextAt || 0, targetStatus.nextAt || 0);
                 if (nextAt > now) {
+                    state.pageDeferredCandidates += 1;
                     state.pendingTargetDueAt = state.pendingTargetDueAt > 0
                         ? Math.min(state.pendingTargetDueAt, nextAt)
                         : nextAt;
@@ -2105,22 +2131,30 @@
             const config = settings.models[model];
             const button = row.querySelector(`a.farm_icon_${model}`);
             if (
-                config.enabled &&
-                modelHasCapacity(model, config, activeCounts) &&
-                button &&
-                !isFarmButtonDisabled(button) &&
-                modelMatchesRow(row, config, reportColor)
+                !config.enabled ||
+                !button ||
+                isFarmButtonDisabled(button) ||
+                !modelMatchesRow(row, config, reportColor)
             ) {
-                const targetStatus = getActiveTargetStatus(model, targetKey, config, activeAttacks);
-                if (targetStatus.count >= targetStatus.maximum) continue;
-                if (targetStatus.nextAt > now) {
-                    state.pendingTargetDueAt = state.pendingTargetDueAt > 0
-                        ? Math.min(state.pendingTargetDueAt, targetStatus.nextAt)
-                        : targetStatus.nextAt;
-                    continue;
-                }
-                return { model, button, reportColor };
+                continue;
             }
+            if (!modelHasCapacity(model, config, activeCounts)) {
+                state.pageDeferredCandidates += 1;
+                continue;
+            }
+            const targetStatus = getActiveTargetStatus(model, targetKey, config, activeAttacks);
+            if (targetStatus.count >= targetStatus.maximum) {
+                state.pageDeferredCandidates += 1;
+                continue;
+            }
+            if (targetStatus.nextAt > now) {
+                state.pageDeferredCandidates += 1;
+                state.pendingTargetDueAt = state.pendingTargetDueAt > 0
+                    ? Math.min(state.pendingTargetDueAt, targetStatus.nextAt)
+                    : targetStatus.nextAt;
+                continue;
+            }
+            return { model, button, reportColor };
         }
         return null;
     }
@@ -2186,6 +2220,7 @@
 
         task.button.click();
         state.farmSent += 1;
+        state.pageFinalCheckDone = false;
         const progress = recordFarmSend(task.model, {
             color: currentColor,
             targetKey: task.targetKey,
