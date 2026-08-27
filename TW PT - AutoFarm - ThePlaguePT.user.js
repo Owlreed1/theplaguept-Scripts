@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.2.0
+// @version      1.2.1
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.2.0',
+        version: '1.2.1',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -284,9 +284,10 @@
             #${APP.settingsId} .af-model-head{display:flex;align-items:center;gap:7px;min-height:32px;padding:4px 8px;border-bottom:1px solid #d3b778;background:#f8e8bc}
             #${APP.settingsId} .af-model-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid #594325;border-radius:4px;background:linear-gradient(#7f6846,#3f3020);box-shadow:inset 0 1px #ffffff73,0 1px 2px #0005;color:#f8e8bd;font:bold 15px Georgia,serif;text-shadow:1px 1px #000}
             #${APP.settingsId} .af-model-name{font-weight:bold;font-size:12px;flex:1}
-            #${APP.settingsId} .af-model-counters{display:flex;align-items:center;gap:3px}
-            #${APP.settingsId} .af-model-count{padding:2px 5px;border:1px solid #c5a66a;border-radius:8px;background:#f3dfae;color:#77552a;font:bold 9px Verdana,Arial,sans-serif;white-space:nowrap}
-            #${APP.settingsId} .af-model-round-count{background:#f9edca;color:#80643b;font-weight:normal}
+            #${APP.settingsId} .af-model-counters{display:flex;align-items:stretch;gap:4px}
+            #${APP.settingsId} .af-model-count{min-width:78px;padding:2px 5px;border:1px solid #c5a66a;border-radius:5px;background:#f3dfae;color:#77552a;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;white-space:nowrap;line-height:10px}
+            #${APP.settingsId} .af-model-count-label{font:normal 7px Verdana,Arial,sans-serif;text-transform:uppercase;letter-spacing:.15px}
+            #${APP.settingsId} .af-model-count-value{font:bold 9px Verdana,Arial,sans-serif}
             #${APP.settingsId} .af-switch{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
             #${APP.settingsId} .af-switch input{position:absolute;opacity:0;pointer-events:none}
             #${APP.settingsId} .af-switch-track{position:relative;width:32px;height:18px;border:1px solid #a37b35;border-radius:10px;background:#ecd8a5;box-shadow:inset 0 1px 2px #0003}
@@ -411,8 +412,14 @@
                                 <span class="af-spy-name">Modelo Espião BB</span>
                                 <span class="af-spy-status" data-role="spy-status">Inativo</span>
                                 <span class="af-model-counters">
-                                    <span class="af-model-count" data-spy-active-count>Curso 0/25</span>
-                                    <span class="af-model-count af-model-round-count" data-spy-round-count>Ronda 0</span>
+                                    <span class="af-model-count" data-spy-active-count>
+                                        <span class="af-model-count-label">Ataques em Curso</span>
+                                        <strong class="af-model-count-value" data-spy-active-value>0/25</strong>
+                                    </span>
+                                    <span class="af-model-count" data-spy-round-count>
+                                        <span class="af-model-count-label">Enviados na Ronda</span>
+                                        <strong class="af-model-count-value" data-spy-round-value>0/25</strong>
+                                    </span>
                                 </span>
                                 <label class="af-switch">
                                     <input class="af-spy-enabled" type="checkbox" data-setting="spy.enabled">
@@ -486,8 +493,14 @@
                     <span class="af-model-badge" aria-hidden="true">${letter}</span>
                     <span class="af-model-name">Modelo ${letter}</span>
                     <span class="af-model-counters">
-                        <span class="af-model-count" data-model-active-count="${modelKey}">Curso 0/∞</span>
-                        <span class="af-model-count af-model-round-count" data-model-round-count="${modelKey}">Ronda 0</span>
+                        <span class="af-model-count" data-model-active-count="${modelKey}">
+                            <span class="af-model-count-label">Ataques em Curso</span>
+                            <strong class="af-model-count-value" data-model-active-value="${modelKey}">0/∞</strong>
+                        </span>
+                        <span class="af-model-count" data-model-round-count="${modelKey}">
+                            <span class="af-model-count-label">Enviados na Ronda</span>
+                            <strong class="af-model-count-value" data-model-round-value="${modelKey}">0/∞</strong>
+                        </span>
                     </span>
                     <label class="af-switch">
                         <input class="af-model-enabled" type="checkbox" data-setting="${base}.enabled">
@@ -1967,36 +1980,41 @@
             const roundCount = run?.counts?.[model] || 0;
             const activeCount = getActiveAttackCount(model);
             const limit = state.settings.models[model].maxAttacks;
+            const maximum = limit.enabled ? limit.max : '∞';
             const activeBadge = state.settingsPanel.querySelector(`[data-model-active-count="${model}"]`);
             const roundBadge = state.settingsPanel.querySelector(`[data-model-round-count="${model}"]`);
+            const activeValue = state.settingsPanel.querySelector(`[data-model-active-value="${model}"]`);
+            const roundValue = state.settingsPanel.querySelector(`[data-model-round-value="${model}"]`);
             const nextReturn = getNextActiveReturn(model);
             if (activeBadge) {
-                activeBadge.textContent = `Curso ${activeCount}/${limit.enabled ? limit.max : '∞'}`;
                 activeBadge.title = nextReturn
                     ? `${activeCount} ataque(s) em curso. Próxima vaga prevista: ${formatClock(nextReturn)}.`
                     : `${activeCount} ataque(s) em curso.`;
             }
+            if (activeValue) activeValue.textContent = `${activeCount}/${maximum}`;
             if (roundBadge) {
-                roundBadge.textContent = `Ronda ${roundCount}`;
                 roundBadge.title = `${roundCount} ataque(s) lançados na ronda atual.`;
             }
+            if (roundValue) roundValue.textContent = `${roundCount}/${maximum}`;
         });
         const spyActive = getActiveAttackCount('spy');
         const spyRound = run?.round?.spy?.sent || 0;
         const spyMaximum = state.settings.spy.maxAttacks;
         const spyActiveBadge = state.settingsPanel.querySelector('[data-spy-active-count]');
         const spyRoundBadge = state.settingsPanel.querySelector('[data-spy-round-count]');
+        const spyActiveValue = state.settingsPanel.querySelector('[data-spy-active-value]');
+        const spyRoundValue = state.settingsPanel.querySelector('[data-spy-round-value]');
         const spyNextReturn = getNextActiveReturn('spy');
         if (spyActiveBadge) {
-            spyActiveBadge.textContent = `Curso ${spyActive}/${spyMaximum}`;
             spyActiveBadge.title = spyNextReturn
                 ? `${spyActive} espionagem(ns) em curso. Próxima vaga prevista: ${formatClock(spyNextReturn)}.`
                 : `${spyActive} espionagem(ns) em curso.`;
         }
+        if (spyActiveValue) spyActiveValue.textContent = `${spyActive}/${spyMaximum}`;
         if (spyRoundBadge) {
-            spyRoundBadge.textContent = `Ronda ${spyRound}`;
             spyRoundBadge.title = `${spyRound} espionagem(ns) lançada(s) na ronda atual.`;
         }
+        if (spyRoundValue) spyRoundValue.textContent = `${spyRound}/${spyMaximum}`;
         if (!state.spyRunning && state.settings.spy.enabled) setSpyStatus('Pronto');
     }
 
