@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.4
+// @version      1.3.5
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.4',
+        version: '1.3.5',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -47,6 +47,8 @@
         commandRateWindowMs: 1000,
         commandRateMaximum: 5,
         commandRateSafetyMs: 30,
+        captchaResumeMs: 2000,
+        captchaObserveDebounceMs: 80,
         spyHistoryMs: 365 * 24 * 60 * 60 * 1000,
     });
     const UNIT_MINUTES_PER_FIELD = Object.freeze({
@@ -75,6 +77,7 @@
         activeAttacks: `twPtAutoFarm.v1.${world}.activeAttacks`,
         activeSyncAt: `twPtAutoFarm.v1.${world}.activeSyncAt`,
         unitSpeed: `twPtAutoFarm.v1.${world}.unitSpeed`,
+        captchaPause: `twPtAutoFarm.v1.${world}.captchaPause`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
         schema: 9,
@@ -126,6 +129,11 @@
         activeSyncAt: 0,
         activeSyncSourceId: '',
         activeSyncPromise: null,
+        captchaPaused: sessionStorage.getItem(keys.captchaPause) === '1',
+        captchaObserver: null,
+        captchaCheckTimer: 0,
+        captchaResumeTimer: 0,
+        captchaReloadTimer: 0,
         processedRows: new WeakSet(),
         processedTargets: new Set(),
         workerWindow: null,
@@ -151,6 +159,7 @@
         getSettings: () => clone(state.settings || loadSettings()),
         getStatus: () => ({
             enabled: isEnabled(),
+            captchaPaused: state.captchaPaused,
             world,
             farmPage: isFarmPage(),
             ownsWorker: state.ownsWorker,
@@ -168,13 +177,14 @@
         injectStyles();
         createButton();
         bindEvents();
+        startCaptchaProtection();
         startMonitor();
 
         if (isFarmPage()) {
             createWorkerPanel();
             createModelsPanel();
-            loadWorldUnitSpeed();
-            if (isEnabled()) startWorker();
+            if (!state.captchaPaused) loadWorldUnitSpeed();
+            if (isEnabled() && !state.captchaPaused) startWorker();
         }
 
         updateUi();
@@ -191,7 +201,7 @@
     function bindEvents() {
         window.addEventListener('storage', event => {
             if (event.key === keys.enabled) {
-                if (isEnabled() && isFarmPage()) startWorker();
+                if (isEnabled() && isFarmPage() && !state.captchaPaused) startWorker();
                 if (!isEnabled()) stopWorker();
                 updateUi();
             }
@@ -200,16 +210,16 @@
             if (event.key === keys.settings) {
                 state.settings = loadSettings();
                 renderSettingsUi();
-                loadGroupsIntoPanel();
-                if (state.ownsWorker) resumeRoundWorkflow();
+                if (!state.captchaPaused) loadGroupsIntoPanel();
+                if (state.ownsWorker && !state.captchaPaused) resumeRoundWorkflow();
             }
             if (event.key === keys.run) {
                 renderModelCounts();
-                if (state.ownsWorker) resumeRoundWorkflow();
+                if (state.ownsWorker && !state.captchaPaused) resumeRoundWorkflow();
             }
             if (event.key === keys.activeAttacks) {
                 renderModelCounts();
-                if (state.ownsWorker) resumeRoundWorkflow();
+                if (state.ownsWorker && !state.captchaPaused) resumeRoundWorkflow();
             }
         });
 
@@ -271,10 +281,12 @@
         style.textContent = `
             #${APP.toolbarId}>#${APP.buttonId}{order:90!important;position:relative!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;padding:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 10px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;cursor:pointer!important;overflow:visible!important}
             #${APP.toolbarId}>#${APP.buttonId}.af-ligado{background:linear-gradient(to bottom,#5f9f3d,#3f7c27 55%,#28551a)!important}
+            #${APP.toolbarId}>#${APP.buttonId}.af-verificacao{background:linear-gradient(to bottom,#d99a2b,#a86412 55%,#754006)!important}
             #${APP.toolbarId}>#${APP.buttonId}:hover,#${APP.toolbarId}>#${APP.buttonId}:focus-visible{filter:brightness(1.18)!important}
             #${APP.buttonId} .auto-farm-a-launcher-icon{display:block!important;line-height:26px!important}
             #${APP.buttonId} [data-auto-farm-dot]{position:absolute!important;right:2px!important;bottom:2px!important;width:6px!important;height:6px!important;border:1px solid #2b1509!important;border-radius:50%!important;background:#ff6b6b!important;box-shadow:0 0 2px #000!important}
             #${APP.buttonId}.af-ligado [data-auto-farm-dot]{background:#7cfc00!important}
+            #${APP.buttonId}.af-verificacao [data-auto-farm-dot]{background:#ffe34a!important}
             #${APP.buttonId} [data-auto-farm-countdown]{position:absolute!important;display:block!important;top:31px!important;left:50%!important;transform:translateX(-50%)!important;min-width:46px!important;padding:3px 5px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 10px Verdana,Arial,sans-serif!important;line-height:13px!important;text-align:center!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 5px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
             #${APP.buttonId} [data-auto-farm-countdown][hidden]{display:none!important}
             #${APP.toolbarId}>#${APP.buttonId}::after{content:attr(data-tp-title);position:absolute!important;display:none!important;top:33px!important;left:50%!important;transform:translateX(-50%)!important;min-width:max-content!important;max-width:380px!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
@@ -284,6 +296,7 @@
             #${APP.statusId} [data-role="state"]{font-weight:bold}
             #${APP.statusId}[data-state="active"] [data-role="state"]{color:#287119}
             #${APP.statusId}[data-state="duplicate"] [data-role="state"],#${APP.statusId}[data-state="waiting"] [data-role="state"]{color:#9a5b0b}
+            #${APP.statusId}[data-state="captcha"] [data-role="state"]{color:#a35c00}
             #${APP.statusId}[data-state="off"] [data-role="state"]{color:#8a1c17}
             #${APP.settingsId}{margin:6px 0 9px;border:1px solid #c8a86a;background:#f6e8bd;color:#3c2a14;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}
             #${APP.settingsId} *{box-sizing:border-box}
@@ -292,6 +305,7 @@
             #${APP.settingsId} .af-settings-actions{display:flex;align-items:center;gap:8px}
             #${APP.settingsId} .af-settings-toggle{min-width:74px;height:27px;padding:3px 10px;border:1px solid #4f120f;border-radius:3px;background:linear-gradient(#b33a34,#8f2420 55%,#681611);box-shadow:inset 0 1px #ffffff59,0 1px 3px #0005;color:#fff;font:bold 11px Verdana,Arial,sans-serif;text-shadow:1px 1px #000;cursor:pointer}
             #${APP.settingsId} .af-settings-toggle.af-ligado{background:linear-gradient(#5f9f3d,#3f7c27 55%,#28551a)}
+            #${APP.settingsId} .af-settings-toggle.af-verificacao{background:linear-gradient(#d99a2b,#a86412 55%,#754006)}
             #${APP.settingsId} .af-settings-toggle:hover,#${APP.settingsId} .af-settings-toggle:focus-visible{filter:brightness(1.15)}
             #${APP.settingsId} .af-models-wrap{padding:8px}
             #${APP.settingsId} .af-section-title{display:flex;align-items:center;gap:8px;margin:0 0 6px;color:#75501f;font-weight:bold;letter-spacing:1.2px}
@@ -514,7 +528,12 @@
 
         state.settingsPanel = panel;
         renderSettingsUi();
-        loadGroupsIntoPanel();
+        if (state.captchaPaused) {
+            setSpyStatus('Verificação — em pausa');
+            renderCaptchaGroupStatus();
+        } else {
+            loadGroupsIntoPanel();
+        }
     }
 
     function modelCard(modelKey, letter) {
@@ -712,6 +731,11 @@
         const select = state.settingsPanel?.querySelector('select[data-setting="farm.groupId"]');
         const status = state.settingsPanel?.querySelector('[data-role="group-status"]');
         if (!select || !status) return;
+        if (state.captchaPaused) {
+            select.disabled = true;
+            status.textContent = 'Verificação do jogo — automação totalmente em pausa.';
+            return;
+        }
         const generation = ++state.groupsLoadGeneration;
         const selectedId = String(state.settings?.farm?.groupId || '0');
         select.disabled = true;
@@ -738,6 +762,10 @@
                 'A ronda percorre todas as páginas de cada aldeia antes de avançar.';
         } catch (error) {
             if (generation !== state.groupsLoadGeneration) return;
+            if (state.captchaPaused) {
+                renderCaptchaGroupStatus();
+                return;
+            }
             ensureSavedGroupOption(select, selectedId);
             select.value = selectedId;
             status.textContent = `Não foi possível atualizar os grupos: ${getAutomationErrorMessage(error).slice(0, 120)}`;
@@ -893,6 +921,173 @@
         }, 1600);
     }
 
+    function startCaptchaProtection() {
+        state.captchaObserver?.disconnect();
+        state.captchaObserver = new MutationObserver(() => {
+            window.clearTimeout(state.captchaCheckTimer);
+            state.captchaCheckTimer = window.setTimeout(() => {
+                state.captchaCheckTimer = 0;
+                monitorCaptchaProtection();
+            }, APP.captchaObserveDebounceMs);
+        });
+        if (document.documentElement) {
+            state.captchaObserver.observe(document.documentElement, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['id', 'class', 'src', 'data-sitekey', 'data-bot-protect'],
+            });
+        }
+        monitorCaptchaProtection();
+    }
+
+    function monitorCaptchaProtection() {
+        if (state.destroyed) return true;
+        if (hasCaptchaChallenge(document)) {
+            pauseForCaptcha('página do jogo');
+            return true;
+        }
+        if (state.captchaPaused) {
+            scheduleCaptchaResumeCheck();
+            return true;
+        }
+        return false;
+    }
+
+    function hasCaptchaChallenge(documentValue) {
+        if (!documentValue?.documentElement) return false;
+        if (documentValue.body?.hasAttribute('data-bot-protect')) return true;
+        if (documentValue.querySelector([
+            '#bot_check',
+            '#botprotection_quest',
+            '#captcha',
+            '[id*="captcha" i]',
+            '.g-recaptcha',
+            '.h-captcha',
+            '[data-sitekey]',
+            '[data-hcaptcha-widget-id]',
+            'iframe[src*="recaptcha" i]',
+            'iframe[src*="hcaptcha" i]',
+            'iframe[src*="turnstile" i]',
+            'textarea[name="g-recaptcha-response"]',
+            'textarea[name="h-captcha-response"]',
+            'input[name*="captcha" i]',
+            'form[action*="captcha" i]',
+        ].join(','))) return true;
+
+        const text = getCaptchaReadableText(documentValue);
+        if (/(?:protecao contra bots|verificacao (?:da |de )?protecao (?:de |do )?bot|antes de poderes continuar a jogar|bot protection (?:check|verification)|verify (?:that )?you are human)/i.test(text)) {
+            return true;
+        }
+        return Array.from(documentValue.querySelectorAll([
+            '#error',
+            '.error_box',
+            '.error-message',
+            '.error-msg',
+            '.ui-state-error',
+            '#notifications .error',
+            '.notification.error',
+        ].join(','))).some(element => isCaptchaMessage(element.textContent));
+    }
+
+    function getCaptchaReadableText(documentValue) {
+        const body = documentValue?.body;
+        if (!body) return '';
+        if (documentValue === document && typeof body.innerText === 'string') {
+            return normalizeText(body.innerText);
+        }
+        const copy = body.cloneNode(true);
+        copy.querySelectorAll('script,style,noscript,template,svg').forEach(element => element.remove());
+        return normalizeText(copy.textContent || '');
+    }
+
+    function responseHasCaptcha(html) {
+        const source = String(html || '');
+        if (!/<(?:!doctype|html|body|form|iframe|div|script)\b/i.test(source)) return false;
+        const documentValue = new DOMParser().parseFromString(source, 'text/html');
+        if (hasCaptchaChallenge(documentValue)) return true;
+        const bodyText = getCaptchaReadableText(documentValue);
+        return bodyText.length > 0 && bodyText.length <= 1500 && isCaptchaMessage(bodyText);
+    }
+
+    function pauseForCaptcha(source, revealOnPage = false) {
+        const wasPaused = state.captchaPaused;
+        state.captchaPaused = true;
+        try {
+            sessionStorage.setItem(keys.captchaPause, '1');
+        } catch (_) {
+            // A pausa continua válida nesta página mesmo sem armazenamento disponível.
+        }
+        window.clearTimeout(state.captchaResumeTimer);
+        state.captchaResumeTimer = 0;
+        if (wasPaused) {
+            scheduleCaptchaRevealReload(revealOnPage);
+            return true;
+        }
+        stopFarmLoop();
+        setSpyStatus('Verificação — em pausa');
+        renderCaptchaGroupStatus();
+        updateUi();
+
+        if (!wasPaused) {
+            console.warn(`[${APP.shortName}] Automação pausada por verificação do jogo (${source}).`);
+            notify('error', 'Verificação do jogo detetada. O AutoFarm foi totalmente pausado; resolve-a manualmente.');
+        }
+
+        scheduleCaptchaRevealReload(revealOnPage);
+        return true;
+    }
+
+    function scheduleCaptchaRevealReload(revealOnPage) {
+        if (revealOnPage && !hasCaptchaChallenge(document) && !state.captchaReloadTimer) {
+            state.captchaReloadTimer = window.setTimeout(() => {
+                state.captchaReloadTimer = 0;
+                if (state.captchaPaused && !state.destroyed) window.location.reload();
+            }, 250);
+        }
+    }
+
+    function scheduleCaptchaResumeCheck() {
+        if (!state.captchaPaused || state.captchaResumeTimer || state.destroyed) return;
+        state.captchaResumeTimer = window.setTimeout(() => {
+            state.captchaResumeTimer = 0;
+            if (hasCaptchaChallenge(document)) {
+                pauseForCaptcha('página do jogo');
+                return;
+            }
+
+            state.captchaPaused = false;
+            try {
+                sessionStorage.removeItem(keys.captchaPause);
+            } catch (_) {
+                // O estado local já foi libertado.
+            }
+            updateUi();
+            notify('success', 'Verificação resolvida. O AutoFarm pode continuar.');
+
+            if (!isEnabled() || !isFarmPage() || state.destroyed) return;
+            if (!document.querySelector('#am_widget_Farm')) {
+                window.location.reload();
+                return;
+            }
+            loadGroupsIntoPanel();
+            loadWorldUnitSpeed();
+            if (state.ownsWorker) resumeRoundWorkflow();
+            else startWorker();
+        }, APP.captchaResumeMs);
+    }
+
+    function renderCaptchaGroupStatus() {
+        const status = state.settingsPanel?.querySelector('[data-role="group-status"]');
+        const select = state.settingsPanel?.querySelector('select[data-setting="farm.groupId"]');
+        if (select) select.disabled = true;
+        if (status) status.textContent = 'Verificação do jogo — automação totalmente em pausa.';
+    }
+
+    function automationCanRun() {
+        return isEnabled() && !state.captchaPaused && !state.destroyed;
+    }
+
     function enable(openTab) {
         const wasEnabled = isEnabled();
         if (!wasEnabled) resetRunState();
@@ -900,10 +1095,14 @@
         localStorage.setItem(keys.enabled, '1');
         state.popupBlocked = false;
 
+        if (hasCaptchaChallenge(document)) pauseForCaptcha('página do jogo');
+
         if (isFarmPage()) {
-            startWorker();
-            notify('success', `${APP.shortName} ligado em ${world}.`);
-        } else if (openTab) {
+            if (!state.captchaPaused) {
+                startWorker();
+                notify('success', `${APP.shortName} ligado em ${world}.`);
+            }
+        } else if (openTab && !state.captchaPaused) {
             openWorker(true);
         }
         updateUi();
@@ -919,6 +1118,10 @@
 
     function openWorker(fromUserGesture) {
         if (!isEnabled()) localStorage.setItem(keys.enabled, '1');
+        if (state.captchaPaused || hasCaptchaChallenge(document)) {
+            pauseForCaptcha('página do jogo');
+            return null;
+        }
 
         if (isFarmPage()) {
             startWorker();
@@ -971,7 +1174,7 @@
     }
 
     function startWorker() {
-        if (!isFarmPage() || !isEnabled() || state.ownsWorker || state.acquiringWorker) return;
+        if (!isFarmPage() || !automationCanRun() || state.ownsWorker || state.acquiringWorker) return;
 
         state.acquiringWorker = true;
         state.duplicateWorker = false;
@@ -980,7 +1183,7 @@
         if (navigator.locks?.request) {
             navigator.locks.request(workerLockName, { mode: 'exclusive', ifAvailable: true }, async lock => {
                 state.acquiringWorker = false;
-                if (!lock || !isEnabled() || state.destroyed) {
+                if (!lock || !automationCanRun()) {
                     state.duplicateWorker = Boolean(!lock);
                     updateUi();
                     return;
@@ -1003,7 +1206,7 @@
     }
 
     function claimWorker() {
-        if (!isEnabled() || state.destroyed) return;
+        if (!automationCanRun()) return;
         ensureRunState();
         state.ownsWorker = true;
         state.duplicateWorker = false;
@@ -1041,7 +1244,7 @@
             tabId,
             world,
             version: APP.version,
-            state: 'ready',
+            state: state.captchaPaused ? 'captcha' : 'ready',
             villageId: getVillageId(),
             url: window.location.href,
             updatedAt: Date.now(),
@@ -1076,6 +1279,10 @@
         window.clearInterval(state.monitorTimer);
         state.monitorTimer = window.setInterval(() => {
             if (state.workerWindow?.closed) state.workerWindow = null;
+            if (monitorCaptchaProtection()) {
+                updateUi();
+                return;
+            }
             if (isFarmPage() && isEnabled() && !state.ownsWorker && !state.acquiringWorker) {
                 const worker = readWorker();
                 if (!isFreshWorker(worker)) startWorker();
@@ -1089,14 +1296,18 @@
 
     function updateUi() {
         const enabled = isEnabled();
-        const visualState = enabled ? 'on' : 'off';
-        const label = enabled ? 'Ligado' : 'Desligado';
-        const panelState = enabled ? 'active' : 'off';
+        const captchaPaused = enabled && state.captchaPaused;
+        const visualState = captchaPaused ? 'captcha' : (enabled ? 'on' : 'off');
+        const label = captchaPaused ? 'Pausado — verificação/CAPTCHA' : (enabled ? 'Ligado' : 'Desligado');
+        const panelState = captchaPaused ? 'captcha' : (enabled ? 'active' : 'off');
 
         if (state.button) {
             state.button.dataset.state = visualState;
-            state.button.classList.toggle('af-ligado', enabled);
-            state.button.dataset.tpTitle = `${APP.name}: ${label}. Clique para ${enabled ? 'desligar' : 'ligar'}.`;
+            state.button.classList.toggle('af-ligado', enabled && !captchaPaused);
+            state.button.classList.toggle('af-verificacao', captchaPaused);
+            state.button.dataset.tpTitle = captchaPaused
+                ? `${APP.name}: ${label}. Resolve manualmente; nenhum comando será enviado.`
+                : `${APP.name}: ${label}. Clique para ${enabled ? 'desligar' : 'ligar'}.`;
             state.button.setAttribute('aria-label', state.button.dataset.tpTitle);
             state.button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
         }
@@ -1104,7 +1315,8 @@
         const settingsToggle = document.getElementById(APP.settingsToggleId);
         if (settingsToggle) {
             settingsToggle.textContent = enabled ? 'Desligar' : 'Ligar';
-            settingsToggle.classList.toggle('af-ligado', enabled);
+            settingsToggle.classList.toggle('af-ligado', enabled && !captchaPaused);
+            settingsToggle.classList.toggle('af-verificacao', captchaPaused);
             settingsToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
             settingsToggle.setAttribute('aria-label', enabled ? 'Desligar AutoFarm' : 'Ligar AutoFarm');
         }
@@ -1116,7 +1328,7 @@
         }
         const round = readRunState()?.round;
         renderGroupRoundStatus(round);
-        if (enabled && round?.phase === 'waiting' && round.pauseUntil > Date.now()) {
+        if (enabled && !captchaPaused && round?.phase === 'waiting' && round.pauseUntil > Date.now()) {
             showRoundCountdown(Math.ceil((round.pauseUntil - Date.now()) / 1000));
         } else if (!enabled || round?.phase !== 'waiting') {
             hideRoundCountdown();
@@ -1135,7 +1347,7 @@
     }
 
     function startFarmLoop() {
-        if (!isFarmPage() || !isEnabled() || !state.ownsWorker || state.destroyed) return;
+        if (!isFarmPage() || !automationCanRun() || !state.ownsWorker) return;
         resumeRoundWorkflow();
     }
 
@@ -1160,13 +1372,13 @@
     function scheduleFarmStep(delayMs) {
         window.clearTimeout(state.farmTimer);
         state.farmTimer = 0;
-        if (!isFarmPage() || !isEnabled() || !state.ownsWorker || state.destroyed || state.farmRunning) return;
+        if (!isFarmPage() || !automationCanRun() || !state.ownsWorker || state.farmRunning) return;
         state.farmTimer = window.setTimeout(runFarmStep, Math.max(50, Number(delayMs) || 50));
     }
 
     async function runFarmStep() {
         state.farmTimer = 0;
-        if (!isEnabled() || !state.ownsWorker || state.destroyed || state.farmRunning) return;
+        if (!automationCanRun() || !state.ownsWorker || state.farmRunning) return;
         if (ensureRunState().round.phase !== 'farming') {
             resumeRoundWorkflow();
             return;
@@ -1235,7 +1447,7 @@
         } finally {
             if (generation !== state.farmGeneration) return;
             state.farmRunning = false;
-            if (isEnabled() && state.ownsWorker && !state.destroyed) {
+            if (automationCanRun() && state.ownsWorker) {
                 if (finishVillageRequested) finishCurrentVillageFarm();
                 else if (finishRequested) finishRound();
                 else if (task) scheduleFarmStep(randomizedAttackDelay());
@@ -1248,7 +1460,7 @@
     }
 
     function resumeRoundWorkflow() {
-        if (!isFarmPage() || !isEnabled() || !state.ownsWorker || state.destroyed) return;
+        if (!isFarmPage() || !automationCanRun() || !state.ownsWorker) return;
         const run = ensureRunState();
 
         if (run.round.phase === 'start') {
@@ -1324,9 +1536,8 @@
             const data = await fetchGroupData(groupId);
             if (
                 generation !== state.farmGeneration ||
-                !isEnabled() ||
-                !state.ownsWorker ||
-                state.destroyed
+                !automationCanRun() ||
+                !state.ownsWorker
             ) return;
             if (!data.villages.length) throw new Error('O grupo escolhido não contém aldeias.');
 
@@ -1343,9 +1554,10 @@
             navigateToFarmVillage(data.villages[0], currentRun);
         } catch (error) {
             state.roundPreparing = false;
+            if (state.captchaPaused) return;
             console.error(`[${APP.shortName}] Não foi possível preparar as aldeias da ronda.`, error);
             notify('error', `Grupo não preparado: ${getAutomationErrorMessage(error).slice(0, 120)}`);
-            if (isEnabled() && state.ownsWorker && !state.destroyed) beginRoundPause(ensureRunState());
+            if (automationCanRun() && state.ownsWorker) beginRoundPause(ensureRunState());
         }
     }
 
@@ -1398,7 +1610,7 @@
             completeCurrentVillage(run);
             return;
         }
-        if (state.spyRunning || !isEnabled() || !state.ownsWorker || state.destroyed) return;
+        if (state.spyRunning || !automationCanRun() || !state.ownsWorker) return;
 
         run.round.phase = 'spying';
         run.round.pauseUntil = 0;
@@ -1413,7 +1625,7 @@
             if (generation !== state.farmGeneration) return;
             state.spyRunning = false;
             setSpyStatus('Pronto');
-            if (isEnabled() && state.ownsWorker && !state.destroyed) {
+            if (automationCanRun() && state.ownsWorker) {
                 completeCurrentVillage(ensureRunState());
             }
         }).catch(error => {
@@ -1423,7 +1635,7 @@
             setSpyStatus('Ignorado nesta ronda');
             console.error(`[${APP.shortName}] A espionagem BB foi ignorada nesta ronda.`, error);
             notify('error', `Espionagem BB ignorada: ${message.slice(0, 120)}`);
-            if (isEnabled() && state.ownsWorker && !state.destroyed) {
+            if (automationCanRun() && state.ownsWorker) {
                 completeCurrentVillage(ensureRunState());
             }
         });
@@ -1454,7 +1666,7 @@
 
         setSpyStatus('A ler o mapa…');
         const villages = await fetchBarbarianVillages();
-        if (generation !== state.farmGeneration || !isEnabled() || !state.ownsWorker) {
+        if (generation !== state.farmGeneration || !automationCanRun() || !state.ownsWorker) {
             return { sent: initialRun.round.spy.sent, reason: 'interrompido' };
         }
 
@@ -1482,7 +1694,7 @@
             const currentConfig = state.settings?.spy;
             if (
                 generation !== state.farmGeneration ||
-                !isEnabled() ||
+                !automationCanRun() ||
                 !state.ownsWorker ||
                 !currentConfig?.enabled
             ) {
@@ -1673,6 +1885,7 @@
     }
 
     async function requestGamePage(url, options, timeoutMs) {
+        if (state.captchaPaused) throw new Error('Automação pausada por verificação/CAPTCHA.');
         const controller = new AbortController();
         state.spyAbortController = controller;
         const timer = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -1685,6 +1898,10 @@
             });
             const text = await response.text();
             if (!response.ok) throw new Error(`Pedido recusado pelo jogo (${response.status}).`);
+            if (responseHasCaptcha(text)) {
+                pauseForCaptcha('resposta do jogo', true);
+                throw new Error('O jogo pediu uma verificação/CAPTCHA.');
+            }
             return { text, url: response.url || url };
         } catch (error) {
             if (error?.name === 'AbortError') throw new Error('O pedido ao jogo excedeu o tempo limite.');
@@ -1696,6 +1913,7 @@
     }
 
     async function requestBackgroundPage(url, timeoutMs) {
+        if (state.captchaPaused) throw new Error('Automação pausada por verificação/CAPTCHA.');
         const controller = new AbortController();
         const timer = window.setTimeout(() => controller.abort(), timeoutMs);
         try {
@@ -1708,6 +1926,10 @@
             });
             const text = await response.text();
             if (!response.ok) throw new Error(`Pedido recusado pelo jogo (${response.status}).`);
+            if (responseHasCaptcha(text)) {
+                pauseForCaptcha('resposta do jogo', true);
+                throw new Error('O jogo pediu uma verificação/CAPTCHA.');
+            }
             return { text, url: response.url || url };
         } catch (error) {
             if (error?.name === 'AbortError') throw new Error('O pedido ao jogo excedeu o tempo limite.');
@@ -1957,7 +2179,7 @@
 
     function navigateToFarmVillage(villageId, runValue) {
         const id = String(villageId || '');
-        if (!/^\d+$/.test(id) || !isEnabled() || !state.ownsWorker) return;
+        if (!/^\d+$/.test(id) || !automationCanRun() || !state.ownsWorker) return;
         const run = runValue || ensureRunState();
         run.round.currentVillageId = id;
         run.round.phase = 'changing_village';
@@ -1968,13 +2190,16 @@
         url.searchParams.set('group', String(state.settings?.farm?.groupId || '0'));
         const alreadyThere = getVillageId() === id && getCurrentFarmPageKey() === 'page:0';
         if (alreadyThere) {
-            window.setTimeout(() => beginVillageAfterNavigation(ensureRunState()), 50);
+            window.setTimeout(() => {
+                if (automationCanRun() && state.ownsWorker) beginVillageAfterNavigation(ensureRunState());
+            }, 50);
             return;
         }
         navigateRoundUrl(url.href);
     }
 
     function navigateRoundUrl(url) {
+        if (!automationCanRun() || !state.ownsWorker) return;
         state.farmGeneration += 1;
         window.clearTimeout(state.farmTimer);
         window.clearTimeout(state.roundTimer);
@@ -1983,10 +2208,13 @@
         state.farmRunning = false;
         state.spyRunning = false;
         state.roundPreparing = false;
-        window.setTimeout(() => window.location.assign(url), 80);
+        window.setTimeout(() => {
+            if (automationCanRun() && state.ownsWorker) window.location.assign(url);
+        }, 80);
     }
 
     function beginRoundPause(run) {
+        if (!automationCanRun() || !state.ownsWorker) return;
         const settings = state.settings || loadSettings();
         run.round.phase = 'waiting';
         run.round.pauseUntil = Date.now() + randomizedRoundPauseMs(settings.general.roundPauseSeconds);
@@ -1996,6 +2224,7 @@
 
     function scheduleRoundWait(runValue) {
         window.clearTimeout(state.roundTimer);
+        if (!automationCanRun() || !state.ownsWorker) return;
         const run = runValue || ensureRunState();
         const remaining = Math.max(0, run.round.pauseUntil - Date.now());
         if (remaining <= 0) {
@@ -2006,13 +2235,14 @@
         showRoundCountdown(Math.ceil(remaining / 1000));
         state.roundTimer = window.setTimeout(() => {
             state.roundTimer = 0;
-            if (isEnabled() && state.ownsWorker && !state.destroyed) {
+            if (automationCanRun() && state.ownsWorker) {
                 scheduleRoundWait(ensureRunState());
             }
         }, Math.min(1000, remaining));
     }
 
     function startNextRound(run) {
+        if (!automationCanRun() || !state.ownsWorker) return;
         run.round.number += 1;
         run.round.pauseUntil = 0;
         hideRoundCountdown();
@@ -2022,6 +2252,7 @@
     }
 
     function refreshPageForRound() {
+        if (!automationCanRun() || !state.ownsWorker) return;
         state.farmGeneration += 1;
         window.clearTimeout(state.farmTimer);
         window.clearTimeout(state.roundTimer);
@@ -2029,7 +2260,9 @@
         state.roundTimer = 0;
         state.farmRunning = false;
         hideRoundCountdown();
-        window.setTimeout(() => window.location.reload(), 60);
+        window.setTimeout(() => {
+            if (automationCanRun() && state.ownsWorker) window.location.reload();
+        }, 60);
     }
 
     function clearRoundProgress(runValue) {
@@ -2262,6 +2495,10 @@
     }
 
     async function sendFarmTask(task) {
+        if (hasCaptchaChallenge(document)) pauseForCaptcha('página do jogo');
+        if (!automationCanRun()) {
+            return { sent: false, captcha: state.captchaPaused, cancelled: true, model: task.model };
+        }
         if (!task.button?.isConnected || isFarmButtonDisabled(task.button)) {
             return { sent: false, cancelled: true, model: task.model };
         }
@@ -2318,6 +2555,9 @@
         const errorsBefore = captureGameErrors();
         task.button.click();
         const requestOutcome = await waitForFarmRequest(6000, errorsBefore);
+        if (requestOutcome.captcha) {
+            return { sent: false, captcha: true, model: task.model };
+        }
         if (requestOutcome.noTroops) {
             console.info(
                 `[${APP.shortName}] Modelo ${task.model.toUpperCase()} sem unidades suficientes ` +
@@ -2373,7 +2613,10 @@
         await delay(120);
         const messages = getNewGameErrors(errorsBefore);
         const message = messages.join(' · ');
+        const captcha = hasCaptchaChallenge(document) || messages.some(isCaptchaMessage);
+        if (captcha) pauseForCaptcha('resposta ao envio do modelo');
         return {
+            captcha,
             noTroops: messages.some(isNoTroopsMessage),
             rateLimited: messages.some(isCommandRateLimitMessage),
             error: messages.length > 0,
@@ -2424,6 +2667,12 @@
         );
     }
 
+    function isCaptchaMessage(value) {
+        return /(?:captcha|protecao contra bots|verificacao (?:da |de )?protecao (?:de |do )?bot|bot protection|verify (?:that )?you are human|nao sou (?:um )?robo|not a robot)/i.test(
+            normalizeText(value)
+        );
+    }
+
     function isCommandRateLimitMessage(value) {
         const text = normalizeText(value);
         return /(?:demasiados|muitos|too many|zu viele|demasiados) (?:ataques|comandos|pedidos|requests)/.test(text) ||
@@ -2433,6 +2682,12 @@
 
     async function reserveCommandSendSlot() {
         while (true) {
+            if (hasCaptchaChallenge(document)) pauseForCaptcha('página do jogo');
+            if (!automationCanRun()) {
+                throw new Error(state.captchaPaused
+                    ? 'Envio interrompido por verificação/CAPTCHA.'
+                    : 'Envio interrompido porque o AutoFarm foi desligado.');
+            }
             const now = Date.now();
             state.recentCommandSends = state.recentCommandSends.filter(timestamp => (
                 now - timestamp < APP.commandRateWindowMs
@@ -2886,7 +3141,7 @@
 
     function syncActiveAttacksWithGame(force) {
         const sourceId = getVillageId();
-        if (!/^\d+$/.test(sourceId) || state.destroyed) return Promise.resolve(false);
+        if (!/^\d+$/.test(sourceId) || state.destroyed || state.captchaPaused) return Promise.resolve(false);
         if (state.activeSyncPromise) return state.activeSyncPromise;
         const syncStorageKey = `${keys.activeSyncAt}.${sourceId}`;
         const lastSyncAt = Math.max(
@@ -2934,7 +3189,7 @@
             state.idleScans = 0;
             renderModelCounts();
             if (
-                isEnabled() &&
+                automationCanRun() &&
                 state.ownsWorker &&
                 ensureRunState().round.phase === 'farming'
             ) {
@@ -3179,6 +3434,7 @@
     }
 
     async function loadWorldUnitSpeed() {
+        if (state.captchaPaused) throw new Error('Automação pausada por verificação/CAPTCHA.');
         if (Number.isFinite(state.unitSpeed) && state.unitSpeed > 0) return state.unitSpeed;
         if (state.unitSpeedPromise) return state.unitSpeedPromise;
 
@@ -3197,7 +3453,12 @@
                     signal: controller.signal,
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const xml = new DOMParser().parseFromString(await response.text(), 'text/xml');
+                const responseText = await response.text();
+                if (responseHasCaptcha(responseText)) {
+                    pauseForCaptcha('resposta da configuração do mundo', true);
+                    throw new Error('O jogo pediu uma verificação/CAPTCHA.');
+                }
+                const xml = new DOMParser().parseFromString(responseText, 'text/xml');
                 const value = Number(xml.querySelector('unit_speed')?.textContent);
                 if (!Number.isFinite(value) || value <= 0) throw new Error('unit_speed inválido');
                 state.unitSpeed = value;
@@ -3691,8 +3952,13 @@
     function destroy() {
         if (state.destroyed) return;
         state.destroyed = true;
+        state.captchaObserver?.disconnect();
+        state.captchaObserver = null;
         window.clearInterval(state.monitorTimer);
         window.clearTimeout(state.savedTimer);
+        window.clearTimeout(state.captchaCheckTimer);
+        window.clearTimeout(state.captchaResumeTimer);
+        window.clearTimeout(state.captchaReloadTimer);
         stopWorker();
     }
 
