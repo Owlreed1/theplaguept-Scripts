@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.2.2
+// @version      1.3.1
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.2.2',
+        version: '1.3.1',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -42,6 +42,8 @@
         idlePollMs: 2500,
         requestTimeoutMs: 25000,
         returnSafetyMs: 15000,
+        activeSyncMs: 15000,
+        activeSyncGraceMs: 30000,
         spyHistoryMs: 365 * 24 * 60 * 60 * 1000,
     });
     const UNIT_MINUTES_PER_FIELD = Object.freeze({
@@ -68,13 +70,17 @@
         run: `twPtAutoFarm.v1.${world}.run`,
         spyHistory: `twPtAutoFarm.v1.${world}.spyHistory`,
         activeAttacks: `twPtAutoFarm.v1.${world}.activeAttacks`,
+        activeSyncAt: `twPtAutoFarm.v1.${world}.activeSyncAt`,
         unitSpeed: `twPtAutoFarm.v1.${world}.unitSpeed`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 8,
+        schema: 9,
         general: {
             attackIntervalMs: 650,
             roundPauseSeconds: 60,
+        },
+        farm: {
+            groupId: '0',
         },
         models: {
             a: defaultModel(true),
@@ -102,6 +108,8 @@
         farmRunning: false,
         farmGeneration: 0,
         roundTimer: 0,
+        roundPreparing: false,
+        groupsLoadGeneration: 0,
         idleScans: 0,
         farmSent: 0,
         pendingTargetDueAt: 0,
@@ -109,6 +117,9 @@
         spyAbortController: null,
         unitSpeed: null,
         unitSpeedPromise: null,
+        activeSyncAt: 0,
+        activeSyncSourceId: '',
+        activeSyncPromise: null,
         processedRows: new WeakSet(),
         processedTargets: new Set(),
         workerWindow: null,
@@ -183,6 +194,7 @@
             if (event.key === keys.settings) {
                 state.settings = loadSettings();
                 renderSettingsUi();
+                loadGroupsIntoPanel();
                 if (state.ownsWorker) resumeRoundWorkflow();
             }
             if (event.key === keys.run) {
@@ -324,6 +336,11 @@
             #${APP.settingsId} .af-general-input{display:flex;align-items:center;gap:4px}
             #${APP.settingsId} .af-general-input input{width:64px}
             #${APP.settingsId} .af-general-input small{color:#8a6c3e;font-size:9px;white-space:nowrap}
+            #${APP.settingsId} select[data-setting]{width:100%;height:25px;padding:2px 5px;border:1px solid #d2b275;border-radius:3px;background:#fffaf0;color:#3b2814;font:11px Verdana,Arial,sans-serif}
+            #${APP.settingsId} .af-group-wrap{margin-top:8px;padding-top:7px;border-top:1px solid #c6a767}
+            #${APP.settingsId} .af-group-grid{display:grid;grid-template-columns:minmax(300px,520px) minmax(220px,1fr);align-items:center;gap:8px}
+            #${APP.settingsId} .af-group-field{grid-template-columns:135px minmax(160px,1fr)}
+            #${APP.settingsId} .af-group-status{min-height:34px;padding:6px 8px;border:1px dashed #d1b475;border-radius:3px;background:#fff4d6;color:#80643b;font-size:9px;line-height:19px}
             #${APP.settingsId} .af-spy-wrap{margin-top:8px;padding-top:7px;border-top:1px solid #c6a767}
             #${APP.settingsId} .af-spy-card{border:1px solid #c4a15d;border-radius:4px;background:#faefd0;box-shadow:0 1px 2px #70502024;overflow:hidden;transition:opacity .15s ease}
             #${APP.settingsId} .af-spy-card.af-spy-off{opacity:.58}
@@ -341,6 +358,7 @@
             #${APP.settingsId} .af-spy-off .af-spy-body{pointer-events:none}
             @media(max-width:1100px){#${APP.settingsId} .af-spy-grid{grid-template-columns:repeat(2,minmax(150px,1fr))}}
             @media(max-width:800px){#${APP.settingsId} .af-general-grid{grid-template-columns:1fr}}
+            @media(max-width:800px){#${APP.settingsId} .af-group-grid{grid-template-columns:1fr}}
             @media(max-width:950px){#${APP.settingsId} .af-model-grid{grid-template-columns:1fr}#${APP.settingsId} .af-settings-title{font-size:17px}}
             @media(max-width:620px){#${APP.settingsId} .af-spy-grid{grid-template-columns:1fr}}
         `;
@@ -404,6 +422,18 @@
                             </label>
                         </div>
                     </div>
+                    <div class="af-group-wrap">
+                        <div class="af-section-title">ALDEIAS DA RONDA</div>
+                        <div class="af-group-grid">
+                            <label class="af-general-field af-group-field">
+                                <span>Grupo que farma</span>
+                                <select data-setting="farm.groupId" aria-label="Grupo de aldeias que participa nas rondas">
+                                    <option value="0">Todas as aldeias</option>
+                                </select>
+                            </label>
+                            <div class="af-group-status" data-role="group-status">A carregar os grupos e aldeias do jogo…</div>
+                        </div>
+                    </div>
                     <div class="af-spy-wrap">
                         <div class="af-section-title">ESPIAR ALDEIAS BB</div>
                         <article class="af-spy-card">
@@ -454,7 +484,11 @@
             `;
 
             panel.addEventListener('change', event => {
-                if (!(event.target instanceof HTMLInputElement) || !event.target.dataset.setting) return;
+                if (
+                    !(event.target instanceof HTMLInputElement) &&
+                    !(event.target instanceof HTMLSelectElement)
+                ) return;
+                if (!event.target.dataset.setting) return;
                 saveSettingsFromPanel();
             });
             panel.querySelector(`#${APP.settingsToggleId}`)?.addEventListener('click', event => {
@@ -474,6 +508,7 @@
 
         state.settingsPanel = panel;
         renderSettingsUi();
+        loadGroupsIntoPanel();
     }
 
     function modelCard(modelKey, letter) {
@@ -565,11 +600,16 @@
     function saveSettingsFromPanel() {
         if (!state.settingsPanel) return;
         const spyWasEnabled = Boolean(state.settings?.spy?.enabled);
+        const previousGroupId = String(state.settings?.farm?.groupId || '0');
         const next = clone(state.settings || DEFAULT_SETTINGS);
 
-        state.settingsPanel.querySelectorAll('input[data-setting]').forEach(input => {
-            const value = input.type === 'checkbox' ? input.checked : Number(input.value);
-            setByPath(next, input.dataset.setting, value);
+        state.settingsPanel.querySelectorAll('input[data-setting],select[data-setting]').forEach(control => {
+            const value = control.type === 'checkbox'
+                ? control.checked
+                : control.type === 'number'
+                    ? Number(control.value)
+                    : String(control.value);
+            setByPath(next, control.dataset.setting, value);
         });
 
         state.settings = normalizeSettings(next);
@@ -586,12 +626,22 @@
         window.dispatchEvent(new CustomEvent('twPtAutoFarm:settings', {
             detail: { world, settings: clone(state.settings) },
         }));
+        if (previousGroupId !== state.settings.farm.groupId) {
+            state.farmGeneration += 1;
+            window.clearTimeout(state.farmTimer);
+            window.clearTimeout(state.roundTimer);
+            state.farmTimer = 0;
+            state.roundTimer = 0;
+            state.farmRunning = false;
+            resetRunState();
+            loadGroupsIntoPanel();
+        }
         if (state.ownsWorker && spyWasEnabled && !state.settings.spy.enabled) {
             const run = ensureRunState();
             if (run.round.phase === 'spying') {
                 cancelSpyWork();
                 if (run.round.farmCompleted) {
-                    beginRoundPause(run);
+                    completeCurrentVillage(run);
                 } else {
                     run.round.phase = 'farming';
                     writeRunState(run);
@@ -606,10 +656,10 @@
     function renderSettingsUi() {
         if (!state.settingsPanel || !state.settings) return;
 
-        state.settingsPanel.querySelectorAll('input[data-setting]').forEach(input => {
-            const value = getByPath(state.settings, input.dataset.setting);
-            if (input.type === 'checkbox') input.checked = Boolean(value);
-            else input.value = String(value);
+        state.settingsPanel.querySelectorAll('input[data-setting],select[data-setting]').forEach(control => {
+            const value = getByPath(state.settings, control.dataset.setting);
+            if (control.type === 'checkbox') control.checked = Boolean(value);
+            else control.value = String(value);
         });
 
         state.settingsPanel.querySelectorAll('.af-model-card').forEach(card => {
@@ -650,6 +700,181 @@
     function setSpyStatus(message) {
         const label = state.settingsPanel?.querySelector('[data-role="spy-status"]');
         if (label) label.textContent = String(message || '');
+    }
+
+    async function loadGroupsIntoPanel() {
+        const select = state.settingsPanel?.querySelector('select[data-setting="farm.groupId"]');
+        const status = state.settingsPanel?.querySelector('[data-role="group-status"]');
+        if (!select || !status) return;
+        const generation = ++state.groupsLoadGeneration;
+        const selectedId = String(state.settings?.farm?.groupId || '0');
+        select.disabled = true;
+        status.textContent = 'A carregar os grupos e aldeias do jogo…';
+
+        try {
+            const data = await fetchGroupData(selectedId);
+            if (generation !== state.groupsLoadGeneration) return;
+            select.textContent = '';
+            data.groups.forEach(group => {
+                const option = document.createElement('option');
+                option.value = group.id;
+                option.textContent = group.name;
+                select.appendChild(option);
+            });
+            if (!data.groups.some(group => group.id === selectedId)) {
+                const option = document.createElement('option');
+                option.value = selectedId;
+                option.textContent = `Grupo #${selectedId} (indisponível)`;
+                select.appendChild(option);
+            }
+            select.value = selectedId;
+            status.textContent = `${data.name}: ${data.villages.length} aldeia(s). ` +
+                'A ronda percorre todas as páginas de cada aldeia antes de avançar.';
+        } catch (error) {
+            if (generation !== state.groupsLoadGeneration) return;
+            ensureSavedGroupOption(select, selectedId);
+            select.value = selectedId;
+            status.textContent = `Não foi possível atualizar os grupos: ${getAutomationErrorMessage(error).slice(0, 120)}`;
+            console.warn(`[${APP.shortName}] Não foi possível carregar os grupos.`, error);
+        } finally {
+            if (generation === state.groupsLoadGeneration) select.disabled = false;
+        }
+    }
+
+    function ensureSavedGroupOption(select, groupId) {
+        if (!Array.from(select.options).some(option => option.value === '0')) {
+            select.add(new Option('Todas as aldeias', '0'));
+        }
+        if (!Array.from(select.options).some(option => option.value === groupId)) {
+            select.add(new Option(`Grupo guardado #${groupId}`, groupId));
+        }
+    }
+
+    async function fetchGroupData(groupId) {
+        const modes = ['units', 'combined'];
+        const groups = [];
+        const seenGroups = new Set();
+        let lastError = null;
+        let received = false;
+
+        for (const mode of modes) {
+            try {
+                const page = await requestBackgroundPage(buildGroupOverviewUrl(groupId, mode), 30000);
+                const documentValue = new DOMParser().parseFromString(page.text, 'text/html');
+                if (documentValue.querySelector('#bot_check,.g-recaptcha,[id*="captcha"]')) {
+                    throw new Error('O jogo pediu uma verificação antes de listar os grupos.');
+                }
+                received = true;
+                extractGameGroups(documentValue).forEach(group => {
+                    if (!seenGroups.has(group.id)) {
+                        seenGroups.add(group.id);
+                        groups.push(group);
+                    }
+                });
+                const villages = extractGroupVillages(documentValue);
+                if (villages.length) {
+                    const selected = groups.find(group => group.id === String(groupId));
+                    return {
+                        groups: ensureAllVillagesGroup(groups),
+                        villages,
+                        name: selected?.name || (String(groupId) === '0' ? 'Todas as aldeias' : `Grupo #${groupId}`),
+                    };
+                }
+            } catch (error) {
+                lastError = error;
+                if (/verificação/i.test(getAutomationErrorMessage(error))) throw error;
+            }
+        }
+
+        if (!received && lastError) throw lastError;
+        const normalizedGroups = ensureAllVillagesGroup(groups);
+        const selected = normalizedGroups.find(group => group.id === String(groupId));
+        if (String(groupId) !== '0' && !selected) {
+            throw new Error('O grupo escolhido já não existe ou não pôde ser lido.');
+        }
+        return {
+            groups: normalizedGroups,
+            villages: [],
+            name: selected?.name || 'Todas as aldeias',
+        };
+    }
+
+    function buildGroupOverviewUrl(groupId, mode) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('screen', 'overview_villages');
+        url.searchParams.set('mode', mode);
+        if (mode === 'units') {
+            url.searchParams.set('type', 'complete');
+            url.searchParams.set('units_type', 'complete');
+        } else {
+            url.searchParams.delete('type');
+            url.searchParams.delete('units_type');
+        }
+        url.searchParams.set('group', String(groupId));
+        url.searchParams.set('page', '-1');
+        ['action', 'ajax', 'h'].forEach(key => url.searchParams.delete(key));
+        url.hash = '';
+        return url.href;
+    }
+
+    function extractGameGroups(documentValue) {
+        const groups = [];
+        const seen = new Set();
+        documentValue.querySelectorAll([
+            '#group_selection option',
+            'select[name="group"] option',
+            'select[id*="group"] option',
+        ].join(',')).forEach(option => {
+            const id = String(option.value || '').trim();
+            if (!/^-?\d+$/.test(id) || seen.has(id)) return;
+            seen.add(id);
+            groups.push({ id, name: option.textContent.trim() || `Grupo #${id}` });
+        });
+        return ensureAllVillagesGroup(groups);
+    }
+
+    function ensureAllVillagesGroup(groupsValue) {
+        const groups = Array.isArray(groupsValue) ? groupsValue.slice() : [];
+        if (!groups.some(group => group.id === '0')) {
+            groups.unshift({ id: '0', name: 'Todas as aldeias' });
+        }
+        return groups;
+    }
+
+    function extractGroupVillages(documentValue) {
+        const villages = [];
+        const seen = new Set();
+        const rows = documentValue.querySelectorAll([
+            '#units_table tr',
+            '#combined_table tr',
+            '#production_table tr',
+            '#buildings_table tr',
+            'table.overview_table tr',
+            'table.vis tr',
+        ].join(','));
+        rows.forEach(row => {
+            if (!/\d{1,3}\s*[|]\s*\d{1,3}/.test(row.textContent || '')) return;
+            let id = '';
+            const link = row.querySelector('a[href*="village="]');
+            if (link) {
+                try {
+                    id = new URL(link.href, window.location.href).searchParams.get('village') || '';
+                } catch (_) {
+                    id = '';
+                }
+            }
+            if (!/^\d+$/.test(id)) {
+                const marked = row.matches('[data-village-id],[data-id]')
+                    ? row
+                    : row.querySelector('[data-village-id],[data-id]');
+                id = String(marked?.getAttribute('data-village-id') || marked?.getAttribute('data-id') || '');
+            }
+            if (/^\d+$/.test(id) && Number(id) > 0 && !seen.has(id)) {
+                seen.add(id);
+                villages.push(id);
+            }
+        });
+        return villages;
     }
 
     function showSavedState() {
@@ -728,10 +953,11 @@
 
     function buildFarmUrl() {
         const url = new URL(window.location.href);
-        ['mode', 'action', 'page', 'ajax', 'ajaxaction', 'view'].forEach(name => {
+        ['mode', 'action', 'page', 'Farm_page', 'farm_page', 'ajax', 'ajaxaction', 'view'].forEach(name => {
             url.searchParams.delete(name);
         });
         url.searchParams.set('screen', 'am_farm');
+        url.searchParams.set('group', String(state.settings?.farm?.groupId || '0'));
 
         const villageId = getVillageId();
         if (villageId) url.searchParams.set('village', villageId);
@@ -780,6 +1006,7 @@
         state.heartbeatTimer = window.setInterval(publishHeartbeat, APP.workerHeartbeatMs);
         updateUi();
         startFarmLoop();
+        syncActiveAttacksWithGame(false);
     }
 
     function startFallbackLease() {
@@ -847,6 +1074,9 @@
                 const worker = readWorker();
                 if (!isFreshWorker(worker)) startWorker();
             }
+            if (isFarmPage() && isEnabled() && state.ownsWorker) {
+                syncActiveAttacksWithGame(false);
+            }
             updateUi();
         }, APP.monitorMs);
     }
@@ -879,12 +1109,23 @@
             if (status) status.textContent = label;
         }
         const round = readRunState()?.round;
+        renderGroupRoundStatus(round);
         if (enabled && round?.phase === 'waiting' && round.pauseUntil > Date.now()) {
             showRoundCountdown(Math.ceil((round.pauseUntil - Date.now()) / 1000));
         } else if (!enabled || round?.phase !== 'waiting') {
             hideRoundCountdown();
         }
         renderModelCounts();
+    }
+
+    function renderGroupRoundStatus(round) {
+        const label = state.settingsPanel?.querySelector('[data-role="group-status"]');
+        if (!label || !round?.villages?.length || !round.groupName) return;
+        const current = getVillageId() || round.currentVillageId;
+        const index = Math.max(0, round.villages.indexOf(current));
+        const page = getFarmPageDescriptor(new URL(window.location.href)).number + 1;
+        label.textContent = `${round.groupName}: aldeia ${index + 1}/${round.villages.length} · ` +
+            `página ${page} · concluídas ${round.completedVillages.length}/${round.villages.length}.`;
     }
 
     function startFarmLoop() {
@@ -902,6 +1143,7 @@
         state.roundTimer = 0;
         state.farmRunning = false;
         state.spyRunning = false;
+        state.roundPreparing = false;
         state.idleScans = 0;
         setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
         hideRoundCountdown();
@@ -968,6 +1210,36 @@
             return;
         }
 
+        const activeTraversalPhases = new Set([
+            'farming',
+            'spying',
+            'changing_page',
+            'changing_village',
+        ]);
+        const selectedGroupId = String(state.settings?.farm?.groupId || '0');
+        if (
+            activeTraversalPhases.has(run.round.phase) &&
+            (
+                run.round.villages.length === 0 ||
+                run.round.groupId !== selectedGroupId
+            )
+        ) {
+            run.round.phase = 'start_reloading';
+            writeRunState(run);
+            refreshPageForRound();
+            return;
+        }
+
+        if (run.round.phase === 'changing_village') {
+            beginVillageAfterNavigation(run);
+            return;
+        }
+
+        if (run.round.phase === 'changing_page') {
+            beginPageAfterNavigation(run);
+            return;
+        }
+
         if (run.round.phase === 'end_reloading') {
             beginRoundPause(run);
             return;
@@ -987,21 +1259,50 @@
         scheduleFarmStep(150);
     }
 
-    function beginRound(run) {
+    async function beginRound(run) {
+        if (state.roundPreparing) return;
+        state.roundPreparing = true;
+        const generation = state.farmGeneration;
         clearRoundProgress(run);
-        run.round.phase = 'farming';
         run.round.pauseUntil = 0;
         writeRunState(run);
-        hideRoundCountdown();
-        scheduleFarmStep(200);
+        try {
+            const groupId = String(state.settings?.farm?.groupId || '0');
+            const data = await fetchGroupData(groupId);
+            if (
+                generation !== state.farmGeneration ||
+                !isEnabled() ||
+                !state.ownsWorker ||
+                state.destroyed
+            ) return;
+            if (!data.villages.length) throw new Error('O grupo escolhido não contém aldeias.');
+
+            const currentRun = ensureRunState();
+            currentRun.round.groupId = groupId;
+            currentRun.round.groupName = data.name;
+            currentRun.round.villages = data.villages;
+            currentRun.round.completedVillages = [];
+            currentRun.round.currentVillageId = data.villages[0];
+            currentRun.round.visitedPages = [];
+            currentRun.round.phase = 'changing_village';
+            writeRunState(currentRun);
+            state.roundPreparing = false;
+            navigateToFarmVillage(data.villages[0], currentRun);
+        } catch (error) {
+            state.roundPreparing = false;
+            console.error(`[${APP.shortName}] Não foi possível preparar as aldeias da ronda.`, error);
+            notify('error', `Grupo não preparado: ${getAutomationErrorMessage(error).slice(0, 120)}`);
+            if (isEnabled() && state.ownsWorker && !state.destroyed) beginRoundPause(ensureRunState());
+        }
     }
 
     function finishRound() {
         state.idleScans = 0;
         const run = ensureRunState();
+        if (navigateToNextFarmPage(run)) return;
         run.round.farmCompleted = true;
         if (state.settings?.spy?.enabled) startSpyPhase(run);
-        else beginRoundPause(run);
+        else completeCurrentVillage(run);
     }
 
     function startSpyPhase(runValue) {
@@ -1017,7 +1318,7 @@
         const config = state.settings?.spy || loadSettings().spy;
         if (!config.enabled) {
             cancelSpyWork();
-            beginRoundPause(run);
+            completeCurrentVillage(run);
             return;
         }
         if (state.spyRunning || !isEnabled() || !state.ownsWorker || state.destroyed) return;
@@ -1036,7 +1337,7 @@
             state.spyRunning = false;
             setSpyStatus('Pronto');
             if (isEnabled() && state.ownsWorker && !state.destroyed) {
-                beginRoundPause(ensureRunState());
+                completeCurrentVillage(ensureRunState());
             }
         }).catch(error => {
             if (generation !== state.farmGeneration) return;
@@ -1046,7 +1347,7 @@
             console.error(`[${APP.shortName}] A espionagem BB foi ignorada nesta ronda.`, error);
             notify('error', `Espionagem BB ignorada: ${message.slice(0, 120)}`);
             if (isEnabled() && state.ownsWorker && !state.destroyed) {
-                beginRoundPause(ensureRunState());
+                completeCurrentVillage(ensureRunState());
             }
         });
     }
@@ -1316,6 +1617,28 @@
         }
     }
 
+    async function requestBackgroundPage(url, timeoutMs) {
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch(url, {
+                method: 'GET',
+                credentials: 'same-origin',
+                redirect: 'follow',
+                cache: 'no-store',
+                signal: controller.signal,
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`Pedido recusado pelo jogo (${response.status}).`);
+            return { text, url: response.url || url };
+        } catch (error) {
+            if (error?.name === 'AbortError') throw new Error('O pedido ao jogo excedeu o tempo limite.');
+            throw error;
+        } finally {
+            window.clearTimeout(timer);
+        }
+    }
+
     function extractGamePageError(documentValue) {
         return String(documentValue.querySelector(
             '#error,.error_box,.error-message,.error-msg'
@@ -1366,6 +1689,220 @@
         return /(?:attack villages owned by players|atacar aldeias? (?:pertencentes a|de|que pertencem a) jogadores|atacar aldeas?.*jugadores|d.rfer.*spieler|villages?.*joueurs)/i.test(
             String(message || '')
         );
+    }
+
+    function beginVillageAfterNavigation(runValue) {
+        const run = runValue || ensureRunState();
+        const expected = String(run.round.currentVillageId || '');
+        const current = getVillageId();
+        if (expected && current !== expected) {
+            navigateToFarmVillage(expected, run);
+            return;
+        }
+        run.round.currentVillageId = current;
+        run.round.visitedPages = [];
+        startCurrentFarmPage(run);
+    }
+
+    function beginPageAfterNavigation(runValue) {
+        startCurrentFarmPage(runValue || ensureRunState());
+    }
+
+    function startCurrentFarmPage(runValue) {
+        const run = runValue || ensureRunState();
+        const pageKey = getCurrentFarmPageKey();
+        if (!run.round.visitedPages.includes(pageKey)) run.round.visitedPages.push(pageKey);
+        run.round.phase = 'farming';
+        run.round.targets = {};
+        run.round.farmCompleted = false;
+        run.round.pauseUntil = 0;
+        writeRunState(run);
+        resetPageRuntime();
+        hideRoundCountdown();
+        scheduleFarmStep(200);
+    }
+
+    function resetPageRuntime() {
+        state.processedTargets.clear();
+        state.processedRows = new WeakSet();
+        state.idleScans = 0;
+        state.pendingTargetDueAt = 0;
+        getFarmRows().forEach(row => delete row.dataset.twPtAutofarmSent);
+    }
+
+    function navigateToNextFarmPage(runValue) {
+        const run = runValue || ensureRunState();
+        const next = getFarmPaginationPages().find(page => (
+            !run.round.visitedPages.includes(page.key)
+        ));
+        if (!next) return false;
+
+        run.round.phase = 'changing_page';
+        run.round.targets = {};
+        writeRunState(run);
+        navigateRoundUrl(next.url);
+        return true;
+    }
+
+    function getFarmPaginationPages(documentValue = document, baseUrl = window.location.href) {
+        const pages = new Map();
+        const currentUrl = new URL(baseUrl, window.location.href);
+        const inferredParameter = inferFarmPageParameter(documentValue, currentUrl);
+        const observedMaxima = new Map();
+        const selectors = [
+            '#plunder_list_nav a[href]',
+            '#plunder_list_nav option[value]',
+            '.paged-nav-item a[href]',
+            '.paged-nav a[href]',
+            '.paged-nav option[value]',
+            '#am_widget_Farm a[href*="page"]',
+            '#am_widget_Farm select[name*="page" i] option[value]',
+        ];
+        documentValue.querySelectorAll(selectors.join(',')).forEach(item => {
+            const raw = item.getAttribute('href') || item.value;
+            if (!raw) return;
+            let url;
+            if (/^\d+$/.test(raw) && inferredParameter) {
+                url = new URL(currentUrl.href);
+                url.searchParams.set(inferredParameter, raw);
+            } else {
+                try {
+                    url = new URL(raw, currentUrl.href);
+                } catch (_) {
+                    return;
+                }
+            }
+            if (url.origin !== currentUrl.origin) return;
+            const screen = url.searchParams.get('screen') || currentUrl.searchParams.get('screen');
+            if (screen !== 'am_farm') return;
+            const descriptor = getFarmPageDescriptor(url);
+            if (!descriptor) return;
+            const parameter = getFarmPageParameter(url) || inferredParameter;
+            if (parameter) {
+                observedMaxima.set(
+                    parameter,
+                    Math.max(observedMaxima.get(parameter) || 0, descriptor.number)
+                );
+            }
+            if (descriptor.key === getFarmPageDescriptor(currentUrl).key) return;
+            url.hash = '';
+            pages.set(descriptor.key, { ...descriptor, url: url.href });
+        });
+
+        observedMaxima.forEach((maximum, parameter) => {
+            for (let number = 0; number <= Math.min(maximum, 500); number += 1) {
+                const url = new URL(currentUrl.href);
+                ['Farm_page', 'farm_page', 'page'].forEach(name => url.searchParams.delete(name));
+                if (number > 0 || currentUrl.searchParams.has(parameter)) {
+                    url.searchParams.set(parameter, String(number));
+                }
+                const descriptor = getFarmPageDescriptor(url);
+                if (descriptor.key === getFarmPageDescriptor(currentUrl).key) continue;
+                url.hash = '';
+                pages.set(descriptor.key, { ...descriptor, url: url.href });
+            }
+        });
+        return Array.from(pages.values()).sort((first, second) => first.number - second.number);
+    }
+
+    function inferFarmPageParameter(documentValue, currentUrl) {
+        for (const name of ['Farm_page', 'farm_page', 'page']) {
+            if (currentUrl.searchParams.has(name)) return name;
+        }
+        for (const link of documentValue.querySelectorAll([
+            '#plunder_list_nav a[href]',
+            '.paged-nav a[href]',
+            '#am_widget_Farm a[href*="page"]',
+        ].join(','))) {
+            try {
+                const url = new URL(link.href, currentUrl.href);
+                for (const name of ['Farm_page', 'farm_page', 'page']) {
+                    if (/^\d+$/.test(String(url.searchParams.get(name) || ''))) return name;
+                }
+            } catch (_) {
+                // Continua a procurar outro controlo de paginação.
+            }
+        }
+        const select = documentValue.querySelector([
+            '#plunder_list_nav select[name]',
+            '.paged-nav select[name]',
+            '#am_widget_Farm select[name*="page" i]',
+            'select[id*="page" i]',
+        ].join(','));
+        const name = select?.getAttribute('name') || select?.id || '';
+        return /page/i.test(name) ? name : 'Farm_page';
+    }
+
+    function getFarmPageParameter(urlValue) {
+        const url = urlValue instanceof URL ? urlValue : new URL(urlValue, window.location.href);
+        return ['Farm_page', 'farm_page', 'page'].find(name => (
+            /^\d+$/.test(String(url.searchParams.get(name) || ''))
+        )) || '';
+    }
+
+    function getFarmPageDescriptor(urlValue) {
+        const url = urlValue instanceof URL ? urlValue : new URL(urlValue, window.location.href);
+        const parameter = getFarmPageParameter(url);
+        if (parameter) {
+            const number = Number(url.searchParams.get(parameter));
+            return { key: `page:${number}`, number };
+        }
+        return { key: 'page:0', number: 0 };
+    }
+
+    function getCurrentFarmPageKey() {
+        return getFarmPageDescriptor(new URL(window.location.href)).key;
+    }
+
+    function completeCurrentVillage(runValue) {
+        const run = runValue || ensureRunState();
+        const current = getVillageId() || run.round.currentVillageId;
+        if (current && !run.round.completedVillages.includes(current)) {
+            run.round.completedVillages.push(current);
+        }
+        const nextVillage = run.round.villages.find(id => !run.round.completedVillages.includes(id));
+        if (nextVillage) {
+            run.round.currentVillageId = nextVillage;
+            run.round.visitedPages = [];
+            run.round.targets = {};
+            run.round.farmCompleted = false;
+            run.round.phase = 'changing_village';
+            writeRunState(run);
+            navigateToFarmVillage(nextVillage, run);
+            return;
+        }
+        beginRoundPause(run);
+    }
+
+    function navigateToFarmVillage(villageId, runValue) {
+        const id = String(villageId || '');
+        if (!/^\d+$/.test(id) || !isEnabled() || !state.ownsWorker) return;
+        const run = runValue || ensureRunState();
+        run.round.currentVillageId = id;
+        run.round.phase = 'changing_village';
+        writeRunState(run);
+
+        const url = new URL(buildFarmUrl());
+        url.searchParams.set('village', id);
+        url.searchParams.set('group', String(state.settings?.farm?.groupId || '0'));
+        const alreadyThere = getVillageId() === id && getCurrentFarmPageKey() === 'page:0';
+        if (alreadyThere) {
+            window.setTimeout(() => beginVillageAfterNavigation(ensureRunState()), 50);
+            return;
+        }
+        navigateRoundUrl(url.href);
+    }
+
+    function navigateRoundUrl(url) {
+        state.farmGeneration += 1;
+        window.clearTimeout(state.farmTimer);
+        window.clearTimeout(state.roundTimer);
+        state.farmTimer = 0;
+        state.roundTimer = 0;
+        state.farmRunning = false;
+        state.spyRunning = false;
+        state.roundPreparing = false;
+        window.setTimeout(() => window.location.assign(url), 80);
     }
 
     function beginRoundPause(run) {
@@ -1420,12 +1957,14 @@
         run.round.targets = {};
         run.round.farmCompleted = false;
         run.round.spy = { sent: 0, attempted: {} };
+        run.round.groupId = '';
+        run.round.groupName = '';
+        run.round.villages = [];
+        run.round.completedVillages = [];
+        run.round.currentVillageId = '';
+        run.round.visitedPages = [];
         setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
-        state.processedTargets.clear();
-        state.processedRows = new WeakSet();
-        state.idleScans = 0;
-        state.pendingTargetDueAt = 0;
-        getFarmRows().forEach(row => delete row.dataset.twPtAutofarmSent);
+        resetPageRuntime();
     }
 
     function allActiveModelsExhausted() {
@@ -1699,6 +2238,16 @@
     }
 
     function getReportColor(row) {
+        const directValues = [
+            row.getAttribute('data-report-color'),
+            row.getAttribute('data-color'),
+            row.getAttribute('data-status-color'),
+        ];
+        for (const value of directValues) {
+            const color = normalizeReportColor(value);
+            if (color) return color;
+        }
+
         const candidates = row.querySelectorAll([
             '.report_dot',
             '[class*="report_dot"]',
@@ -1707,6 +2256,9 @@
             'img[src*="dots/"]',
             'img[src*="dot_"]',
             'img[src*="dot-"]',
+            '[style*="/dots/"]',
+            '[style*="dot_"]',
+            '[style*="dot-"]',
         ].join(','));
 
         for (const element of candidates) {
@@ -1734,11 +2286,10 @@
 
     function normalizeReportColor(value) {
         const text = normalizeText(value);
-        const tokens = new Set(text.split(/[^a-z]+/).filter(Boolean));
-        const red = tokens.has('red') || tokens.has('vermelho') || tokens.has('vermelha');
-        const blue = tokens.has('blue') || tokens.has('azul');
-        const yellow = tokens.has('yellow') || tokens.has('amarelo') || tokens.has('amarela');
-        const green = tokens.has('green') || tokens.has('verde');
+        const red = /red|vermelh/.test(text);
+        const blue = /blue|azul/.test(text);
+        const yellow = /yellow|amarel/.test(text);
+        const green = /green|verde/.test(text);
         if (red && blue) return 'redBlue';
         if (red && yellow) return 'redYellow';
         if (blue) return 'blue';
@@ -1911,6 +2462,12 @@
                 farmCompleted: false,
                 targets: {},
                 spy: { sent: 0, attempted: {} },
+                groupId: '',
+                groupName: '',
+                villages: [],
+                completedVillages: [],
+                currentVillageId: '',
+                visitedPages: [],
             },
             lastSend: null,
         };
@@ -2094,6 +2651,213 @@
         } catch (error) {
             console.warn(`[${APP.shortName}] Não foi possível guardar os ataques em curso.`, error);
         }
+    }
+
+    function syncActiveAttacksWithGame(force) {
+        const sourceId = getVillageId();
+        if (!/^\d+$/.test(sourceId) || state.destroyed) return Promise.resolve(false);
+        if (state.activeSyncPromise) return state.activeSyncPromise;
+        const syncStorageKey = `${keys.activeSyncAt}.${sourceId}`;
+        const lastSyncAt = Math.max(
+            state.activeSyncSourceId === sourceId ? state.activeSyncAt : 0,
+            Number(sessionStorage.getItem(syncStorageKey)) || 0
+        );
+        if (!force && Date.now() - lastSyncAt < APP.activeSyncMs) {
+            return Promise.resolve(false);
+        }
+
+        state.activeSyncAt = Date.now();
+        state.activeSyncSourceId = sourceId;
+        sessionStorage.setItem(syncStorageKey, String(state.activeSyncAt));
+        state.activeSyncPromise = (async () => {
+            let snapshot = null;
+            let lastError = null;
+            for (const mode of ['command', 'commands']) {
+                try {
+                    const page = await requestBackgroundPage(buildActiveCommandsUrl(sourceId, mode), 15000);
+                    const documentValue = new DOMParser().parseFromString(page.text, 'text/html');
+                    if (documentValue.querySelector('#bot_check,.g-recaptcha,[id*="captcha"]')) {
+                        throw new Error('O jogo pediu uma verificação ao atualizar os ataques em curso.');
+                    }
+                    const candidate = extractTravellingCommands(documentValue);
+                    if (candidate.recognized) {
+                        snapshot = candidate;
+                        break;
+                    }
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+
+            if (!snapshot) {
+                if (lastError) throw lastError;
+                return false;
+            }
+            if (getVillageId() !== sourceId || state.destroyed) return false;
+
+            const attacks = readActiveAttacks();
+            const reconciled = reconcileActiveAttacks(attacks, sourceId, snapshot.commands);
+            if (reconciled.length === attacks.length) return false;
+
+            writeActiveAttacks(reconciled);
+            state.idleScans = 0;
+            renderModelCounts();
+            if (
+                isEnabled() &&
+                state.ownsWorker &&
+                ensureRunState().round.phase === 'farming'
+            ) {
+                scheduleFarmStep(100);
+            }
+            console.info(
+                `[${APP.shortName}] Ataques em curso sincronizados com o Ponto de Encontro: ` +
+                `${attacks.length - reconciled.length} comando(s) já regressaram.`
+            );
+            return true;
+        })().catch(error => {
+            console.warn(
+                `[${APP.shortName}] Não foi possível confirmar os ataques em curso no jogo; ` +
+                'mantida a previsão local.',
+                error
+            );
+            return false;
+        }).finally(() => {
+            state.activeSyncPromise = null;
+        });
+        return state.activeSyncPromise;
+    }
+
+    function buildActiveCommandsUrl(sourceId, mode) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('village', String(sourceId));
+        url.searchParams.set('screen', 'place');
+        url.searchParams.set('mode', mode);
+        ['action', 'ajax', 'ajaxaction', 'page', 'Farm_page', 'farm_page', 'group'].forEach(name => {
+            url.searchParams.delete(name);
+        });
+        url.hash = '';
+        return url.href;
+    }
+
+    function extractTravellingCommands(documentValue) {
+        const roots = Array.from(documentValue.querySelectorAll([
+            '#commands_outgoings',
+            '#commands_returns',
+            '#commands_returning',
+            '[id*="commands_outgoing"]',
+            '[id*="commands_return"]',
+            '.commands_outgoings',
+            '.commands_returns',
+            '.commands_returning',
+        ].join(',')));
+        if (!roots.length) {
+            const fallbackRows = Array.from(documentValue.querySelectorAll([
+                '#content_value .command-row',
+                '#content_value table[id*="command"] tr',
+                '#content_value table[class*="command"] tr',
+            ].join(','))).filter(row => (
+                !row.closest('#commands_incomings,[id*="commands_incoming"]') &&
+                row.querySelector('td')
+            ));
+            if (fallbackRows.length) roots.push(...fallbackRows);
+        }
+        if (!roots.length) {
+            const text = normalizeText(documentValue.body?.textContent || '');
+            const empty = /(?:nao (?:ha|existem) comandos|sem comandos|no commands|keine befehle|no hay comandos|aucun(?:e)? commande|nessun comando)/.test(text);
+            return {
+                recognized: Boolean(empty && documentValue.querySelector('#content_value,#contentContainer')),
+                commands: [],
+            };
+        }
+
+        const rows = new Set();
+        roots.forEach(root => {
+            if (root.matches('tr,.command-row')) rows.add(root);
+            root.querySelectorAll('tr,.command-row').forEach(row => rows.add(row));
+        });
+        const commands = [];
+        rows.forEach(row => {
+            if (row.closest('#commands_incomings,[id*="commands_incoming"]')) return;
+            if (!row.querySelector('td')) return;
+            const looksLikeCommand = Boolean(row.querySelector([
+                '.timer',
+                '[data-endtime]',
+                '.quickedit',
+                'a[href*="screen=info_command"]',
+                'img[src*="command/"]',
+            ].join(','))) || /(?:command|return|attack)/i.test(`${row.id} ${row.className}`);
+            if (!looksLikeCommand) return;
+            commands.push({ keys: extractTravellingCommandKeys(row) });
+        });
+        return { recognized: true, commands };
+    }
+
+    function extractTravellingCommandKeys(row) {
+        const keys = new Set();
+        const description = `${row.textContent || ''} ${row.outerHTML || ''}`;
+        for (const match of description.matchAll(/(\d{1,3})\s*[|]\s*(\d{1,3})/g)) {
+            keys.add(`coord:${Number(match[1])}|${Number(match[2])}`);
+        }
+        row.querySelectorAll('[data-target-id],[data-village-id],a[href]').forEach(element => {
+            const direct = String(
+                element.getAttribute('data-target-id') ||
+                element.getAttribute('data-village-id') ||
+                ''
+            );
+            if (/^\d+$/.test(direct)) keys.add(`village:${direct}`);
+            const href = element.getAttribute('href');
+            if (!href) return;
+            try {
+                const target = new URL(href, window.location.href).searchParams.get('target');
+                if (/^\d+$/.test(String(target || ''))) keys.add(`village:${target}`);
+            } catch (_) {
+                // O texto e os atributos já fornecem a alternativa por coordenadas.
+            }
+        });
+        return keys;
+    }
+
+    function reconcileActiveAttacks(attacksValue, sourceId, commandsValue) {
+        const now = Date.now();
+        const attacks = Array.isArray(attacksValue) ? attacksValue : [];
+        const commands = (Array.isArray(commandsValue) ? commandsValue : []).map(command => ({
+            keys: command?.keys instanceof Set ? command.keys : new Set(command?.keys || []),
+            used: false,
+        }));
+        const current = attacks.filter(attack => attack.sourceId === sourceId)
+            .sort((first, second) => second.sentAt - first.sentAt);
+        const keepIds = new Set();
+
+        current.forEach(attack => {
+            const keys = new Set([
+                attack.targetKey,
+                attack.targetCoord ? `coord:${attack.targetCoord}` : '',
+            ].filter(Boolean));
+            const matched = commands.find(command => (
+                !command.used && Array.from(keys).some(key => command.keys.has(key))
+            ));
+            if (matched) {
+                matched.used = true;
+                keepIds.add(attack.id);
+            }
+        });
+
+        current.forEach(attack => {
+            if (keepIds.has(attack.id)) return;
+            if (now - attack.sentAt <= APP.activeSyncGraceMs) {
+                keepIds.add(attack.id);
+                return;
+            }
+            const anonymous = commands.find(command => !command.used && command.keys.size === 0);
+            if (anonymous) {
+                anonymous.used = true;
+                keepIds.add(attack.id);
+            }
+        });
+
+        return attacks.filter(attack => (
+            attack.sourceId !== sourceId || keepIds.has(attack.id)
+        ));
     }
 
     function registerActiveAttack(details) {
@@ -2378,8 +3142,20 @@
     }
 
     function normalizeRoundState(value) {
-        const allowed = new Set(['start', 'start_reloading', 'farming', 'spying', 'end_reloading', 'waiting']);
+        const allowed = new Set([
+            'start',
+            'start_reloading',
+            'changing_page',
+            'changing_village',
+            'farming',
+            'spying',
+            'end_reloading',
+            'waiting',
+        ]);
         const source = value && typeof value === 'object' ? value : {};
+        const villages = normalizeVillageIds(source.villages);
+        const completedVillages = normalizeVillageIds(source.completedVillages)
+            .filter(id => villages.includes(id));
         return {
             number: integerValue(source.number, 1, 1, 1000000),
             phase: allowed.has(source.phase) ? source.phase : 'farming',
@@ -2387,7 +3163,27 @@
             farmCompleted: source.farmCompleted === true,
             targets: normalizeRoundTargets(source.targets),
             spy: normalizeRoundSpy(source.spy),
+            groupId: /^-?\d+$/.test(String(source.groupId || '')) ? String(source.groupId) : '',
+            groupName: String(source.groupName || '').slice(0, 120),
+            villages,
+            completedVillages,
+            currentVillageId: /^\d+$/.test(String(source.currentVillageId || ''))
+                ? String(source.currentVillageId)
+                : '',
+            visitedPages: Array.from(new Set(
+                (Array.isArray(source.visitedPages) ? source.visitedPages : [])
+                    .map(value => String(value || '').slice(0, 80))
+                    .filter(Boolean)
+            )).slice(0, 500),
         };
+    }
+
+    function normalizeVillageIds(value) {
+        return Array.from(new Set(
+            (Array.isArray(value) ? value : [])
+                .map(id => String(id || ''))
+                .filter(id => /^\d+$/.test(id) && Number(id) > 0)
+        )).slice(0, 10000);
     }
 
     function normalizeRoundSpy(value) {
@@ -2519,6 +3315,7 @@
         const source = value && typeof value === 'object' ? value : {};
         const models = {};
         const generalSource = source.general || {};
+        const farmSource = source.farm || {};
         const spySource = source.spy || {};
 
         ['a', 'b', 'c'].forEach(modelKey => {
@@ -2564,7 +3361,7 @@
         });
 
         return {
-            schema: 8,
+            schema: 9,
             general: {
                 attackIntervalMs: integerValue(
                     generalSource.attackIntervalMs,
@@ -2578,6 +3375,11 @@
                     1,
                     86400
                 ),
+            },
+            farm: {
+                groupId: /^-?\d+$/.test(String(farmSource.groupId ?? '0'))
+                    ? String(farmSource.groupId ?? '0')
+                    : DEFAULT_SETTINGS.farm.groupId,
             },
             models,
             spy: {

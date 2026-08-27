@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.3.3
+// @version      2.3.5
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "Marcador - ThePlaguePT",
-        version: "2.3.3",
+        version: "2.3.5",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -63,6 +63,7 @@
         pendingMiniRefresh: false,
         dragActive: false,
         dragFrame: 0,
+        lastMiniSync: 0,
         resumeTimer: 0,
         resumeRunning: false,
         panel: null,
@@ -245,6 +246,17 @@
 
     function bonusData() {
         return window.TWMap?.bonus_data || {};
+    }
+
+    function bonusIconUrl(bonusId) {
+        const info = bonusData()?.[bonusId] || {};
+        let source = String(info.icon || info.image || info.img || "").trim();
+        const cssUrl = source.match(/^url\(["']?(.*?)["']?\)$/i);
+        if (cssUrl) source = cssUrl[1];
+        if (!source) return "";
+        if (/^(?:https?:|data:|blob:)/i.test(source)) return source;
+        if (!source.includes("/")) source = `graphic/bonus/${source}`;
+        try { return new URL(source, `${location.origin}/`).href; } catch (_) { return source; }
     }
 
     function bonusOptionsHtml() {
@@ -599,6 +611,8 @@
             .${APP.id}-pinIcon{position:absolute;left:0;bottom:0;width:15px;height:15px;box-sizing:border-box;transform:translateX(-50%) rotate(-45deg);transform-origin:50% 50%;border:1px solid #5f1713;border-radius:50% 50% 50% 0;background:currentColor;box-shadow:0 1px 2px #0009}
             .${APP.id}-pinIcon::after{content:"";position:absolute;left:4px;top:4px;width:5px;height:5px;border-radius:50%;background:#f4dfb5;box-shadow:inset 0 0 0 1px #6a2b20}
             .${APP.id}-pinLabel{position:absolute;left:0;bottom:20px;transform:translateX(-50%);padding:1px 5px 2px;border:2px solid var(--tp-marker-color);border-radius:3px;background:#f7e9c7;color:#35180d;text-shadow:0 1px #fff;font:bold 12px Consolas,"Courier New",monospace;line-height:13px;letter-spacing:.1px;white-space:nowrap;box-shadow:0 1px 3px #0009}
+            .${APP.id}-pinLabel.${APP.id}-pinLabelBonus{display:inline-flex;align-items:center;gap:3px;padding-left:3px}
+            .${APP.id}-pinBonusIcon{display:block;width:15px;height:15px;object-fit:contain;flex:0 0 15px;image-rendering:auto}
             .${APP.id}-pinLabel::after{content:"";position:absolute;left:50%;bottom:-5px;width:6px;height:6px;transform:translateX(-50%) rotate(45deg);border-right:2px solid var(--tp-marker-color);border-bottom:2px solid var(--tp-marker-color);background:#f7e9c7}
         `;
         document.head.appendChild(style);
@@ -1302,9 +1316,13 @@
         if (target.closest(`#${APP.id}-mapToolbar`)) return;
         state.dragActive = true;
         cancelAnimationFrame(state.dragFrame);
-        const sync = () => {
+        const sync = (timestamp) => {
             if (!state.dragActive) return;
             syncMainMarkerPositions();
+            if (timestamp - state.lastMiniSync >= 32) {
+                state.lastMiniSync = timestamp;
+                syncMiniMapMarkerPositions();
+            }
             state.dragFrame = requestAnimationFrame(sync);
         };
         state.dragFrame = requestAnimationFrame(sync);
@@ -1387,7 +1405,9 @@
             marker.style.setProperty("--tp-marker-color", markerColorFor(x, y));
             marker.style.left = `${left}px`;
             marker.style.top = `${top}px`;
-            marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels || attack || supportTravel ? `<b class="${APP.id}-pinLabel">${x}|${y}</b>` : ""}`;
+            const bonusIcon = bonus ? bonusIconUrl(bonus.bonus) : "";
+            const labelIcon = bonusIcon ? `<img class="${APP.id}-pinBonusIcon" src="${escapeHtml(bonusIcon)}" alt="" title="${escapeHtml(bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`)}">` : "";
+            marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels || attack || supportTravel ? `<b class="${APP.id}-pinLabel ${bonusIcon ? `${APP.id}-pinLabelBonus` : ""}">${labelIcon}<span>${x}|${y}</span></b>` : ""}`;
             image.parentElement.appendChild(marker);
         }
     }
@@ -1473,6 +1493,8 @@
             const dot = document.createElement("span");
             dot.className = `${APP.id}-miniDot`;
             dot.title = `${x}|${y}`;
+            dot.dataset.x = String(x);
+            dot.dataset.y = String(y);
             dot.style.setProperty("--tp-marker-color", markerColorFor(x, y));
             dot.style.left = `${((x - bounds.minX) / (bounds.maxX - bounds.minX)) * 100}%`;
             dot.style.top = `${((y - bounds.minY) / (bounds.maxY - bounds.minY)) * 100}%`;
@@ -1483,6 +1505,8 @@
             if (center.x < bounds.minX || center.x > bounds.maxX || center.y < bounds.minY || center.y > bounds.maxY) return;
             const badge = document.createElement("span");
             badge.className = `${APP.id}-zoneBadge`;
+            badge.dataset.centerX = String(center.x);
+            badge.dataset.centerY = String(center.y);
             badge.textContent = String(index + 1);
             badge.title = `Zona ${index + 1} (${zone.length} aldeias)`;
             badge.style.setProperty("--tp-zone-color", zoneColor(index));
@@ -1494,67 +1518,101 @@
     }
 
     function markPoliticalMapByGrid(container) {
-        const twMap = window.TWMap || {};
         const targets = activeCoordinates();
+        const mapping = miniMapAxisMapping(container);
+        if (!mapping) return false;
+        if (getComputedStyle(container).position === "static") container.style.position = "relative";
+        const overlay = document.createElement("div");
+        overlay.className = `${APP.id}-minimapOverlay`;
+        overlay.style.setProperty("--tp-marker-color", state.color);
+        for (const { x, y } of targets.values()) {
+            const dot = document.createElement("span");
+            dot.className = `${APP.id}-miniDot`;
+            dot.title = `${x}|${y}`;
+            dot.dataset.x = String(x);
+            dot.dataset.y = String(y);
+            dot.style.setProperty("--tp-marker-color", markerColorFor(x, y));
+            positionMiniElement(dot, x, y, mapping);
+            overlay.appendChild(dot);
+        }
+        state.zones.forEach((zone, index) => {
+            const center = zoneCenter(zone);
+            const badge = document.createElement("span");
+            badge.className = `${APP.id}-zoneBadge`;
+            badge.dataset.centerX = String(center.x);
+            badge.dataset.centerY = String(center.y);
+            badge.textContent = String(index + 1);
+            badge.title = `Zona ${index + 1} (${zone.length} aldeias)`;
+            badge.style.setProperty("--tp-zone-color", zoneColor(index));
+            positionMiniElement(badge, center.x, center.y, mapping);
+            overlay.appendChild(badge);
+        });
+        container.appendChild(overlay);
+        return true;
+    }
+
+    function miniMapAxisMapping(container) {
+        const twMap = window.TWMap || {};
         const candidates = [twMap.minimap, twMap.pmap, twMap.politicalMap, twMap.pmapHandler?.map].filter(Boolean);
         for (const map of candidates) {
             if (!Array.isArray(map.pos) || typeof map.coordByPixel !== "function") continue;
             const width = container.clientWidth;
             const height = container.clientHeight;
-            const found = new Map();
-            // Mede toda a célula para colocar o pin no centro, não no primeiro píxel encontrado.
+            if (!width || !height) continue;
+            const xAreas = new Map();
+            const yAreas = new Map();
+            const sampleY = map.pos[1] + Math.floor(height / 2);
+            const sampleX = map.pos[0] + Math.floor(width / 2);
+            for (let px = 0; px <= width; px += 1) {
+                const coord = map.coordByPixel(map.pos[0] + px, sampleY);
+                const value = Number(coord?.[0]);
+                if (!Number.isFinite(value)) continue;
+                const area = xAreas.get(value);
+                if (area) area.max = px;
+                else xAreas.set(value, { min: px, max: px });
+            }
             for (let py = 0; py <= height; py += 1) {
-                for (let px = 0; px <= width; px += 1) {
-                    const coord = map.coordByPixel(map.pos[0] + px, map.pos[1] + py);
-                    const key = coord && `${coord[0]}|${coord[1]}`;
-                    if (!key || !targets.has(key)) continue;
-                    const area = found.get(key);
-                    if (area) {
-                        area.maxX = px;
-                        area.maxY = py;
-                    } else {
-                        found.set(key, { minX: px, minY: py, maxX: px, maxY: py });
-                    }
-                }
+                const coord = map.coordByPixel(sampleX, map.pos[1] + py);
+                const value = Number(coord?.[1]);
+                if (!Number.isFinite(value)) continue;
+                const area = yAreas.get(value);
+                if (area) area.max = py;
+                else yAreas.set(value, { min: py, max: py });
             }
-            if (!found.size) continue;
-            if (getComputedStyle(container).position === "static") container.style.position = "relative";
-            const overlay = document.createElement("div");
-            overlay.className = `${APP.id}-minimapOverlay`;
-            overlay.style.setProperty("--tp-marker-color", state.color);
-            const zonePoints = new Map();
-            for (const [key, area] of found) {
-                const dot = document.createElement("span");
-                dot.className = `${APP.id}-miniDot`;
-                dot.title = key;
-                const centerX = (area.minX + area.maxX) / 2;
-                const centerY = (area.minY + area.maxY) / 2;
-                const [x, y] = key.split("|").map(Number);
-                const zoneIndex = zoneForCoordinate(x, y);
-                dot.style.setProperty("--tp-marker-color", markerColorFor(x, y));
-                dot.style.left = `${centerX}px`;
-                dot.style.top = `${centerY}px`;
-                overlay.appendChild(dot);
-                if (zoneIndex >= 0) {
-                    const points = zonePoints.get(zoneIndex) || [];
-                    points.push({ x: centerX, y: centerY });
-                    zonePoints.set(zoneIndex, points);
-                }
-            }
-            for (const [zoneIndex, points] of zonePoints) {
-                const badge = document.createElement("span");
-                badge.className = `${APP.id}-zoneBadge`;
-                badge.textContent = String(zoneIndex + 1);
-                badge.title = `Zona ${zoneIndex + 1} (${state.zones[zoneIndex].length} aldeias)`;
-                badge.style.setProperty("--tp-zone-color", zoneColor(zoneIndex));
-                badge.style.left = `${points.reduce((sum, point) => sum + point.x, 0) / points.length}px`;
-                badge.style.top = `${points.reduce((sum, point) => sum + point.y, 0) / points.length}px`;
-                overlay.appendChild(badge);
-            }
-            container.appendChild(overlay);
-            return true;
+            if (xAreas.size && yAreas.size) return { xAreas, yAreas };
         }
-        return false;
+        return null;
+    }
+
+    function positionMiniElement(element, x, y, mapping) {
+        const xArea = mapping.xAreas.get(Math.round(x));
+        const yArea = mapping.yAreas.get(Math.round(y));
+        if (!xArea || !yArea) {
+            element.hidden = true;
+            return false;
+        }
+        element.hidden = false;
+        element.style.left = `${(xArea.min + xArea.max) / 2}px`;
+        element.style.top = `${(yArea.min + yArea.max) / 2}px`;
+        return true;
+    }
+
+    function syncMiniMapMarkerPositions() {
+        const container = findPoliticalMap();
+        if (!container) return;
+        let overlay = container.querySelector(`.${APP.id}-minimapOverlay`);
+        if (!overlay) {
+            markPoliticalMap();
+            return;
+        }
+        const mapping = miniMapAxisMapping(container);
+        if (!mapping) return;
+        overlay.querySelectorAll(`.${APP.id}-miniDot[data-x][data-y]`).forEach((dot) => {
+            positionMiniElement(dot, Number(dot.dataset.x), Number(dot.dataset.y), mapping);
+        });
+        overlay.querySelectorAll(`.${APP.id}-zoneBadge[data-center-x][data-center-y]`).forEach((badge) => {
+            positionMiniElement(badge, Number(badge.dataset.centerX), Number(badge.dataset.centerY), mapping);
+        });
     }
 
     function findPoliticalMap() {
