@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.1.2
+// @version      1.1.3
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.1.2',
+        version: '1.1.3',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -89,6 +89,7 @@
         farmSent: 0,
         pendingTargetDueAt: 0,
         spyRunning: false,
+        spyAbortController: null,
         processedRows: new WeakSet(),
         processedTargets: new Set(),
         workerWindow: null,
@@ -514,6 +515,7 @@
 
     function saveSettingsFromPanel() {
         if (!state.settingsPanel) return;
+        const spyWasEnabled = Boolean(state.settings?.spy?.enabled);
         const next = clone(state.settings || DEFAULT_SETTINGS);
 
         state.settingsPanel.querySelectorAll('input[data-setting]').forEach(input => {
@@ -535,6 +537,20 @@
         window.dispatchEvent(new CustomEvent('twPtAutoFarm:settings', {
             detail: { world, settings: clone(state.settings) },
         }));
+        if (state.ownsWorker && spyWasEnabled && !state.settings.spy.enabled) {
+            const run = ensureRunState();
+            if (run.round.phase === 'spying') {
+                cancelSpyWork();
+                if (run.round.farmCompleted) {
+                    beginRoundPause(run);
+                } else {
+                    run.round.phase = 'farming';
+                    writeRunState(run);
+                    scheduleFarmStep(100);
+                }
+                return;
+            }
+        }
         if (state.ownsWorker) resumeRoundWorkflow();
     }
 
@@ -829,6 +845,8 @@
 
     function stopFarmLoop() {
         state.farmGeneration += 1;
+        state.spyAbortController?.abort();
+        state.spyAbortController = null;
         window.clearTimeout(state.farmTimer);
         window.clearTimeout(state.roundTimer);
         state.farmTimer = 0;
@@ -932,18 +950,28 @@
     function finishRound() {
         state.idleScans = 0;
         const run = ensureRunState();
+        run.round.farmCompleted = true;
         if (state.settings?.spy?.enabled) startSpyPhase(run);
         else beginRoundPause(run);
     }
 
     function startSpyPhase(runValue) {
-        if (state.spyRunning || !isEnabled() || !state.ownsWorker || state.destroyed) return;
-        const config = state.settings?.spy || loadSettings().spy;
         const run = runValue || ensureRunState();
+        if (!run.round.farmCompleted) {
+            cancelSpyWork();
+            run.round.phase = 'farming';
+            writeRunState(run);
+            scheduleFarmStep(100);
+            return;
+        }
+
+        const config = state.settings?.spy || loadSettings().spy;
         if (!config.enabled) {
+            cancelSpyWork();
             beginRoundPause(run);
             return;
         }
+        if (state.spyRunning || !isEnabled() || !state.ownsWorker || state.destroyed) return;
 
         run.round.phase = 'spying';
         run.round.pauseUntil = 0;
@@ -972,6 +1000,14 @@
                 beginRoundPause(ensureRunState());
             }
         });
+    }
+
+    function cancelSpyWork() {
+        if (state.spyRunning || state.spyAbortController) state.farmGeneration += 1;
+        state.spyAbortController?.abort();
+        state.spyAbortController = null;
+        state.spyRunning = false;
+        setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
     }
 
     async function runSpyPhase(generation) {
@@ -1198,6 +1234,7 @@
 
     async function requestGamePage(url, options, timeoutMs) {
         const controller = new AbortController();
+        state.spyAbortController = controller;
         const timer = window.setTimeout(() => controller.abort(), timeoutMs);
         try {
             const response = await fetch(url, {
@@ -1214,6 +1251,7 @@
             throw error;
         } finally {
             window.clearTimeout(timer);
+            if (state.spyAbortController === controller) state.spyAbortController = null;
         }
     }
 
@@ -1318,6 +1356,7 @@
     function clearRoundProgress(runValue) {
         const run = runValue || ensureRunState();
         run.round.targets = {};
+        run.round.farmCompleted = false;
         run.round.spy = { sent: 0, attempted: {} };
         state.processedTargets.clear();
         state.processedRows = new WeakSet();
@@ -1760,6 +1799,7 @@
                 number: 1,
                 phase: 'start',
                 pauseUntil: 0,
+                farmCompleted: false,
                 targets: {},
                 spy: { sent: 0, attempted: {} },
             },
@@ -1862,6 +1902,7 @@
             number: integerValue(source.number, 1, 1, 1000000),
             phase: allowed.has(source.phase) ? source.phase : 'farming',
             pauseUntil: Math.max(0, Number(source.pauseUntil) || 0),
+            farmCompleted: source.farmCompleted === true,
             targets: normalizeRoundTargets(source.targets),
             spy: normalizeRoundSpy(source.spy),
         };
