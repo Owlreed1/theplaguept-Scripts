@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.2
+// @version      1.3.4
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.2',
+        version: '1.3.4',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -38,12 +38,15 @@
         workerFreshMs: 90000,
         monitorMs: 2500,
         defaultAttackMs: 650,
-        minAttackMs: 200,
+        minAttackMs: 223,
         idlePollMs: 2500,
         requestTimeoutMs: 25000,
         returnSafetyMs: 15000,
         activeSyncMs: 15000,
         activeSyncGraceMs: 30000,
+        commandRateWindowMs: 1000,
+        commandRateMaximum: 5,
+        commandRateSafetyMs: 30,
         spyHistoryMs: 365 * 24 * 60 * 60 * 1000,
     });
     const UNIT_MINUTES_PER_FIELD = Object.freeze({
@@ -113,6 +116,7 @@
         idleScans: 0,
         pageDeferredCandidates: 0,
         pageFinalCheckDone: false,
+        recentCommandSends: [],
         farmSent: 0,
         pendingTargetDueAt: 0,
         spyRunning: false,
@@ -332,12 +336,12 @@
             #${APP.settingsId} .af-red-yellow{background:linear-gradient(90deg,#df3c2c 0 50%,#ffd21a 50%)}
             #${APP.settingsId} .af-model-off .af-model-body{pointer-events:none}
             #${APP.settingsId} .af-general-wrap{margin-top:8px;padding-top:7px;border-top:1px solid #c6a767}
-            #${APP.settingsId} .af-general-grid{display:grid;grid-template-columns:repeat(2,minmax(240px,360px));justify-content:start;gap:8px}
-            #${APP.settingsId} .af-general-field{min-height:34px;padding:4px 8px;border:1px solid #d1b475;border-radius:3px;background:#fff4d6;display:grid;grid-template-columns:minmax(110px,1fr) 112px;align-items:center;gap:8px}
+            #${APP.settingsId} .af-general-grid{display:grid;grid-template-columns:minmax(320px,390px) minmax(240px,320px);justify-content:start;gap:6px;max-width:716px}
+            #${APP.settingsId} .af-general-field{min-height:32px;padding:3px 6px;border:1px solid #d1b475;border-radius:3px;background:#fff4d6;display:grid;grid-template-columns:minmax(96px,1fr) auto;align-items:center;gap:6px;min-width:0}
             #${APP.settingsId} .af-general-field>span{color:#75532b;font-weight:bold;font-size:10px;text-transform:uppercase}
-            #${APP.settingsId} .af-general-input{display:flex;align-items:center;gap:4px}
-            #${APP.settingsId} .af-general-input input{width:64px}
-            #${APP.settingsId} .af-general-input small{color:#8a6c3e;font-size:9px;white-space:nowrap}
+            #${APP.settingsId} .af-general-input{display:flex;align-items:center;justify-content:flex-end;gap:4px;min-width:0}
+            #${APP.settingsId} .af-general-input input{width:64px;flex:0 0 64px}
+            #${APP.settingsId} .af-general-input small{color:#8a6c3e;font-size:8px;white-space:nowrap}
             #${APP.settingsId} select[data-setting]{width:100%;height:25px;padding:2px 5px;border:1px solid #d2b275;border-radius:3px;background:#fffaf0;color:#3b2814;font:11px Verdana,Arial,sans-serif}
             #${APP.settingsId} .af-group-wrap{margin-top:8px;padding-top:7px;border-top:1px solid #c6a767}
             #${APP.settingsId} .af-group-grid{display:grid;grid-template-columns:minmax(300px,520px) minmax(220px,1fr);align-items:center;gap:8px}
@@ -359,7 +363,7 @@
             #${APP.settingsId} .af-spy-help{display:block;margin-top:6px;color:#87683d;font-size:9px;line-height:13px}
             #${APP.settingsId} .af-spy-off .af-spy-body{pointer-events:none}
             @media(max-width:1100px){#${APP.settingsId} .af-spy-grid{grid-template-columns:repeat(2,minmax(150px,1fr))}}
-            @media(max-width:800px){#${APP.settingsId} .af-general-grid{grid-template-columns:1fr}}
+            @media(max-width:800px){#${APP.settingsId} .af-general-grid{grid-template-columns:minmax(0,1fr);max-width:none}}
             @media(max-width:800px){#${APP.settingsId} .af-group-grid{grid-template-columns:1fr}}
             @media(max-width:950px){#${APP.settingsId} .af-model-grid{grid-template-columns:1fr}#${APP.settingsId} .af-settings-title{font-size:17px}}
             @media(max-width:620px){#${APP.settingsId} .af-spy-grid{grid-template-columns:1fr}}
@@ -411,15 +415,15 @@
                             <label class="af-general-field">
                                 <span>Entre ataques</span>
                                 <span class="af-general-input">
-                                    <input type="number" min="200" max="60000" step="10" data-setting="general.attackIntervalMs" aria-label="Intervalo entre ataques em milissegundos">
-                                    <small>ms ±10%</small>
+                                    <input type="number" min="223" max="60000" step="1" data-setting="general.attackIntervalMs" aria-label="Intervalo entre ataques em milissegundos" title="Mínimo técnico: 223 ms. Recomendado: 250 ms ou mais.">
+                                    <small>ms · ±10% · mín. 223 · ≤5/s</small>
                                 </span>
                             </label>
                             <label class="af-general-field">
                                 <span>Entre rondas</span>
                                 <span class="af-general-input">
                                     <input type="number" min="1" max="86400" step="1" data-setting="general.roundPauseSeconds" aria-label="Pausa entre rondas em segundos">
-                                    <small>seg. ±10%</small>
+                                    <small>seg. · ±10%</small>
                                 </span>
                             </label>
                         </div>
@@ -475,7 +479,7 @@
                                     </label>
                                     <label class="af-spy-field">
                                         <span>Entre espionagens (ms) ±10%</span>
-                                        <input type="number" min="200" max="60000" step="10" data-setting="spy.intervalMs" title="Milissegundos, com variação automática de ±10%">
+                                        <input type="number" min="223" max="60000" step="1" data-setting="spy.intervalMs" title="Mínimo técnico: 223 ms. Recomendado: 250 ms ou mais. Variação automática de ±10%.">
                                     </label>
                                 </div>
                                 <small class="af-spy-help">Usa ataques diretos com batedores. O máximo limita as espionagens simultaneamente em curso; cada vaga regressa quando o comando volta. Lê o mapa, aceita apenas aldeias com proprietário 0 (bárbaras), ordena pelas mais próximas e ignora alvos já espiados por este módulo.</small>
@@ -1172,12 +1176,26 @@
         state.farmRunning = true;
         let task = null;
         let finishRequested = false;
+        let finishVillageRequested = false;
         let pendingDelay = 0;
+        let retryDelay = 0;
         try {
             task = findNextFarmTask();
             if (task) {
                 state.idleScans = 0;
-                await sendFarmTask(task);
+                const outcome = await sendFarmTask(task);
+                if (!outcome?.sent) {
+                    task = null;
+                    if (outcome?.noTroops) {
+                        const run = markFarmModelExhausted(outcome.model);
+                        finishVillageRequested = !hasUsableFarmModel(run);
+                        retryDelay = 100;
+                    } else if (outcome?.rateLimited) {
+                        retryDelay = APP.commandRateWindowMs + APP.commandRateSafetyMs;
+                    } else {
+                        retryDelay = APP.idlePollMs;
+                    }
+                }
             } else if (state.pendingTargetDueAt > Date.now()) {
                 state.idleScans = 0;
                 pendingDelay = state.pendingTargetDueAt - Date.now();
@@ -1196,7 +1214,19 @@
                     if (task) {
                         finishRequested = false;
                         state.idleScans = 0;
-                        await sendFarmTask(task);
+                        const outcome = await sendFarmTask(task);
+                        if (!outcome?.sent) {
+                            task = null;
+                            if (outcome?.noTroops) {
+                                const run = markFarmModelExhausted(outcome.model);
+                                finishVillageRequested = !hasUsableFarmModel(run);
+                                retryDelay = 100;
+                            } else if (outcome?.rateLimited) {
+                                retryDelay = APP.commandRateWindowMs + APP.commandRateSafetyMs;
+                            } else {
+                                retryDelay = APP.idlePollMs;
+                            }
+                        }
                     }
                 }
             }
@@ -1206,9 +1236,13 @@
             if (generation !== state.farmGeneration) return;
             state.farmRunning = false;
             if (isEnabled() && state.ownsWorker && !state.destroyed) {
-                if (finishRequested) finishRound();
+                if (finishVillageRequested) finishCurrentVillageFarm();
+                else if (finishRequested) finishRound();
                 else if (task) scheduleFarmStep(randomizedAttackDelay());
-                else scheduleFarmStep(pendingDelay > 0 ? Math.min(APP.idlePollMs, pendingDelay) : APP.idlePollMs);
+                else scheduleFarmStep(
+                    retryDelay ||
+                    (pendingDelay > 0 ? Math.min(APP.idlePollMs, pendingDelay) : APP.idlePollMs)
+                );
             }
         }
     }
@@ -1319,9 +1353,33 @@
         state.idleScans = 0;
         const run = ensureRunState();
         if (navigateToNextFarmPage(run)) return;
+        finishCurrentVillageFarm(run);
+    }
+
+    function finishCurrentVillageFarm(runValue) {
+        const run = runValue || ensureRunState();
         run.round.farmCompleted = true;
+        writeRunState(run);
         if (state.settings?.spy?.enabled) startSpyPhase(run);
         else completeCurrentVillage(run);
+    }
+
+    function markFarmModelExhausted(model) {
+        if (!['a', 'b', 'c'].includes(model)) return ensureRunState();
+        const run = ensureRunState();
+        if (!run.round.exhaustedModels.includes(model)) {
+            run.round.exhaustedModels.push(model);
+            writeRunState(run);
+        }
+        return run;
+    }
+
+    function hasUsableFarmModel(runValue) {
+        const run = runValue || ensureRunState();
+        const exhausted = new Set(run.round.exhaustedModels || []);
+        return ['a', 'b', 'c'].some(model => (
+            state.settings?.models?.[model]?.enabled && !exhausted.has(model)
+        ));
     }
 
     function startSpyPhase(runValue) {
@@ -1533,6 +1591,7 @@
         confirmationData.set('spy', String(scouts));
         applyDirectAttackTarget(confirmationForm, confirmationData, target);
         addGameSubmitControl(confirmationForm, confirmationData, ['submit', 'send', 'attack']);
+        await reserveCommandSendSlot();
         const finalPage = await submitGameForm(
             confirmationForm,
             confirmationPage.url,
@@ -1720,6 +1779,7 @@
         }
         run.round.currentVillageId = current;
         run.round.visitedPages = [];
+        run.round.exhaustedModels = [];
         startCurrentFarmPage(run);
     }
 
@@ -1984,6 +2044,7 @@
         run.round.completedVillages = [];
         run.round.currentVillageId = '';
         run.round.visitedPages = [];
+        run.round.exhaustedModels = [];
         setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
         resetPageRuntime();
     }
@@ -2018,6 +2079,7 @@
         const rows = getFarmRows();
         const settings = state.settings || loadSettings();
         const run = ensureRunState();
+        const exhaustedModels = new Set(run.round.exhaustedModels || []);
         const activeAttacks = getActiveAttacksForCurrentVillage();
         const activeCounts = getActiveAttackCounts(activeAttacks);
         const now = Date.now();
@@ -2037,6 +2099,7 @@
             const progress = targetKey ? run.round.targets[targetKey] : null;
 
             if (progress) {
+                if (exhaustedModels.has(progress.model)) continue;
                 const config = settings.models[progress.model];
                 const maximum = getSameVillageLimit(config);
                 const targetStatus = getActiveTargetStatus(
@@ -2087,7 +2150,14 @@
             }
 
             if (state.processedRows.has(row) || row.dataset.twPtAutofarmSent === '1') continue;
-            const selected = selectModelForRow(row, activeCounts, activeAttacks, targetKey, now);
+            const selected = selectModelForRow(
+                row,
+                activeCounts,
+                activeAttacks,
+                targetKey,
+                now,
+                exhaustedModels
+            );
             if (selected) {
                 eligibleTasks.push({
                     row,
@@ -2122,12 +2192,23 @@
         return rows;
     }
 
-    function selectModelForRow(row, activeCounts, activeAttacks, targetKey, nowValue) {
+    function selectModelForRow(
+        row,
+        activeCounts,
+        activeAttacks,
+        targetKey,
+        nowValue,
+        exhaustedModelsValue
+    ) {
         const settings = state.settings || loadSettings();
         const reportColor = getReportColor(row);
         const now = Number(nowValue) || Date.now();
+        const exhaustedModels = exhaustedModelsValue instanceof Set
+            ? exhaustedModelsValue
+            : new Set(ensureRunState().round.exhaustedModels || []);
         if (!reportColor) return null;
         for (const model of ['a', 'b', 'c']) {
+            if (exhaustedModels.has(model)) continue;
             const config = settings.models[model];
             const button = row.querySelector(`a.farm_icon_${model}`);
             if (
@@ -2181,7 +2262,9 @@
     }
 
     async function sendFarmTask(task) {
-        if (!task.button?.isConnected || isFarmButtonDisabled(task.button)) return;
+        if (!task.button?.isConnected || isFarmButtonDisabled(task.button)) {
+            return { sent: false, cancelled: true, model: task.model };
+        }
         let currentColor = getReportColor(task.row);
         let currentConfig = state.settings?.models?.[task.model];
         let targetStatus = getActiveTargetStatus(task.model, task.targetKey, currentConfig);
@@ -2197,7 +2280,7 @@
                 `[${APP.shortName}] Envio ${task.model.toUpperCase()} cancelado: ` +
                 `a cor atual (${currentColor || 'desconhecida'}) não está permitida ou o limite foi atingido.`
             );
-            return;
+            return { sent: false, cancelled: true, model: task.model };
         }
 
         const unitSpeed = await loadWorldUnitSpeed();
@@ -2216,9 +2299,44 @@
             !modelHasCapacity(task.model, currentConfig) ||
             targetStatus.count >= targetStatus.maximum ||
             targetStatus.nextAt > Date.now()
-        ) return;
+        ) return { sent: false, cancelled: true, model: task.model };
 
+        await reserveCommandSendSlot();
+        currentColor = getReportColor(task.row);
+        currentConfig = state.settings?.models?.[task.model];
+        targetStatus = getActiveTargetStatus(task.model, task.targetKey, currentConfig);
+        if (
+            !task.button?.isConnected ||
+            isFarmButtonDisabled(task.button) ||
+            currentColor !== task.reportColor ||
+            !currentConfig?.reports?.[currentColor] ||
+            !modelHasCapacity(task.model, currentConfig) ||
+            targetStatus.count >= targetStatus.maximum ||
+            targetStatus.nextAt > Date.now()
+        ) return { sent: false, cancelled: true, model: task.model };
+
+        const errorsBefore = captureGameErrors();
         task.button.click();
+        const requestOutcome = await waitForFarmRequest(6000, errorsBefore);
+        if (requestOutcome.noTroops) {
+            console.info(
+                `[${APP.shortName}] Modelo ${task.model.toUpperCase()} sem unidades suficientes ` +
+                'nesta aldeia; o modelo fica concluído até à próxima aldeia.'
+            );
+            return { sent: false, noTroops: true, model: task.model };
+        }
+        if (requestOutcome.rateLimited) {
+            console.warn(`[${APP.shortName}] O jogo aplicou o limite de comandos; envio será repetido.`);
+            return { sent: false, rateLimited: true, model: task.model };
+        }
+        if (requestOutcome.error) {
+            console.warn(
+                `[${APP.shortName}] O jogo recusou o envio ${task.model.toUpperCase()}: ` +
+                requestOutcome.message
+            );
+            return { sent: false, error: true, model: task.model };
+        }
+
         state.farmSent += 1;
         state.pageFinalCheckDone = false;
         const progress = recordFarmSend(task.model, {
@@ -2239,10 +2357,10 @@
             `${task.targetKey ? ` para ${task.targetKey}` : ''} — cor ${currentColor}` +
             `${progress.maximum > 1 ? `, envio ${progress.sent}/${progress.maximum}` : ''}.`
         );
-        await waitForFarmRequest(6000);
+        return { sent: true, model: task.model };
     }
 
-    async function waitForFarmRequest(timeoutMs) {
+    async function waitForFarmRequest(timeoutMs, errorsBefore) {
         const startedAt = Date.now();
         await delay(80);
         while (
@@ -2251,6 +2369,83 @@
             Date.now() - startedAt < timeoutMs
         ) {
             await delay(60);
+        }
+        await delay(120);
+        const messages = getNewGameErrors(errorsBefore);
+        const message = messages.join(' · ');
+        return {
+            noTroops: messages.some(isNoTroopsMessage),
+            rateLimited: messages.some(isCommandRateLimitMessage),
+            error: messages.length > 0,
+            message: message || 'erro não identificado',
+        };
+    }
+
+    function captureGameErrors() {
+        const snapshot = new Map();
+        getGameErrorElements().forEach(element => {
+            snapshot.set(element, normalizeGameMessage(element.textContent));
+        });
+        return snapshot;
+    }
+
+    function getNewGameErrors(snapshotValue) {
+        const snapshot = snapshotValue instanceof Map ? snapshotValue : new Map();
+        const messages = [];
+        getGameErrorElements().forEach(element => {
+            const message = normalizeGameMessage(element.textContent);
+            if (message && (!snapshot.has(element) || snapshot.get(element) !== message)) {
+                messages.push(message);
+            }
+        });
+        return Array.from(new Set(messages));
+    }
+
+    function getGameErrorElements() {
+        return Array.from(document.querySelectorAll([
+            '#error',
+            '.error_box',
+            '.error-message',
+            '.error-msg',
+            '.ui-state-error',
+            '.server-error',
+            '#notifications .error',
+            '.notification.error',
+        ].join(',')));
+    }
+
+    function normalizeGameMessage(value) {
+        return String(value || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function isNoTroopsMessage(value) {
+        return /(?:nao (?:existem|ha) unidades suficientes|unidades insuficientes|tropas insuficientes|not enough units|insufficient (?:units|troops)|no hay suficientes unidades|nicht genug einheiten|pas assez d.unites)/i.test(
+            normalizeText(value)
+        );
+    }
+
+    function isCommandRateLimitMessage(value) {
+        const text = normalizeText(value);
+        return /(?:demasiados|muitos|too many|zu viele|demasiados) (?:ataques|comandos|pedidos|requests)/.test(text) ||
+            /(?:5|cinco).*(?:ataques|comandos).*(?:segundo|second)/.test(text) ||
+            /(?:ataques|comandos).*(?:5|cinco).*(?:segundo|second)/.test(text);
+    }
+
+    async function reserveCommandSendSlot() {
+        while (true) {
+            const now = Date.now();
+            state.recentCommandSends = state.recentCommandSends.filter(timestamp => (
+                now - timestamp < APP.commandRateWindowMs
+            ));
+            if (state.recentCommandSends.length < APP.commandRateMaximum) {
+                state.recentCommandSends.push(now);
+                return;
+            }
+            const oldest = Math.min(...state.recentCommandSends);
+            await delay(Math.max(
+                20,
+                oldest + APP.commandRateWindowMs + APP.commandRateSafetyMs - now
+            ));
         }
     }
 
@@ -2503,6 +2698,7 @@
                 completedVillages: [],
                 currentVillageId: '',
                 visitedPages: [],
+                exhaustedModels: [],
             },
             lastSend: null,
         };
@@ -3210,6 +3406,10 @@
                     .map(value => String(value || '').slice(0, 80))
                     .filter(Boolean)
             )).slice(0, 500),
+            exhaustedModels: Array.from(new Set(
+                (Array.isArray(source.exhaustedModels) ? source.exhaustedModels : [])
+                    .filter(model => ['a', 'b', 'c'].includes(model))
+            )),
         };
     }
 
