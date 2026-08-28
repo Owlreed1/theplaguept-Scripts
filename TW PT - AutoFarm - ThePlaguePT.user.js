@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.8
+// @version      1.3.9
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.8',
+        version: '1.3.9',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -122,6 +122,10 @@
         recentCommandSends: [],
         farmSent: 0,
         pendingTargetDueAt: 0,
+        strictOrderBlocked: false,
+        strictBlockKey: '',
+        strictBlockReason: '',
+        strictBlockSince: 0,
         spyRunning: false,
         spyAbortController: null,
         unitSpeed: null,
@@ -1338,8 +1342,13 @@
         const current = getVillageId() || round.currentVillageId;
         const index = Math.max(0, round.villages.indexOf(current));
         const page = getFarmPageDescriptor(new URL(window.location.href)).number + 1;
+        const strictStatus = state.strictOrderBlocked
+            ? ` · a aguardar ${state.strictBlockKey.replace(/^(?:village|coord):/, '')} ` +
+                `(${state.strictBlockReason})`
+            : '';
         label.textContent = `${round.groupName}: aldeia ${index + 1}/${round.villages.length} · ` +
-            `página ${page} · concluídas ${round.completedVillages.length}/${round.villages.length}.`;
+            `página ${page} · concluídas ${round.completedVillages.length}/${round.villages.length}` +
+            `${strictStatus}.`;
     }
 
     function startFarmLoop() {
@@ -1361,6 +1370,7 @@
         state.idleScans = 0;
         state.pageDeferredCandidates = 0;
         state.pageFinalCheckDone = false;
+        clearStrictOrderBlock();
         setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
         hideRoundCountdown();
     }
@@ -1404,6 +1414,11 @@
                         retryDelay = APP.idlePollMs;
                     }
                 }
+            } else if (state.strictOrderBlocked) {
+                state.idleScans = 0;
+                pendingDelay = state.pendingTargetDueAt > Date.now()
+                    ? state.pendingTargetDueAt - Date.now()
+                    : APP.idlePollMs;
             } else if (state.pendingTargetDueAt > Date.now()) {
                 state.idleScans = 0;
                 pendingDelay = state.pendingTargetDueAt - Date.now();
@@ -2026,6 +2041,7 @@
         state.pageDeferredCandidates = 0;
         state.pageFinalCheckDone = false;
         state.pendingTargetDueAt = 0;
+        clearStrictOrderBlock();
         getFarmRows().forEach(row => delete row.dataset.twPtAutofarmSent);
     }
 
@@ -2304,6 +2320,33 @@
         display.hidden = true;
     }
 
+    function setStrictOrderBlock(targetKey, reason, dueAt) {
+        const key = String(targetKey || 'linha-sem-alvo');
+        const message = String(reason || 'alvo temporariamente indisponível');
+        if (state.strictBlockKey !== key || state.strictBlockReason !== message) {
+            state.strictBlockSince = Date.now();
+            console.info(`[${APP.shortName}] Ordem estrita: a aguardar ${key} — ${message}.`);
+        }
+        state.strictOrderBlocked = true;
+        state.strictBlockKey = key;
+        state.strictBlockReason = message;
+        state.pageDeferredCandidates += 1;
+
+        const moment = Math.max(0, Number(dueAt) || 0);
+        if (moment > Date.now()) {
+            state.pendingTargetDueAt = state.pendingTargetDueAt > 0
+                ? Math.min(state.pendingTargetDueAt, moment)
+                : moment;
+        }
+    }
+
+    function clearStrictOrderBlock() {
+        state.strictOrderBlocked = false;
+        state.strictBlockKey = '';
+        state.strictBlockReason = '';
+        state.strictBlockSince = 0;
+    }
+
     function findNextFarmTask() {
         const rows = getFarmRows();
         const settings = state.settings || loadSettings();
@@ -2312,7 +2355,7 @@
         const activeAttacks = getActiveAttacksForCurrentVillage();
         const activeCounts = getActiveAttackCounts(activeAttacks);
         const now = Date.now();
-        const eligibleTasks = [];
+        state.strictOrderBlocked = false;
         state.pendingTargetDueAt = 0;
         state.pageDeferredCandidates = 0;
 
@@ -2343,9 +2386,12 @@
                     activeAttacks
                 );
                 if (targetStatus.count >= maximum) {
-                    row.dataset.twPtAutofarmSent = '1';
-                    state.processedTargets.add(targetKey);
-                    continue;
+                    setStrictOrderBlock(
+                        targetKey,
+                        `Modelo ${progress.model.toUpperCase()}: ataques/alvo no limite`,
+                        targetStatus.slotAt
+                    );
+                    break;
                 }
 
                 const button = row.querySelector(`a.farm_icon_${progress.model}`);
@@ -2353,34 +2399,49 @@
                 if (
                     !config?.enabled ||
                     !button ||
-                    isFarmButtonDisabled(button) ||
                     !reportColor ||
                     !modelMatchesRow(row, config, reportColor)
                 ) {
                     continue;
                 }
-                if (!modelHasCapacity(progress.model, config, activeCounts)) {
-                    state.pageDeferredCandidates += 1;
-                    continue;
-                }
-
                 const nextAt = Math.max(progress.nextAt || 0, targetStatus.nextAt || 0);
-                if (nextAt > now) {
-                    state.pageDeferredCandidates += 1;
-                    state.pendingTargetDueAt = state.pendingTargetDueAt > 0
-                        ? Math.min(state.pendingTargetDueAt, nextAt)
-                        : nextAt;
+                if (isFarmButtonDisabled(button)) {
+                    if (targetStatus.count > 0 || nextAt > now) {
+                        setStrictOrderBlock(
+                            targetKey,
+                            `Modelo ${progress.model.toUpperCase()}: alvo temporariamente indisponível`,
+                            Math.max(targetStatus.slotAt || 0, nextAt)
+                        );
+                        break;
+                    }
                     continue;
                 }
+                if (!modelHasCapacity(progress.model, config, activeCounts)) {
+                    setStrictOrderBlock(
+                        targetKey,
+                        `Modelo ${progress.model.toUpperCase()}: máximo de ataques em curso`,
+                        getNextActiveImpact(progress.model)
+                    );
+                    break;
+                }
 
-                eligibleTasks.push({
+                if (nextAt > now) {
+                    setStrictOrderBlock(
+                        targetKey,
+                        `Modelo ${progress.model.toUpperCase()}: diferença de chegada`,
+                        nextAt
+                    );
+                    break;
+                }
+
+                clearStrictOrderBlock();
+                return {
                     row,
                     button,
                     model: progress.model,
                     reportColor,
                     targetKey,
-                });
-                continue;
+                };
             }
 
             if (state.processedRows.has(row) || row.dataset.twPtAutofarmSent === '1') continue;
@@ -2393,16 +2454,19 @@
                 exhaustedModels
             );
             if (selected) {
-                eligibleTasks.push({
+                clearStrictOrderBlock();
+                return {
                     row,
                     button: selected.button,
                     model: selected.model,
                     reportColor: selected.reportColor,
                     targetKey,
-                });
+                };
             }
+            if (state.strictOrderBlocked) break;
         }
-        return eligibleTasks[0] || null;
+        if (!state.strictOrderBlocked) clearStrictOrderBlock();
+        return null;
     }
 
     function getFarmRows() {
@@ -2440,6 +2504,7 @@
         const exhaustedModels = exhaustedModelsValue instanceof Set
             ? exhaustedModelsValue
             : new Set(ensureRunState().round.exhaustedModels || []);
+        let firstTemporaryBlock = null;
         if (!reportColor) return null;
         for (const model of ['a', 'b', 'c']) {
             if (exhaustedModels.has(model)) continue;
@@ -2448,28 +2513,45 @@
             if (
                 !config.enabled ||
                 !button ||
-                isFarmButtonDisabled(button) ||
                 !modelMatchesRow(row, config, reportColor)
             ) {
                 continue;
             }
-            if (!modelHasCapacity(model, config, activeCounts)) {
-                state.pageDeferredCandidates += 1;
+            const targetStatus = getActiveTargetStatus(model, targetKey, config, activeAttacks);
+            if (isFarmButtonDisabled(button)) {
+                if (targetStatus.count > 0 || targetStatus.nextAt > now) {
+                    firstTemporaryBlock ||= {
+                        reason: `Modelo ${model.toUpperCase()}: alvo temporariamente indisponível`,
+                        dueAt: Math.max(targetStatus.slotAt || 0, targetStatus.nextAt || 0),
+                    };
+                }
                 continue;
             }
-            const targetStatus = getActiveTargetStatus(model, targetKey, config, activeAttacks);
+            if (!modelHasCapacity(model, config, activeCounts)) {
+                firstTemporaryBlock ||= {
+                    reason: `Modelo ${model.toUpperCase()}: máximo de ataques em curso`,
+                    dueAt: getNextActiveImpact(model),
+                };
+                continue;
+            }
             if (targetStatus.count >= targetStatus.maximum) {
-                state.pageDeferredCandidates += 1;
+                firstTemporaryBlock ||= {
+                    reason: `Modelo ${model.toUpperCase()}: ataques/alvo no limite`,
+                    dueAt: targetStatus.slotAt,
+                };
                 continue;
             }
             if (targetStatus.nextAt > now) {
-                state.pageDeferredCandidates += 1;
-                state.pendingTargetDueAt = state.pendingTargetDueAt > 0
-                    ? Math.min(state.pendingTargetDueAt, targetStatus.nextAt)
-                    : targetStatus.nextAt;
+                firstTemporaryBlock ||= {
+                    reason: `Modelo ${model.toUpperCase()}: diferença de chegada`,
+                    dueAt: targetStatus.nextAt,
+                };
                 continue;
             }
             return { model, button, reportColor };
+        }
+        if (firstTemporaryBlock) {
+            setStrictOrderBlock(targetKey, firstTemporaryBlock.reason, firstTemporaryBlock.dueAt);
         }
         return null;
     }
@@ -3427,7 +3509,7 @@
 
     function getActiveTargetStatus(model, targetKey, config, attacksValue) {
         const maximum = getSameVillageLimit(config);
-        if (!targetKey) return { count: 0, maximum, nextAt: 0 };
+        if (!targetKey) return { count: 0, maximum, nextAt: 0, slotAt: 0 };
         const attacks = Array.isArray(attacksValue)
             ? attacksValue
             : getActiveAttacksForCurrentVillage();
@@ -3442,10 +3524,15 @@
                 : 0;
             nextAt = Math.max(nextAt, storedNextAt || migratedNextAt);
         });
+        const now = Date.now();
+        const activeMatching = matching.filter(attack => attack.impactAt > now);
         return {
-            count: matching.filter(attack => attack.impactAt > Date.now()).length,
+            count: activeMatching.length,
             maximum,
             nextAt,
+            slotAt: activeMatching.length
+                ? Math.min(...activeMatching.map(attack => attack.impactAt))
+                : 0,
         };
     }
 
