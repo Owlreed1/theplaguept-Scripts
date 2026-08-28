@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.10
+// @version      1.3.11
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.10',
+        version: '1.3.11',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -285,7 +285,7 @@
             #${APP.buttonId} [data-auto-farm-dot]{position:absolute!important;right:2px!important;bottom:2px!important;width:6px!important;height:6px!important;border:1px solid #2b1509!important;border-radius:50%!important;background:#ff6b6b!important;box-shadow:0 0 2px #000!important}
             #${APP.buttonId}.af-ligado [data-auto-farm-dot]{background:#7cfc00!important}
             #${APP.buttonId}.af-verificacao [data-auto-farm-dot]{background:#ffe34a!important}
-            #${APP.buttonId} [data-auto-farm-countdown]{position:absolute!important;display:none!important;top:31px!important;left:50%!important;transform:translateX(-50%)!important;min-width:46px!important;padding:3px 5px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 10px Verdana,Arial,sans-serif!important;line-height:13px!important;text-align:center!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 5px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
+            #${APP.buttonId} [data-auto-farm-countdown]{position:absolute!important;display:block!important;top:31px!important;left:50%!important;transform:translateX(-50%)!important;min-width:46px!important;padding:3px 5px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 10px Verdana,Arial,sans-serif!important;line-height:13px!important;text-align:center!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 5px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
             #${APP.buttonId} [data-auto-farm-countdown][hidden]{display:none!important}
             #${APP.buttonId}:hover [data-auto-farm-countdown]:not([hidden]),#${APP.buttonId}:focus-visible [data-auto-farm-countdown]:not([hidden]){display:block!important}
             #${APP.toolbarId}>#${APP.buttonId}::after{content:attr(data-tp-title);position:absolute!important;display:none!important;top:52px!important;left:50%!important;transform:translateX(-50%)!important;min-width:max-content!important;max-width:380px!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
@@ -1325,13 +1325,12 @@
             const remaining = formatShortDuration(run.round.pauseUntil - now);
             text = `Nova ronda ${remaining}`;
             title = `Tempo até ao início da próxima ronda: ${remaining}`;
-        } else if (state.pendingTargetDueAt > now) {
-            const remaining = formatShortDuration(state.pendingTargetDueAt - now);
-            text = `Próx. adiada ${remaining}`;
-            title = `Tempo estimado até uma aldeia adiada voltar a ficar disponível: ${remaining}`;
         } else if (state.farmRunning) {
             text = 'A enviar…';
             title = 'A processar o próximo envio';
+        } else {
+            text = 'Ronda em curso';
+            title = 'A percorrer as aldeias da ronda atual';
         }
 
         display.textContent = text;
@@ -2413,7 +2412,6 @@
                     activeAttacks
                 );
                 if (targetStatus.count >= maximum) {
-                    deferFarmRow(targetStatus.slotAt);
                     continue;
                 }
 
@@ -2523,6 +2521,9 @@
                 continue;
             }
             const targetStatus = getActiveTargetStatus(model, targetKey, config, activeAttacks);
+            if (targetStatus.count >= targetStatus.maximum) {
+                continue;
+            }
             if (isFarmButtonDisabled(button)) {
                 if (targetStatus.count > 0 || targetStatus.nextAt > now) {
                     deferFarmRow(Math.max(targetStatus.slotAt || 0, targetStatus.nextAt || 0));
@@ -2531,10 +2532,6 @@
             }
             if (!modelHasCapacity(model, config, activeCounts)) {
                 deferFarmRow(getNextActiveImpact(model));
-                continue;
-            }
-            if (targetStatus.count >= targetStatus.maximum) {
-                deferFarmRow(targetStatus.slotAt);
                 continue;
             }
             if (targetStatus.nextAt > now) {
