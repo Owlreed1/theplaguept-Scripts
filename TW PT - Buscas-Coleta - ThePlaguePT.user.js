@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.0.2
+// @version      1.1.0
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-    var SCRIPT_VERSION = '1.0.2';
+    var SCRIPT_VERSION = '1.1.0';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -28,6 +28,7 @@
     var WORKER_KEY = chaveDoMundo('scriptColeta.workerHeartbeat.v1');
     var BUTTON_ID = 'script-coleta-toggle';
     var PANEL_ID = 'script-coleta-settings';
+    var PANEL_TOGGLE_ID = 'script-coleta-settings-toggle';
     var STYLE_ID = 'script-coleta-style';
     var TOOLBAR_ID = 'tp-theplaguept-script-bar';
     var WORKER_TAB_NAME = 'scriptColetaWorker_' + WORLD_SCOPE;
@@ -57,20 +58,20 @@
         knight: 'Paladino'
     });
     var DEFAULT_CONFIG = {
-        version: 2,
+        version: 3,
         groupId: '0',
-        unlockEnabled: true,
+        unlockEnabled: false,
         unlockEveryCycles: 4,
         returnBufferSeconds: 60,
         enabledUnits: {
-            spear: true,
-            sword: true,
-            axe: true,
-            archer: true,
-            light: true,
-            marcher: true,
-            heavy: true,
-            knight: true
+            spear: false,
+            sword: false,
+            axe: false,
+            archer: false,
+            light: false,
+            marcher: false,
+            heavy: false,
+            knight: false
         },
         keepHome: {
             spear: 0,
@@ -100,6 +101,7 @@
     var timerContagem = null;
     var timerHeartbeat = null;
     var timerSupervisor = null;
+    var timerGuardarPainel = null;
     var workerWindowRef = null;
     var cicloEmCurso = false;
     var estadoAtual = 'Parado';
@@ -181,12 +183,32 @@
             guardada.enabledUnits = unidadesAntigas;
         }
 
+        var reservasAntigas = guardada.keepHome || {};
+        var usaPredefinicaoAnterior = Number(guardada.version || 0) < 3 &&
+            Object.keys(UNIT_CARRY).every(function (unidade) {
+                return unidadesAntigas[unidade] === true &&
+                    (!reservasAntigas[unidade] || Number(reservasAntigas[unidade]) === 0);
+            }) &&
+            guardada.unlockEnabled !== false &&
+            String(guardada.groupId === undefined ? '0' : guardada.groupId) === '0' &&
+            Number(guardada.unlockEveryCycles || 4) === 4 &&
+            Number(guardada.returnBufferSeconds || 60) === 60;
+        if (usaPredefinicaoAnterior) {
+            Object.keys(UNIT_CARRY).forEach(function (unidade) {
+                unidadesAntigas[unidade] = false;
+            });
+            guardada.enabledUnits = unidadesAntigas;
+            guardada.unlockEnabled = false;
+        }
+
         var config = {
-            version: 2,
+            version: 3,
             groupId: /^-?\d+$/.test(String(guardada.groupId))
                 ? String(guardada.groupId)
                 : DEFAULT_CONFIG.groupId,
-            unlockEnabled: guardada.unlockEnabled !== false,
+            unlockEnabled: typeof guardada.unlockEnabled === 'boolean'
+                ? guardada.unlockEnabled
+                : DEFAULT_CONFIG.unlockEnabled,
             unlockEveryCycles: limitarInteiro(
                 guardada.unlockEveryCycles,
                 3,
@@ -295,19 +317,7 @@
         botao.addEventListener('click', function (evento) {
             evento.preventDefault();
             evento.stopPropagation();
-
-            var ligar = !estaLigado();
-            localStorage.setItem(STORAGE_KEY, ligar ? '1' : '0');
-            pararAutomacao(!ligar);
-
-            if (ligar) {
-                estado.nextRunAt = 0;
-                guardarEstado();
-                atualizarBotao('A iniciar…');
-                iniciarAutomacao(true);
-            } else {
-                atualizarBotao('Parado');
-            }
+            abrirOuFocarSeparadorTrabalho();
         });
 
         barra.appendChild(botao);
@@ -343,17 +353,46 @@
             '#script-coleta-toggle [data-script-coleta-countdown][hidden]{display:none!important}',
             '#tp-theplaguept-script-bar>#script-coleta-toggle::after{content:attr(data-tp-title);position:absolute!important;display:none!important;top:33px!important;left:50%!important;transform:translateX(-50%)!important;min-width:max-content!important;max-width:420px!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}',
             '#tp-theplaguept-script-bar>#script-coleta-toggle:hover::after,#tp-theplaguept-script-bar>#script-coleta-toggle:focus-visible::after{display:block!important}',
-            '#script-coleta-settings{margin:10px 0;padding:10px;border:1px solid #7d510f;background:#f4e4bc;color:#2b1509;font:12px Verdana,Arial,sans-serif}',
-            '#script-coleta-settings h3{margin:0 0 8px;font-size:15px}',
-            '#script-coleta-settings .sc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:5px 10px;margin:8px 0}',
-            '#script-coleta-settings .sc-unit{display:grid;grid-template-columns:22px 1fr 62px;align-items:center;gap:4px;padding:4px;background:#ead39d;border:1px solid #c49b55}',
-            '#script-coleta-settings .sc-unit input[type=number]{width:58px;box-sizing:border-box}',
-            '#script-coleta-settings .sc-options{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;margin:8px 0}',
-            '#script-coleta-settings .sc-options label{white-space:nowrap}',
-            '#script-coleta-settings input[type=number],#script-coleta-settings input[type=text],#script-coleta-settings select{padding:3px;border:1px solid #8d6b35;background:#fff}',
-            '#script-coleta-settings .sc-actions{display:flex;align-items:center;gap:8px;margin-top:8px}',
-            '#script-coleta-settings .sc-status{margin-top:8px;padding:6px;background:#fff4d2;border-left:4px solid #8c5b15}',
-            '#script-coleta-settings .sc-note{display:block;margin-top:6px;color:#654820}'
+            '#script-coleta-settings{margin:6px 0 9px;border:1px solid #c8a86a;background:#f6e8bd;color:#3c2a14;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}',
+            '#script-coleta-settings *{box-sizing:border-box}',
+            '#script-coleta-settings .sc-settings-title{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border-bottom:1px solid #d3b97d;background:linear-gradient(to bottom,#f9edca,#f0dca8);font:17px Georgia,"Times New Roman",serif;color:#3d2915}',
+            '#script-coleta-settings .sc-settings-actions{display:flex;align-items:center;gap:8px}',
+            '#script-coleta-settings .sc-settings-actions small{font:10px Verdana,Arial,sans-serif;color:#80643b}',
+            '#script-coleta-settings .sc-settings-toggle{min-width:74px;height:27px;padding:3px 10px;border:1px solid #4f120f;border-radius:3px;background:linear-gradient(#b33a34,#8f2420 55%,#681611);box-shadow:inset 0 1px #ffffff59,0 1px 3px #0005;color:#fff;font:bold 11px Verdana,Arial,sans-serif;text-shadow:1px 1px #000;cursor:pointer}',
+            '#script-coleta-settings .sc-settings-toggle.sc-ligado{background:linear-gradient(#5f9f3d,#3f7c27 55%,#28551a)}',
+            '#script-coleta-settings .sc-settings-toggle:hover,#script-coleta-settings .sc-settings-toggle:focus-visible{filter:brightness(1.15)}',
+            '#script-coleta-settings .sc-settings-body{padding:8px}',
+            '#script-coleta-settings .sc-section-title{display:flex;align-items:center;gap:8px;margin:0 0 6px;color:#75501f;font-weight:bold;letter-spacing:1.2px}',
+            '#script-coleta-settings .sc-section-title::after{content:"";height:1px;flex:1;background:#b99658}',
+            '#script-coleta-settings .sc-unit-grid{display:grid;grid-template-columns:repeat(4,minmax(175px,1fr));gap:8px}',
+            '#script-coleta-settings .sc-unit-card,#script-coleta-settings .sc-control-card{min-width:0;border:1px solid #c4a15d;border-radius:4px;background:#faefd0;box-shadow:0 1px 2px #70502024;overflow:hidden;transition:opacity .15s ease}',
+            '#script-coleta-settings .sc-option-off{opacity:.56}',
+            '#script-coleta-settings .sc-unit-head,#script-coleta-settings .sc-control-head{display:flex;align-items:center;gap:7px;min-height:34px;padding:4px 8px;border-bottom:1px solid #d3b778;background:#f8e8bc}',
+            '#script-coleta-settings .sc-unit-icon{display:inline-flex;align-items:center;justify-content:center;width:25px;height:24px;border:1px solid #594325;border-radius:4px;background:linear-gradient(#7f6846,#3f3020);box-shadow:inset 0 1px #ffffff73,0 1px 2px #0005}',
+            '#script-coleta-settings .sc-unit-icon img{display:block;max-width:20px;max-height:20px}',
+            '#script-coleta-settings .sc-unit-name{flex:1;font-weight:bold;font-size:11px}',
+            '#script-coleta-settings .sc-switch{display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none;white-space:nowrap}',
+            '#script-coleta-settings .sc-switch input{position:absolute;opacity:0;pointer-events:none}',
+            '#script-coleta-settings .sc-switch-track{position:relative;width:32px;height:18px;border:1px solid #a37b35;border-radius:10px;background:#ecd8a5;box-shadow:inset 0 1px 2px #0003}',
+            '#script-coleta-settings .sc-switch-track::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#9a855b;box-shadow:0 1px 2px #0005;transition:left .14s ease,background .14s ease}',
+            '#script-coleta-settings .sc-switch input:checked+.sc-switch-track{background:#b48335}',
+            '#script-coleta-settings .sc-switch input:checked+.sc-switch-track::after{left:16px;background:#f5dfaa}',
+            '#script-coleta-settings .sc-switch input:focus-visible+.sc-switch-track{outline:2px solid #3777c7;outline-offset:1px}',
+            '#script-coleta-settings .sc-unit-body,#script-coleta-settings .sc-control-body{padding:7px 8px}',
+            '#script-coleta-settings .sc-unit-body label,#script-coleta-settings .sc-control-body label{display:grid;grid-template-columns:minmax(88px,1fr) 82px;align-items:center;gap:6px;color:#75532b;font-weight:bold;font-size:9px;text-transform:uppercase}',
+            '#script-coleta-settings input[type=number],#script-coleta-settings input[type=text],#script-coleta-settings select{width:100%;height:25px;padding:2px 5px;border:1px solid #d2b275;border-radius:3px;background:#fffaf0;color:#3b2814;font:11px Verdana,Arial,sans-serif}',
+            '#script-coleta-settings input:disabled,#script-coleta-settings select:disabled{cursor:not-allowed;opacity:.62;background:#f0e3bf}',
+            '#script-coleta-settings .sc-controls-grid{display:grid;grid-template-columns:minmax(260px,.7fr) minmax(380px,1.3fr);gap:8px;margin-top:8px}',
+            '#script-coleta-settings .sc-control-head>span:first-child{flex:1;color:#75501f;font-weight:bold;letter-spacing:.7px}',
+            '#script-coleta-settings .sc-two-fields{display:grid;grid-template-columns:1fr 1.35fr;gap:10px}',
+            '#script-coleta-settings .sc-input-suffix{display:grid;grid-template-columns:1fr 16px;align-items:center;gap:3px}',
+            '#script-coleta-settings .sc-input-suffix small{font-size:9px;text-transform:none}',
+            '#script-coleta-settings .sc-status{margin-top:8px;padding:6px 8px;border:1px dashed #d1b475;border-radius:3px;background:#fff4d6;color:#80643b;font-size:10px}',
+            '#script-coleta-settings .sc-status strong{color:#5d2d12}',
+            '#script-coleta-settings .sc-note{display:block;margin-top:7px;color:#87683d;font-size:9px;line-height:13px}',
+            '@media(max-width:1200px){#script-coleta-settings .sc-unit-grid{grid-template-columns:repeat(3,minmax(175px,1fr))}}',
+            '@media(max-width:850px){#script-coleta-settings .sc-unit-grid{grid-template-columns:repeat(2,minmax(175px,1fr))}#script-coleta-settings .sc-controls-grid{grid-template-columns:1fr}}',
+            '@media(max-width:560px){#script-coleta-settings .sc-unit-grid,#script-coleta-settings .sc-two-fields{grid-template-columns:1fr}#script-coleta-settings .sc-settings-title{font-size:15px}}'
         ].join('');
         document.head.appendChild(estilo);
     }
@@ -379,13 +418,18 @@
         }
 
         preencherPainel();
-        painel.querySelector('[data-sc-save]').addEventListener(
+        painel.addEventListener('change', tratarEdicaoPainel);
+        painel.addEventListener('input', function (evento) {
+            if (
+                evento.target instanceof HTMLInputElement &&
+                (evento.target.type === 'number' || evento.target.type === 'text')
+            ) {
+                agendarGuardarPainel();
+            }
+        });
+        painel.querySelector('#' + PANEL_TOGGLE_ID).addEventListener(
             'click',
-            guardarPainel
-        );
-        painel.querySelector('[data-sc-run]').addEventListener(
-            'click',
-            executarAgora
+            alternarEstadoPeloPainel
         );
         atualizarResumoPainel();
     }
@@ -393,37 +437,68 @@
     function montarHtmlPainel() {
         var unidades = obterUnidadesDisponiveisNoMundo().map(function (unidade) {
             return [
-                '<label class="sc-unit">',
+                '<article class="sc-unit-card" data-sc-unit-card="', unidade, '">',
+                '<header class="sc-unit-head">',
+                '<span class="sc-unit-icon"><img src="/graphic/unit/unit_', unidade, '.png" alt=""></span>',
+                '<span class="sc-unit-name">', UNIT_LABELS[unidade], '</span>',
+                '<label class="sc-switch">',
                 '<input type="checkbox" data-sc-unit="', unidade, '">',
-                '<span>', UNIT_LABELS[unidade], '</span>',
+                '<span class="sc-switch-track" aria-hidden="true"></span>',
+                '<span>Ativo</span>',
+                '</label>',
+                '</header>',
+                '<div class="sc-unit-body">',
+                '<label><span>Deixar em casa</span>',
                 '<input type="number" min="0" max="999999" step="1" ',
-                'data-sc-keep="', unidade, '" title="Unidades a deixar em casa">',
-                '</label>'
+                'data-sc-keep="', unidade, '" title="Unidades a deixar em casa"></label>',
+                '</div>',
+                '</article>'
             ].join('');
         }).join('');
 
         return [
-            '<h3>TW PT — Buscas/Coleta — ThePlaguePT</h3>',
-            '<div>Seleciona as unidades permitidas e indica quantas devem ficar em casa.</div>',
-            '<div class="sc-grid">', unidades, '</div>',
-            '<div class="sc-options">',
-            '<label>Grupo <input type="text" size="5" data-sc-group title="0 = todas as aldeias"></label>',
-            '<label><input type="checkbox" data-sc-unlock> Tentar desbloquear níveis</label>',
-            '<label>A cada <select data-sc-unlock-every>',
+            '<header class="sc-settings-title">',
+            '<span>Buscas/Coleta — Definições</span>',
+            '<span class="sc-settings-actions">',
+            '<small data-sc-saved>Guardado automaticamente</small>',
+            '<button id="', PANEL_TOGGLE_ID, '" class="sc-settings-toggle" type="button">Ligar</button>',
+            '</span>',
+            '</header>',
+            '<div class="sc-settings-body">',
+            '<div class="sc-section-title">UNIDADES DE COLETA</div>',
+            '<div class="sc-unit-grid">', unidades, '</div>',
+            '<div class="sc-controls-grid">',
+            '<article class="sc-control-card sc-unlock-card">',
+            '<header class="sc-control-head">',
+            '<span>DESBLOQUEAR NÍVEIS</span>',
+            '<label class="sc-switch">',
+            '<input type="checkbox" data-sc-unlock>',
+            '<span class="sc-switch-track" aria-hidden="true"></span>',
+            '<span>Ativo</span>',
+            '</label>',
+            '</header>',
+            '<div class="sc-control-body">',
+            '<label><span>Tentar a cada</span><select data-sc-unlock-every>',
             '<option value="3">3 ciclos</option>',
             '<option value="4">4 ciclos</option>',
             '<option value="5">5 ciclos</option>',
             '</select></label>',
-            '<label>Margem após regresso <input type="number" min="30" max="300" ',
-            'step="5" data-sc-buffer> s</label>',
             '</div>',
-            '<div class="sc-actions">',
-            '<button type="button" class="btn" data-sc-save>Guardar</button>',
-            '<button type="button" class="btn" data-sc-run>Executar agora</button>',
+            '</article>',
+            '<article class="sc-control-card">',
+            '<header class="sc-control-head"><span>ALDEIAS E TEMPOS</span></header>',
+            '<div class="sc-control-body sc-two-fields">',
+            '<label><span>Grupo</span><input type="text" data-sc-group title="0 = todas as aldeias"></label>',
+            '<label><span>Margem após regresso</span><span class="sc-input-suffix">',
+            '<input type="number" min="30" max="300" step="5" data-sc-buffer><small>s</small>',
+            '</span></label>',
             '</div>',
-            '<small class="sc-note">O rácio é calculado pela capacidade de saque e pelos ',
-            'fatores reais dos níveis. Com quatro níveis equivale a 15:6:3:2.</small>',
-            '<div class="sc-status" data-sc-status></div>'
+            '</article>',
+            '</div>',
+            '<small class="sc-note">O rácio é calculado pela capacidade de saque e pelos fatores reais dos níveis. ',
+            'Com quatro níveis equivale a 15:6:3:2.</small>',
+            '<div class="sc-status" data-sc-status></div>',
+            '</div>'
         ].join('');
     }
 
@@ -445,12 +520,46 @@
             String(CONFIG.unlockEveryCycles);
         painel.querySelector('[data-sc-buffer]').value =
             String(CONFIG.returnBufferSeconds);
+        atualizarEstadoControlosPainel();
+    }
+
+    function tratarEdicaoPainel(evento) {
+        if (
+            !(evento.target instanceof HTMLInputElement) &&
+            !(evento.target instanceof HTMLSelectElement)
+        ) {
+            return;
+        }
+        if (evento.target.id === PANEL_TOGGLE_ID) {
+            return;
+        }
+        guardarPainel();
+    }
+
+    function agendarGuardarPainel() {
+        var indicador = document.querySelector(
+            '#' + PANEL_ID + ' [data-sc-saved]'
+        );
+        if (indicador) {
+            indicador.textContent = 'A guardar…';
+        }
+        if (timerGuardarPainel !== null) {
+            window.clearTimeout(timerGuardarPainel);
+        }
+        timerGuardarPainel = window.setTimeout(function () {
+            timerGuardarPainel = null;
+            guardarPainel();
+        }, 300);
     }
 
     function guardarPainel() {
         var painel = document.getElementById(PANEL_ID);
         if (!painel) {
             return;
+        }
+        if (timerGuardarPainel !== null) {
+            window.clearTimeout(timerGuardarPainel);
+            timerGuardarPainel = null;
         }
 
         obterUnidadesDisponiveisNoMundo().forEach(function (unidade) {
@@ -482,17 +591,110 @@
         );
 
         escreverJsonSeguro(localStorage, SETTINGS_KEY, CONFIG);
-        preencherPainel();
         estado.nextRunAt = 0;
-        estado.lastSummary = 'Definições guardadas.';
         guardarEstado();
-
-        if (window.UI && typeof window.UI.SuccessMessage === 'function') {
-            window.UI.SuccessMessage('Definições da coleta guardadas.');
-        }
+        atualizarEstadoControlosPainel();
+        mostrarPainelGuardado();
         if (estaLigado()) {
+            reiniciarAutomacaoAposEdicao();
+        }
+    }
+
+    function mostrarPainelGuardado() {
+        var indicador = document.querySelector(
+            '#' + PANEL_ID + ' [data-sc-saved]'
+        );
+        if (!indicador) {
+            return;
+        }
+        indicador.textContent = 'Guardado';
+        window.setTimeout(function () {
+            if (indicador.isConnected) {
+                indicador.textContent = 'Guardado automaticamente';
+            }
+        }, 900);
+    }
+
+    function atualizarEstadoControlosPainel() {
+        var painel = document.getElementById(PANEL_ID);
+        if (!painel) {
+            return;
+        }
+
+        obterUnidadesDisponiveisNoMundo().forEach(function (unidade) {
+            var ativo = Boolean(CONFIG.enabledUnits[unidade]);
+            var card = painel.querySelector(
+                '[data-sc-unit-card="' + unidade + '"]'
+            );
+            var reserva = painel.querySelector('[data-sc-keep="' + unidade + '"]');
+            if (card) {
+                card.classList.toggle('sc-option-off', !ativo);
+            }
+            if (reserva) {
+                reserva.disabled = !ativo;
+            }
+        });
+
+        var unlockAtivo = Boolean(CONFIG.unlockEnabled);
+        var unlockCard = painel.querySelector('.sc-unlock-card');
+        var unlockEvery = painel.querySelector('[data-sc-unlock-every]');
+        if (unlockCard) {
+            unlockCard.classList.toggle('sc-option-off', !unlockAtivo);
+        }
+        if (unlockEvery) {
+            unlockEvery.disabled = !unlockAtivo;
+        }
+        atualizarBotaoPainel();
+    }
+
+    function alternarEstadoPeloPainel(evento) {
+        evento.preventDefault();
+        var ligar = !estaLigado();
+        localStorage.setItem(STORAGE_KEY, ligar ? '1' : '0');
+        pararAutomacao(!ligar);
+
+        if (ligar) {
+            estado.nextRunAt = 0;
+            guardarEstado();
+            atualizarBotao('A iniciar…');
+            iniciarAutomacao(true);
+        } else {
+            atualizarBotao('Parado');
+        }
+        atualizarBotaoPainel();
+    }
+
+    function atualizarBotaoPainel() {
+        var toggle = document.getElementById(PANEL_TOGGLE_ID);
+        if (!toggle) {
+            return;
+        }
+        var ligado = estaLigado();
+        toggle.textContent = ligado ? 'Desligar' : 'Ligar';
+        toggle.classList.toggle('sc-ligado', ligado);
+        toggle.setAttribute('aria-pressed', ligado ? 'true' : 'false');
+        toggle.setAttribute(
+            'aria-label',
+            ligado ? 'Desligar Buscas/Coleta' : 'Ligar Buscas/Coleta'
+        );
+    }
+
+    function reiniciarAutomacaoAposEdicao() {
+        geracao += 1;
+        limparTimerPrincipal();
+
+        function retomarQuandoSeguro() {
+            if (!estaLigado()) {
+                return;
+            }
+            if (cicloEmCurso) {
+                timerPrincipal = window.setTimeout(retomarQuandoSeguro, 250);
+                return;
+            }
             iniciarAutomacao();
         }
+
+        retomarQuandoSeguro();
     }
 
     function obterUnidadesDisponiveisNoMundo() {
@@ -1510,10 +1712,33 @@
         });
     }
 
+    function abrirOuFocarSeparadorTrabalho() {
+        if (estaNaColetaEmMassa()) {
+            criarPainel();
+            atualizarBotao('Separador de trabalho aberto');
+            try {
+                window.focus();
+            } catch (erro) {
+                // O navegador decide se permite alterar o foco.
+            }
+            return true;
+        }
+        return abrirWorker();
+    }
+
     function abrirWorker() {
         if (workerEstaAtivo()) {
-            atualizarBotao('A trabalhar noutro separador');
-            return true;
+            try {
+                var existente = window.open('', WORKER_TAB_NAME);
+                if (existente) {
+                    workerWindowRef = existente;
+                    existente.focus();
+                    atualizarBotao('Separador de trabalho focado');
+                    return true;
+                }
+            } catch (erroFoco) {
+                // Se não for possível focar, tenta abrir pelo URL normal.
+            }
         }
         var worker = window.open(criarUrlColetaEmMassa(0), WORKER_TAB_NAME);
         if (!worker) {
@@ -1524,7 +1749,7 @@
         atualizarBotao('Coleta aberta noutro separador');
         iniciarSupervisor();
         try {
-            window.focus();
+            worker.focus();
         } catch (erro) {
             // O navegador escolhe o separador que fica em primeiro plano.
         }
@@ -1633,12 +1858,16 @@
                 pararAutomacao(true);
                 atualizarBotao('Parado');
             }
+            atualizarBotaoPainel();
         } else if (evento.key === STATE_KEY) {
             estado = carregarEstado();
             atualizarResumoPainel();
         } else if (evento.key === SETTINGS_KEY) {
             CONFIG = carregarConfiguracao();
             preencherPainel();
+            if (estaLigado() && estaNaColetaEmMassa()) {
+                reiniciarAutomacaoAposEdicao();
+            }
         }
     }
 
@@ -1648,8 +1877,9 @@
         }
         var ligado = estaLigado();
         estadoAtual = mensagem || (ligado ? 'Ativo' : 'Parado');
-        var titulo = 'Script Coleta: ' +
-            (ligado ? 'LIGADO' : 'DESLIGADO') + ' — ' + estadoAtual;
+        var titulo = 'Buscas/Coleta: ' +
+            (ligado ? 'LIGADO' : 'DESLIGADO') + ' — ' + estadoAtual +
+            '. Clique para abrir ou focar o separador de trabalho.';
         botao.classList.toggle('sc-ligado', ligado);
         botao.setAttribute('aria-label', titulo);
         botao.setAttribute('data-tp-title', titulo);
@@ -1664,6 +1894,7 @@
             }
         }
         atualizarResumoPainel();
+        atualizarBotaoPainel();
         if (timerHeartbeat !== null) {
             publicarHeartbeat();
         }

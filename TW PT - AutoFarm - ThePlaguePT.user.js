@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.6
+// @version      1.3.7
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.6',
+        version: '1.3.7',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -242,11 +242,7 @@
         button.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();
-            if (isEnabled()) {
-                disable();
-            } else {
-                enable(true);
-            }
+            openWorker(true);
         });
 
         ensureToolbar().appendChild(button);
@@ -1117,7 +1113,6 @@
     }
 
     function openWorker(fromUserGesture) {
-        if (!isEnabled()) localStorage.setItem(keys.enabled, '1');
         if (state.captchaPaused || hasCaptchaChallenge(document)) {
             pauseForCaptcha('página do jogo');
             return null;
@@ -1141,7 +1136,7 @@
             state.popupBlocked = true;
             updateUi();
             if (fromUserGesture) {
-                notify('error', 'O browser bloqueou o separador do Assistente de Saque. Autoriza pop-ups para este mundo e volta a ligar o botão AF.');
+                notify('error', 'O browser bloqueou o separador do Assistente de Saque. Autoriza pop-ups para este mundo e clica novamente no botão AF.');
             }
             return null;
         }
@@ -1306,10 +1301,10 @@
             state.button.classList.toggle('af-ligado', enabled && !captchaPaused);
             state.button.classList.toggle('af-verificacao', captchaPaused);
             state.button.dataset.tpTitle = captchaPaused
-                ? `${APP.name}: ${label}. Resolve manualmente; nenhum comando será enviado.`
-                : `${APP.name}: ${label}. Clique para ${enabled ? 'desligar' : 'ligar'}.`;
+                ? `${APP.name}: ${label}. Clique para abrir o separador e resolver manualmente.`
+                : `${APP.name}: ${label}. Clique para abrir ou focar o separador de trabalho.`;
             state.button.setAttribute('aria-label', state.button.dataset.tpTitle);
-            state.button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            state.button.removeAttribute('aria-pressed');
         }
 
         const settingsToggle = document.getElementById(APP.settingsToggleId);
