@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.9
+// @version      1.3.10
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.9',
+        version: '1.3.10',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -122,10 +122,7 @@
         recentCommandSends: [],
         farmSent: 0,
         pendingTargetDueAt: 0,
-        strictOrderBlocked: false,
-        strictBlockKey: '',
-        strictBlockReason: '',
-        strictBlockSince: 0,
+        settingsTimerInterval: 0,
         spyRunning: false,
         spyAbortController: null,
         unitSpeed: null,
@@ -187,6 +184,7 @@
         if (isFarmPage()) {
             createWorkerPanel();
             createModelsPanel();
+            startSettingsTimer();
             if (!state.captchaPaused) loadWorldUnitSpeed();
             if (isEnabled() && !state.captchaPaused) startWorker();
         }
@@ -304,6 +302,7 @@
             #${APP.settingsId} .af-settings-title{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border-bottom:1px solid #d3b97d;background:linear-gradient(to bottom,#f9edca,#f0dca8);font:17px Georgia,'Times New Roman',serif;color:#3d2915}
             #${APP.settingsId} .af-settings-title small{font:10px Verdana,Arial,sans-serif;color:#80643b}
             #${APP.settingsId} .af-settings-actions{display:flex;align-items:center;gap:8px}
+            #${APP.settingsId} .af-settings-timer{display:inline-flex;align-items:center;justify-content:center;min-width:112px;height:25px;padding:3px 7px;border:1px solid #c5a66a;border-radius:3px;background:#f3dfae;color:#77552a;font:bold 9px Verdana,Arial,sans-serif;white-space:nowrap}
             #${APP.settingsId} .af-settings-toggle{min-width:74px;height:27px;padding:3px 10px;border:1px solid #4f120f;border-radius:3px;background:linear-gradient(#b33a34,#8f2420 55%,#681611);box-shadow:inset 0 1px #ffffff59,0 1px 3px #0005;color:#fff;font:bold 11px Verdana,Arial,sans-serif;text-shadow:1px 1px #000;cursor:pointer}
             #${APP.settingsId} .af-settings-toggle.af-ligado{background:linear-gradient(#5f9f3d,#3f7c27 55%,#28551a)}
             #${APP.settingsId} .af-settings-toggle.af-verificacao{background:linear-gradient(#d99a2b,#a86412 55%,#754006)}
@@ -414,6 +413,7 @@
                     <span>Auto Farm — Definições</span>
                     <span class="af-settings-actions">
                         <small data-role="saved">Guardado automaticamente</small>
+                        <span class="af-settings-timer" data-role="settings-timer">A iniciar…</span>
                         <button id="${APP.settingsToggleId}" class="af-settings-toggle" type="button">Ligar</button>
                     </span>
                 </header>
@@ -1294,6 +1294,60 @@
         }, APP.monitorMs);
     }
 
+    function startSettingsTimer() {
+        window.clearInterval(state.settingsTimerInterval);
+        state.settingsTimerInterval = window.setInterval(renderSettingsTimer, 1000);
+        renderSettingsTimer();
+    }
+
+    function renderSettingsTimer() {
+        const display = state.settingsPanel?.querySelector('[data-role="settings-timer"]');
+        if (!display) return;
+
+        const now = Date.now();
+        const run = readRunState();
+        let text = 'Em execução';
+        let title = 'AutoFarm em execução';
+
+        if (!isEnabled()) {
+            text = 'Desligado';
+            title = 'AutoFarm desligado';
+        } else if (state.captchaPaused) {
+            text = 'CAPTCHA — pausa';
+            title = 'AutoFarm pausado até a verificação ser resolvida';
+        } else if (!state.ownsWorker && state.acquiringWorker) {
+            text = 'A iniciar…';
+            title = 'A preparar o worker deste mundo';
+        } else if (!state.ownsWorker) {
+            text = 'A aguardar worker';
+            title = 'A aguardar o worker deste mundo';
+        } else if (run?.round?.phase === 'waiting' && run.round.pauseUntil > now) {
+            const remaining = formatShortDuration(run.round.pauseUntil - now);
+            text = `Nova ronda ${remaining}`;
+            title = `Tempo até ao início da próxima ronda: ${remaining}`;
+        } else if (state.pendingTargetDueAt > now) {
+            const remaining = formatShortDuration(state.pendingTargetDueAt - now);
+            text = `Próx. adiada ${remaining}`;
+            title = `Tempo estimado até uma aldeia adiada voltar a ficar disponível: ${remaining}`;
+        } else if (state.farmRunning) {
+            text = 'A enviar…';
+            title = 'A processar o próximo envio';
+        }
+
+        display.textContent = text;
+        display.title = title;
+    }
+
+    function formatShortDuration(milliseconds) {
+        const totalSeconds = Math.max(0, Math.ceil((Number(milliseconds) || 0) / 1000));
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = String(totalSeconds % 60).padStart(2, '0');
+        return hours > 0
+            ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}`
+            : `${minutes}:${seconds}`;
+    }
+
     function updateUi() {
         const enabled = isEnabled();
         const captchaPaused = enabled && state.captchaPaused;
@@ -1328,6 +1382,7 @@
         }
         const round = readRunState()?.round;
         renderGroupRoundStatus(round);
+        renderSettingsTimer();
         if (enabled && !captchaPaused && round?.phase === 'waiting' && round.pauseUntil > Date.now()) {
             showRoundCountdown(Math.ceil((round.pauseUntil - Date.now()) / 1000));
         } else if (!enabled || round?.phase !== 'waiting') {
@@ -1342,13 +1397,9 @@
         const current = getVillageId() || round.currentVillageId;
         const index = Math.max(0, round.villages.indexOf(current));
         const page = getFarmPageDescriptor(new URL(window.location.href)).number + 1;
-        const strictStatus = state.strictOrderBlocked
-            ? ` · a aguardar ${state.strictBlockKey.replace(/^(?:village|coord):/, '')} ` +
-                `(${state.strictBlockReason})`
-            : '';
         label.textContent = `${round.groupName}: aldeia ${index + 1}/${round.villages.length} · ` +
             `página ${page} · concluídas ${round.completedVillages.length}/${round.villages.length}` +
-            `${strictStatus}.`;
+            `.`;
     }
 
     function startFarmLoop() {
@@ -1370,7 +1421,7 @@
         state.idleScans = 0;
         state.pageDeferredCandidates = 0;
         state.pageFinalCheckDone = false;
-        clearStrictOrderBlock();
+        state.pendingTargetDueAt = 0;
         setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
         hideRoundCountdown();
     }
@@ -1414,11 +1465,6 @@
                         retryDelay = APP.idlePollMs;
                     }
                 }
-            } else if (state.strictOrderBlocked) {
-                state.idleScans = 0;
-                pendingDelay = state.pendingTargetDueAt > Date.now()
-                    ? state.pendingTargetDueAt - Date.now()
-                    : APP.idlePollMs;
             } else if (state.pendingTargetDueAt > Date.now()) {
                 state.idleScans = 0;
                 pendingDelay = state.pendingTargetDueAt - Date.now();
@@ -2041,7 +2087,6 @@
         state.pageDeferredCandidates = 0;
         state.pageFinalCheckDone = false;
         state.pendingTargetDueAt = 0;
-        clearStrictOrderBlock();
         getFarmRows().forEach(row => delete row.dataset.twPtAutofarmSent);
     }
 
@@ -2320,31 +2365,14 @@
         display.hidden = true;
     }
 
-    function setStrictOrderBlock(targetKey, reason, dueAt) {
-        const key = String(targetKey || 'linha-sem-alvo');
-        const message = String(reason || 'alvo temporariamente indisponível');
-        if (state.strictBlockKey !== key || state.strictBlockReason !== message) {
-            state.strictBlockSince = Date.now();
-            console.info(`[${APP.shortName}] Ordem estrita: a aguardar ${key} — ${message}.`);
-        }
-        state.strictOrderBlocked = true;
-        state.strictBlockKey = key;
-        state.strictBlockReason = message;
+    function deferFarmRow(dueAt) {
         state.pageDeferredCandidates += 1;
-
         const moment = Math.max(0, Number(dueAt) || 0);
         if (moment > Date.now()) {
             state.pendingTargetDueAt = state.pendingTargetDueAt > 0
                 ? Math.min(state.pendingTargetDueAt, moment)
                 : moment;
         }
-    }
-
-    function clearStrictOrderBlock() {
-        state.strictOrderBlocked = false;
-        state.strictBlockKey = '';
-        state.strictBlockReason = '';
-        state.strictBlockSince = 0;
     }
 
     function findNextFarmTask() {
@@ -2355,7 +2383,6 @@
         const activeAttacks = getActiveAttacksForCurrentVillage();
         const activeCounts = getActiveAttackCounts(activeAttacks);
         const now = Date.now();
-        state.strictOrderBlocked = false;
         state.pendingTargetDueAt = 0;
         state.pageDeferredCandidates = 0;
 
@@ -2386,12 +2413,8 @@
                     activeAttacks
                 );
                 if (targetStatus.count >= maximum) {
-                    setStrictOrderBlock(
-                        targetKey,
-                        `Modelo ${progress.model.toUpperCase()}: ataques/alvo no limite`,
-                        targetStatus.slotAt
-                    );
-                    break;
+                    deferFarmRow(targetStatus.slotAt);
+                    continue;
                 }
 
                 const button = row.querySelector(`a.farm_icon_${progress.model}`);
@@ -2407,34 +2430,20 @@
                 const nextAt = Math.max(progress.nextAt || 0, targetStatus.nextAt || 0);
                 if (isFarmButtonDisabled(button)) {
                     if (targetStatus.count > 0 || nextAt > now) {
-                        setStrictOrderBlock(
-                            targetKey,
-                            `Modelo ${progress.model.toUpperCase()}: alvo temporariamente indisponível`,
-                            Math.max(targetStatus.slotAt || 0, nextAt)
-                        );
-                        break;
+                        deferFarmRow(Math.max(targetStatus.slotAt || 0, nextAt));
                     }
                     continue;
                 }
                 if (!modelHasCapacity(progress.model, config, activeCounts)) {
-                    setStrictOrderBlock(
-                        targetKey,
-                        `Modelo ${progress.model.toUpperCase()}: máximo de ataques em curso`,
-                        getNextActiveImpact(progress.model)
-                    );
-                    break;
+                    deferFarmRow(getNextActiveImpact(progress.model));
+                    continue;
                 }
 
                 if (nextAt > now) {
-                    setStrictOrderBlock(
-                        targetKey,
-                        `Modelo ${progress.model.toUpperCase()}: diferença de chegada`,
-                        nextAt
-                    );
-                    break;
+                    deferFarmRow(nextAt);
+                    continue;
                 }
 
-                clearStrictOrderBlock();
                 return {
                     row,
                     button,
@@ -2454,7 +2463,6 @@
                 exhaustedModels
             );
             if (selected) {
-                clearStrictOrderBlock();
                 return {
                     row,
                     button: selected.button,
@@ -2463,9 +2471,7 @@
                     targetKey,
                 };
             }
-            if (state.strictOrderBlocked) break;
         }
-        if (!state.strictOrderBlocked) clearStrictOrderBlock();
         return null;
     }
 
@@ -2504,7 +2510,6 @@
         const exhaustedModels = exhaustedModelsValue instanceof Set
             ? exhaustedModelsValue
             : new Set(ensureRunState().round.exhaustedModels || []);
-        let firstTemporaryBlock = null;
         if (!reportColor) return null;
         for (const model of ['a', 'b', 'c']) {
             if (exhaustedModels.has(model)) continue;
@@ -2520,38 +2525,23 @@
             const targetStatus = getActiveTargetStatus(model, targetKey, config, activeAttacks);
             if (isFarmButtonDisabled(button)) {
                 if (targetStatus.count > 0 || targetStatus.nextAt > now) {
-                    firstTemporaryBlock ||= {
-                        reason: `Modelo ${model.toUpperCase()}: alvo temporariamente indisponível`,
-                        dueAt: Math.max(targetStatus.slotAt || 0, targetStatus.nextAt || 0),
-                    };
+                    deferFarmRow(Math.max(targetStatus.slotAt || 0, targetStatus.nextAt || 0));
                 }
                 continue;
             }
             if (!modelHasCapacity(model, config, activeCounts)) {
-                firstTemporaryBlock ||= {
-                    reason: `Modelo ${model.toUpperCase()}: máximo de ataques em curso`,
-                    dueAt: getNextActiveImpact(model),
-                };
+                deferFarmRow(getNextActiveImpact(model));
                 continue;
             }
             if (targetStatus.count >= targetStatus.maximum) {
-                firstTemporaryBlock ||= {
-                    reason: `Modelo ${model.toUpperCase()}: ataques/alvo no limite`,
-                    dueAt: targetStatus.slotAt,
-                };
+                deferFarmRow(targetStatus.slotAt);
                 continue;
             }
             if (targetStatus.nextAt > now) {
-                firstTemporaryBlock ||= {
-                    reason: `Modelo ${model.toUpperCase()}: diferença de chegada`,
-                    dueAt: targetStatus.nextAt,
-                };
+                deferFarmRow(targetStatus.nextAt);
                 continue;
             }
             return { model, button, reportColor };
-        }
-        if (firstTemporaryBlock) {
-            setStrictOrderBlock(targetKey, firstTemporaryBlock.reason, firstTemporaryBlock.dueAt);
         }
         return null;
     }
@@ -4080,6 +4070,7 @@
         state.captchaObserver?.disconnect();
         state.captchaObserver = null;
         window.clearInterval(state.monitorTimer);
+        window.clearInterval(state.settingsTimerInterval);
         window.clearTimeout(state.savedTimer);
         window.clearTimeout(state.captchaCheckTimer);
         window.clearTimeout(state.captchaResumeTimer);
