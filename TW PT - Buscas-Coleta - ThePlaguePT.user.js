@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.1.0
+// @version      1.1.1
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-    var SCRIPT_VERSION = '1.1.0';
+    var SCRIPT_VERSION = '1.1.1';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -349,9 +349,10 @@
             '#script-coleta-toggle .script-coleta-launcher-icon{display:block!important;line-height:26px!important}',
             '#script-coleta-toggle [data-script-coleta-dot]{position:absolute!important;right:2px!important;bottom:2px!important;width:6px!important;height:6px!important;border:1px solid #2b1509!important;border-radius:50%!important;background:#ff6b6b!important;box-shadow:0 0 2px #000!important}',
             '#script-coleta-toggle.sc-ligado [data-script-coleta-dot]{background:#7cfc00!important}',
-            '#script-coleta-toggle [data-script-coleta-countdown]{position:absolute!important;display:block!important;top:31px!important;left:50%!important;transform:translateX(-50%)!important;min-width:46px!important;padding:3px 5px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 10px Verdana,Arial,sans-serif!important;line-height:13px!important;text-align:center!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 5px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}',
+            '#script-coleta-toggle [data-script-coleta-countdown]{position:absolute!important;display:none!important;top:31px!important;left:50%!important;transform:translateX(-50%)!important;min-width:46px!important;padding:3px 5px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 10px Verdana,Arial,sans-serif!important;line-height:13px!important;text-align:center!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 5px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}',
             '#script-coleta-toggle [data-script-coleta-countdown][hidden]{display:none!important}',
-            '#tp-theplaguept-script-bar>#script-coleta-toggle::after{content:attr(data-tp-title);position:absolute!important;display:none!important;top:33px!important;left:50%!important;transform:translateX(-50%)!important;min-width:max-content!important;max-width:420px!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}',
+            '#script-coleta-toggle:hover [data-script-coleta-countdown]:not([hidden]),#script-coleta-toggle:focus-visible [data-script-coleta-countdown]:not([hidden]){display:block!important}',
+            '#tp-theplaguept-script-bar>#script-coleta-toggle::after{content:attr(data-tp-title);position:absolute!important;display:none!important;top:52px!important;left:50%!important;transform:translateX(-50%)!important;min-width:max-content!important;max-width:420px!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}',
             '#tp-theplaguept-script-bar>#script-coleta-toggle:hover::after,#tp-theplaguept-script-bar>#script-coleta-toggle:focus-visible::after{display:block!important}',
             '#script-coleta-settings{margin:6px 0 9px;border:1px solid #c8a86a;background:#f6e8bd;color:#3c2a14;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}',
             '#script-coleta-settings *{box-sizing:border-box}',
@@ -850,9 +851,28 @@
                 return;
             }
             if (!dados.villages.length) {
+                var recuperacao = await tentarDesbloquearPrimeiroNivelAtual(
+                    geracaoAtual
+                );
+                if (geracaoAtual !== geracao || !estaLigado()) {
+                    return;
+                }
+                if (recuperacao.iniciado) {
+                    estado.lastRunAt = Date.now();
+                    estado.consecutiveErrors = 0;
+                    estado.nextRunAt = Date.now() + 60 * 1000;
+                    estado.lastSummary =
+                        'Nível 1 da aldeia atual — desbloqueio iniciado';
+                    guardarEstado();
+                    atualizarBotao(estado.lastSummary);
+                    return;
+                }
                 throw new Error(
                     'A coleta em massa não devolveu dados de aldeias. ' +
-                    'Confirma se a funcionalidade está ativa neste mundo.'
+                    'Confirma se a funcionalidade está ativa neste mundo.' +
+                    (recuperacao.motivo
+                        ? ' Recuperação do nível 1: ' + recuperacao.motivo
+                        : '')
                 );
             }
 
@@ -1271,6 +1291,70 @@
         return iniciados;
     }
 
+    async function tentarDesbloquearPrimeiroNivelAtual(geracaoAtual) {
+        if (!CONFIG.unlockEnabled) {
+            return {
+                iniciado: false,
+                motivo: 'a definição "Desbloquear níveis" está desligada.'
+            };
+        }
+
+        var aldeiaId = obterIdAldeiaAtual();
+        if (!aldeiaId) {
+            return {
+                iniciado: false,
+                motivo: 'não foi possível identificar a aldeia atual.'
+            };
+        }
+
+        var agora = Date.now();
+        if (!podeTentarPrimeiroDesbloqueio(aldeiaId, 1, agora)) {
+            return {
+                iniciado: false,
+                motivo: 'já foi feita uma tentativa recente; será repetida mais tarde.'
+            };
+        }
+
+        estado.initialUnlockAttempts[String(aldeiaId) + ':1'] = agora;
+        guardarEstado();
+
+        if (geracaoAtual !== geracao || !estaLigado()) {
+            return { iniciado: false, motivo: 'execução interrompida.' };
+        }
+
+        try {
+            await postTribalWars(
+                'scavenge_api',
+                { ajaxaction: 'unlock_option' },
+                { village_id: aldeiaId, option_id: 1 }
+            );
+            return { iniciado: true, motivo: '' };
+        } catch (erro) {
+            console.warn(
+                '[Script Coleta] A recuperação não conseguiu desbloquear o ' +
+                'nível 1 da aldeia ' + aldeiaId + '.',
+                erro
+            );
+            return {
+                iniciado: false,
+                motivo: resumirMensagem(obterMensagemErro(erro), 100)
+            };
+        }
+    }
+
+    function obterIdAldeiaAtual() {
+        var dados = window.game_data || {};
+        var id = Number(dados.village && dados.village.id);
+        if (!Number.isFinite(id) || id <= 0) {
+            try {
+                id = Number(new URL(window.location.href).searchParams.get('village'));
+            } catch (erro) {
+                id = 0;
+            }
+        }
+        return Number.isFinite(id) && id > 0 ? Math.floor(id) : 0;
+    }
+
     function podeTentarPrimeiroDesbloqueio(aldeiaId, optionId, agora) {
         var chave = String(aldeiaId) + ':' + optionId;
         var anterior = Number(estado.initialUnlockAttempts[chave]) || 0;
@@ -1407,7 +1491,11 @@
         var valores = [];
         Array.from(documento.scripts).forEach(function (script) {
             var texto = script.textContent || '';
-            if (texto.indexOf('ScavengeMassScreen') === -1) {
+            if (
+                texto.indexOf('ScavengeMassScreen') === -1 &&
+                texto.indexOf('unit_counts_home') === -1 &&
+                texto.indexOf('duration_factor') === -1
+            ) {
                 return;
             }
             extrairArgumentosScavenge(texto).forEach(function (argumentos) {
@@ -1417,6 +1505,9 @@
                         valores.push(valor);
                     }
                 });
+            });
+            extrairValoresJsonEstruturados(texto).forEach(function (valor) {
+                valores.push(valor);
             });
         });
 
@@ -1433,6 +1524,50 @@
                 return normalizarAldeia(aldeias[id]);
             }).filter(Boolean)
         };
+    }
+
+    function extrairValoresJsonEstruturados(texto) {
+        var valores = [];
+        var maximo = 2500;
+        var tentativas = 0;
+
+        for (var indice = 0; indice < texto.length && tentativas < maximo; indice += 1) {
+            var abertura = texto.charAt(indice);
+            if (abertura !== '{' && abertura !== '[') {
+                continue;
+            }
+
+            var fecho = abertura === '{' ? '}' : ']';
+            var fim = encontrarFecho(texto, indice, abertura, fecho);
+            if (fim === -1) {
+                continue;
+            }
+
+            var candidato = texto.slice(indice, fim + 1).trim();
+            if (candidato.length < 2 || candidato.length > 8 * 1024 * 1024) {
+                continue;
+            }
+
+            if (abertura === '{') {
+                var primeiroConteudo = candidato.slice(1).match(/\S/);
+                if (
+                    primeiroConteudo &&
+                    primeiroConteudo[0] !== '"' &&
+                    primeiroConteudo[0] !== '}'
+                ) {
+                    continue;
+                }
+            }
+
+            tentativas += 1;
+            var valor = analisarJson(candidato);
+            if (valor !== null) {
+                valores.push(valor);
+                indice = fim;
+            }
+        }
+
+        return valores;
     }
 
     function extrairArgumentosScavenge(texto) {
