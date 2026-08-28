@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.1.1
+// @version      1.2.0
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-    var SCRIPT_VERSION = '1.1.1';
+    var SCRIPT_VERSION = '1.2.0';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -102,6 +102,7 @@
     var timerHeartbeat = null;
     var timerSupervisor = null;
     var timerGuardarPainel = null;
+    var geracaoGrupos = 0;
     var workerWindowRef = null;
     var cicloEmCurso = false;
     var estadoAtual = 'Parado';
@@ -290,11 +291,11 @@
         );
     }
 
-    function estaNaColetaEmMassa() {
+    function estaNaPaginaTrabalho() {
         var url = new URL(window.location.href);
         var dados = window.game_data || {};
         return (dados.screen || url.searchParams.get('screen')) === 'place' &&
-            (dados.mode || url.searchParams.get('mode')) === 'scavenge_mass';
+            (dados.mode || url.searchParams.get('mode')) === 'scavenge';
     }
 
     function criarBotao() {
@@ -388,6 +389,7 @@
             '#script-coleta-settings .sc-two-fields{display:grid;grid-template-columns:1fr 1.35fr;gap:10px}',
             '#script-coleta-settings .sc-input-suffix{display:grid;grid-template-columns:1fr 16px;align-items:center;gap:3px}',
             '#script-coleta-settings .sc-input-suffix small{font-size:9px;text-transform:none}',
+            '#script-coleta-settings .sc-group-status{grid-column:1/-1;min-height:25px;padding:5px 7px;border:1px dashed #d1b475;border-radius:3px;background:#fff4d6;color:#80643b;font-size:9px;line-height:14px}',
             '#script-coleta-settings .sc-status{margin-top:8px;padding:6px 8px;border:1px dashed #d1b475;border-radius:3px;background:#fff4d6;color:#80643b;font-size:10px}',
             '#script-coleta-settings .sc-status strong{color:#5d2d12}',
             '#script-coleta-settings .sc-note{display:block;margin-top:7px;color:#87683d;font-size:9px;line-height:13px}',
@@ -419,6 +421,7 @@
         }
 
         preencherPainel();
+        carregarGruposNoPainel();
         painel.addEventListener('change', tratarEdicaoPainel);
         painel.addEventListener('input', function (evento) {
             if (
@@ -489,10 +492,13 @@
             '<article class="sc-control-card">',
             '<header class="sc-control-head"><span>ALDEIAS E TEMPOS</span></header>',
             '<div class="sc-control-body sc-two-fields">',
-            '<label><span>Grupo</span><input type="text" data-sc-group title="0 = todas as aldeias"></label>',
+            '<label><span>Grupo</span><select data-sc-group aria-label="Grupo de aldeias da coleta">',
+            '<option value="0">Todas as aldeias</option>',
+            '</select></label>',
             '<label><span>Margem após regresso</span><span class="sc-input-suffix">',
             '<input type="number" min="30" max="300" step="5" data-sc-buffer><small>s</small>',
             '</span></label>',
+            '<div class="sc-group-status" data-sc-group-status>A carregar os grupos e aldeias do jogo…</div>',
             '</div>',
             '</article>',
             '</div>',
@@ -515,6 +521,10 @@
             painel.querySelector('[data-sc-keep="' + unidade + '"]').value =
                 String(CONFIG.keepHome[unidade] || 0);
         });
+        garantirOpcaoGrupoGuardado(
+            painel.querySelector('[data-sc-group]'),
+            CONFIG.groupId
+        );
         painel.querySelector('[data-sc-group]').value = CONFIG.groupId;
         painel.querySelector('[data-sc-unlock]').checked = CONFIG.unlockEnabled;
         painel.querySelector('[data-sc-unlock-every]').value =
@@ -575,6 +585,7 @@
             );
         });
 
+        var grupoAnterior = String(CONFIG.groupId || '0');
         var grupo = String(painel.querySelector('[data-sc-group]').value).trim();
         CONFIG.groupId = /^-?\d+$/.test(grupo) ? grupo : '0';
         CONFIG.unlockEnabled = painel.querySelector('[data-sc-unlock]').checked;
@@ -596,6 +607,9 @@
         guardarEstado();
         atualizarEstadoControlosPainel();
         mostrarPainelGuardado();
+        if (grupoAnterior !== CONFIG.groupId) {
+            carregarGruposNoPainel();
+        }
         if (estaLigado()) {
             reiniciarAutomacaoAposEdicao();
         }
@@ -614,6 +628,235 @@
                 indicador.textContent = 'Guardado automaticamente';
             }
         }, 900);
+    }
+
+    async function carregarGruposNoPainel() {
+        var painel = document.getElementById(PANEL_ID);
+        var seletor = painel && painel.querySelector('[data-sc-group]');
+        var resumo = painel && painel.querySelector('[data-sc-group-status]');
+        if (!seletor || !resumo) {
+            return;
+        }
+
+        var versao = ++geracaoGrupos;
+        var selecionado = String(CONFIG.groupId || '0');
+        seletor.disabled = true;
+        resumo.textContent = 'A carregar os grupos e aldeias do jogo…';
+
+        try {
+            var dados = await obterDadosGrupo(selecionado);
+            if (versao !== geracaoGrupos || !seletor.isConnected) {
+                return;
+            }
+            seletor.textContent = '';
+            dados.groups.forEach(function (grupo) {
+                var opcao = document.createElement('option');
+                opcao.value = grupo.id;
+                opcao.textContent = grupo.name;
+                seletor.appendChild(opcao);
+            });
+            garantirOpcaoGrupoGuardado(seletor, selecionado);
+            seletor.value = selecionado;
+            resumo.textContent = dados.name + ': ' + dados.villages.length +
+                ' aldeia(s). Cada aldeia é processada separadamente em segundo plano.';
+        } catch (erro) {
+            if (versao !== geracaoGrupos || !seletor.isConnected) {
+                return;
+            }
+            garantirOpcaoGrupoGuardado(seletor, selecionado);
+            seletor.value = selecionado;
+            resumo.textContent = 'Não foi possível atualizar os grupos: ' +
+                resumirMensagem(obterMensagemErro(erro), 120);
+            console.warn('[Script Coleta] Não foi possível carregar os grupos.', erro);
+        } finally {
+            if (versao === geracaoGrupos && seletor.isConnected) {
+                seletor.disabled = false;
+            }
+        }
+    }
+
+    function garantirOpcaoGrupoGuardado(seletor, grupoId) {
+        if (!seletor) {
+            return;
+        }
+        var opcoes = Array.from(seletor.options || []);
+        if (!opcoes.some(function (opcao) { return opcao.value === '0'; })) {
+            seletor.add(new Option('Todas as aldeias', '0'));
+        }
+        var id = String(grupoId || '0');
+        if (!Array.from(seletor.options || []).some(function (opcao) {
+            return opcao.value === id;
+        })) {
+            seletor.add(new Option('Grupo guardado #' + id, id));
+        }
+    }
+
+    async function obterDadosGrupo(grupoId) {
+        var modos = ['units', 'combined'];
+        var grupos = [];
+        var vistos = new Set();
+        var ultimoErro = null;
+        var recebeuPagina = false;
+
+        for (var indice = 0; indice < modos.length; indice += 1) {
+            try {
+                var resposta = await obterDocumento(
+                    criarUrlVisaoGeralGrupo(grupoId, modos[indice]),
+                    30000
+                );
+                var documento = resposta.document;
+                if (documentoTemProtecaoBot(documento)) {
+                    throw new Error(
+                        'O jogo pediu uma verificação antes de listar os grupos.'
+                    );
+                }
+                recebeuPagina = true;
+                extrairGruposJogo(documento).forEach(function (grupo) {
+                    if (!vistos.has(grupo.id)) {
+                        vistos.add(grupo.id);
+                        grupos.push(grupo);
+                    }
+                });
+                var aldeias = extrairAldeiasGrupo(documento);
+                if (aldeias.length) {
+                    var normalizados = garantirGrupoTodas(grupos);
+                    var selecionado = normalizados.find(function (grupo) {
+                        return grupo.id === String(grupoId);
+                    });
+                    return {
+                        groups: normalizados,
+                        villages: aldeias,
+                        name: selecionado
+                            ? selecionado.name
+                            : (String(grupoId) === '0'
+                                ? 'Todas as aldeias'
+                                : 'Grupo #' + grupoId)
+                    };
+                }
+            } catch (erro) {
+                ultimoErro = erro;
+                if (/verifica(?:ção|cao)/i.test(obterMensagemErro(erro))) {
+                    throw erro;
+                }
+            }
+        }
+
+        if (!recebeuPagina && ultimoErro) {
+            throw ultimoErro;
+        }
+        var gruposNormalizados = garantirGrupoTodas(grupos);
+        var grupoSelecionado = gruposNormalizados.find(function (grupo) {
+            return grupo.id === String(grupoId);
+        });
+        if (String(grupoId) !== '0' && !grupoSelecionado) {
+            throw new Error('O grupo escolhido já não existe ou não pôde ser lido.');
+        }
+        return {
+            groups: gruposNormalizados,
+            villages: [],
+            name: grupoSelecionado ? grupoSelecionado.name : 'Todas as aldeias'
+        };
+    }
+
+    function criarUrlVisaoGeralGrupo(grupoId, modo) {
+        var url = new URL(window.location.href);
+        url.searchParams.set('screen', 'overview_villages');
+        url.searchParams.set('mode', modo);
+        if (modo === 'units') {
+            url.searchParams.set('type', 'complete');
+            url.searchParams.set('units_type', 'complete');
+        } else {
+            url.searchParams.delete('type');
+            url.searchParams.delete('units_type');
+        }
+        url.searchParams.set('group', String(grupoId));
+        url.searchParams.set('page', '-1');
+        ['action', 'ajax', 'ajaxaction', 'h'].forEach(function (chave) {
+            url.searchParams.delete(chave);
+        });
+        url.hash = '';
+        return url.href;
+    }
+
+    function extrairGruposJogo(documento) {
+        var grupos = [];
+        var vistos = new Set();
+        documento.querySelectorAll([
+            '#group_selection option',
+            'select[name="group"] option',
+            'select[id*="group"] option'
+        ].join(',')).forEach(function (opcao) {
+            var id = String(opcao.value || '').trim();
+            if (!/^-?\d+$/.test(id) || vistos.has(id)) {
+                return;
+            }
+            vistos.add(id);
+            grupos.push({
+                id: id,
+                name: String(opcao.textContent || '').trim() || 'Grupo #' + id
+            });
+        });
+        return garantirGrupoTodas(grupos);
+    }
+
+    function garantirGrupoTodas(gruposOriginais) {
+        var grupos = Array.isArray(gruposOriginais)
+            ? gruposOriginais.slice()
+            : [];
+        if (!grupos.some(function (grupo) { return grupo.id === '0'; })) {
+            grupos.unshift({ id: '0', name: 'Todas as aldeias' });
+        }
+        return grupos;
+    }
+
+    function extrairAldeiasGrupo(documento) {
+        var aldeias = [];
+        var vistas = new Set();
+        documento.querySelectorAll([
+            '#units_table tr',
+            '#combined_table tr',
+            '#production_table tr',
+            '#buildings_table tr',
+            'table.overview_table tr',
+            'table.vis tr'
+        ].join(',')).forEach(function (linha) {
+            if (!/\d{1,3}\s*[|]\s*\d{1,3}/.test(linha.textContent || '')) {
+                return;
+            }
+            var id = '';
+            var ligacao = linha.querySelector('a[href*="village="]');
+            if (ligacao) {
+                try {
+                    id = new URL(
+                        ligacao.href,
+                        window.location.href
+                    ).searchParams.get('village') || '';
+                } catch (erro) {
+                    id = '';
+                }
+            }
+            if (!/^\d+$/.test(id)) {
+                var marcado = linha.matches('[data-village-id],[data-id]')
+                    ? linha
+                    : linha.querySelector('[data-village-id],[data-id]');
+                id = String(
+                    (marcado && marcado.getAttribute('data-village-id')) ||
+                    (marcado && marcado.getAttribute('data-id')) ||
+                    ''
+                );
+            }
+            if (/^\d+$/.test(id) && Number(id) > 0 && !vistas.has(id)) {
+                vistas.add(id);
+                aldeias.push(id);
+            }
+        });
+        return aldeias;
+    }
+
+    function documentoTemProtecaoBot(documento) {
+        return Boolean(documento && documento.querySelector(
+            '#bot_check,.g-recaptcha,[id*="captcha"],[data-sitekey]'
+        ));
     }
 
     function atualizarEstadoControlosPainel() {
@@ -743,14 +986,14 @@
         geracao += 1;
         limparTimerPrincipal();
 
-        if (!estaNaColetaEmMassa()) {
+        if (!estaNaPaginaTrabalho()) {
             iniciarSupervisor();
             if (workerEstaAtivo()) {
                 atualizarBotao('A trabalhar noutro separador');
             } else if (aberturaPorClique) {
                 abrirWorker();
             } else {
-                atualizarBotao('Clica para abrir a coleta em massa');
+                atualizarBotao('Clica para abrir a Busca minuciosa');
             }
             return;
         }
@@ -784,7 +1027,7 @@
 
     function agendarProximaExecucao() {
         limparTimerPrincipal();
-        if (!estaLigado() || !estaNaColetaEmMassa()) {
+        if (!estaLigado() || !estaNaPaginaTrabalho()) {
             return;
         }
 
@@ -833,7 +1076,7 @@
     }
 
     async function executarCiclo() {
-        if (cicloEmCurso || !estaLigado() || !estaNaColetaEmMassa()) {
+        if (cicloEmCurso || !estaLigado() || !estaNaPaginaTrabalho()) {
             return;
         }
         if (temProtecaoBot()) {
@@ -846,30 +1089,31 @@
         atualizarBotao('A ler aldeias e coletas…');
 
         try {
-            var dados = await carregarDadosColeta();
+            var dados = await carregarDadosColeta(null, geracaoAtual);
+            if (geracaoAtual !== geracao || !estaLigado()) {
+                return;
+            }
+            var recuperacao = await tentarDesbloquearPrimeiroNivelAldeias(
+                dados.unreadVillageIds,
+                geracaoAtual
+            );
             if (geracaoAtual !== geracao || !estaLigado()) {
                 return;
             }
             if (!dados.villages.length) {
-                var recuperacao = await tentarDesbloquearPrimeiroNivelAtual(
-                    geracaoAtual
-                );
-                if (geracaoAtual !== geracao || !estaLigado()) {
-                    return;
-                }
-                if (recuperacao.iniciado) {
+                if (recuperacao.iniciados) {
                     estado.lastRunAt = Date.now();
                     estado.consecutiveErrors = 0;
                     estado.nextRunAt = Date.now() + 60 * 1000;
                     estado.lastSummary =
-                        'Nível 1 da aldeia atual — desbloqueio iniciado';
+                        recuperacao.iniciados +
+                        ' aldeia(s) — desbloqueio do nível 1 iniciado';
                     guardarEstado();
                     atualizarBotao(estado.lastSummary);
                     return;
                 }
                 throw new Error(
-                    'A coleta em massa não devolveu dados de aldeias. ' +
-                    'Confirma se a funcionalidade está ativa neste mundo.' +
+                    'As páginas individuais não devolveram dados utilizáveis.' +
                     (recuperacao.motivo
                         ? ' Recuperação do nível 1: ' + recuperacao.motivo
                         : '')
@@ -879,6 +1123,14 @@
             var resultado = await planearEEnviar(dados, geracaoAtual);
             if (geracaoAtual !== geracao || !estaLigado()) {
                 return;
+            }
+            if (recuperacao.iniciados) {
+                resultado.summary += ' — ' + recuperacao.iniciados +
+                    ' desbloqueios de recuperação iniciados';
+                resultado.nextRunAt = Math.min(
+                    resultado.nextRunAt,
+                    Date.now() + 60 * 1000
+                );
             }
 
             estado.lastRunAt = Date.now();
@@ -1060,7 +1312,10 @@
             atualizarBotao('A confirmar os horários de regresso…');
             try {
                 await esperar(1400);
-                var dadosConfirmados = await carregarDadosColeta();
+                var dadosConfirmados = await carregarDadosColeta(
+                    Array.from(aldeiasEnviadas),
+                    geracaoAtual
+                );
                 var regressosConfirmados = obterProximosRegressos(
                     dadosConfirmados,
                     aldeiasEnviadas
@@ -1234,21 +1489,34 @@
 
     async function enviarPedidosEmLotes(pedidos, geracaoAtual) {
         var aldeiasEnviadas = new Set();
-        for (var inicio = 0; inicio < pedidos.length; inicio += REQUEST_BATCH_SIZE) {
+        var porAldeia = [];
+        var indicePorAldeia = {};
+        pedidos.forEach(function (pedido) {
+            var chave = String(pedido.village_id);
+            if (indicePorAldeia[chave] === undefined) {
+                indicePorAldeia[chave] = porAldeia.length;
+                porAldeia.push({ villageId: Number(pedido.village_id), requests: [] });
+            }
+            porAldeia[indicePorAldeia[chave]].requests.push(pedido);
+        });
+
+        for (var indice = 0; indice < porAldeia.length; indice += 1) {
             if (geracaoAtual !== geracao || !estaLigado()) {
                 break;
             }
-            var lote = pedidos.slice(inicio, inicio + REQUEST_BATCH_SIZE);
+            var aldeia = porAldeia[indice];
+            atualizarBotao(
+                'A lançar coleta — aldeia ' + (indice + 1) + '/' +
+                porAldeia.length
+            );
             await postTribalWars(
                 'scavenge_api',
                 { ajaxaction: 'send_squads' },
-                { squad_requests: lote }
+                { squad_requests: aldeia.requests.slice(0, REQUEST_BATCH_SIZE) }
             );
-            lote.forEach(function (pedido) {
-                aldeiasEnviadas.add(Number(pedido.village_id));
-            });
-            if (inicio + REQUEST_BATCH_SIZE < pedidos.length) {
-                await esperar(800 + Math.round(Math.random() * 400));
+            aldeiasEnviadas.add(aldeia.villageId);
+            if (indice + 1 < porAldeia.length) {
+                await esperar(700 + Math.round(Math.random() * 500));
             }
         }
         return aldeiasEnviadas;
@@ -1291,55 +1559,76 @@
         return iniciados;
     }
 
-    async function tentarDesbloquearPrimeiroNivelAtual(geracaoAtual) {
+    async function tentarDesbloquearPrimeiroNivelAldeias(
+        aldeias,
+        geracaoAtual
+    ) {
         if (!CONFIG.unlockEnabled) {
             return {
-                iniciado: false,
+                iniciados: 0,
                 motivo: 'a definição "Desbloquear níveis" está desligada.'
             };
         }
 
-        var aldeiaId = obterIdAldeiaAtual();
-        if (!aldeiaId) {
+        var ids = Array.from(new Set((aldeias || []).map(function (id) {
+            return Number(id);
+        }).filter(function (id) {
+            return Number.isFinite(id) && id > 0;
+        })));
+        if (!ids.length) {
             return {
-                iniciado: false,
-                motivo: 'não foi possível identificar a aldeia atual.'
+                iniciados: 0,
+                motivo: ''
             };
         }
 
         var agora = Date.now();
-        if (!podeTentarPrimeiroDesbloqueio(aldeiaId, 1, agora)) {
-            return {
-                iniciado: false,
-                motivo: 'já foi feita uma tentativa recente; será repetida mais tarde.'
-            };
-        }
+        var iniciados = 0;
+        var falhas = [];
+        var ignoradas = 0;
 
-        estado.initialUnlockAttempts[String(aldeiaId) + ':1'] = agora;
-        guardarEstado();
-
-        if (geracaoAtual !== geracao || !estaLigado()) {
-            return { iniciado: false, motivo: 'execução interrompida.' };
-        }
-
-        try {
-            await postTribalWars(
-                'scavenge_api',
-                { ajaxaction: 'unlock_option' },
-                { village_id: aldeiaId, option_id: 1 }
+        for (var indice = 0; indice < ids.length; indice += 1) {
+            if (geracaoAtual !== geracao || !estaLigado()) {
+                break;
+            }
+            var aldeiaId = ids[indice];
+            if (!podeTentarPrimeiroDesbloqueio(aldeiaId, 1, agora)) {
+                ignoradas += 1;
+                continue;
+            }
+            estado.initialUnlockAttempts[String(aldeiaId) + ':1'] = Date.now();
+            guardarEstado();
+            atualizarBotao(
+                'A recuperar nível 1 — aldeia ' + (indice + 1) + '/' + ids.length
             );
-            return { iniciado: true, motivo: '' };
-        } catch (erro) {
-            console.warn(
-                '[Script Coleta] A recuperação não conseguiu desbloquear o ' +
-                'nível 1 da aldeia ' + aldeiaId + '.',
-                erro
-            );
-            return {
-                iniciado: false,
-                motivo: resumirMensagem(obterMensagemErro(erro), 100)
-            };
+            try {
+                await postTribalWars(
+                    'scavenge_api',
+                    { ajaxaction: 'unlock_option' },
+                    { village_id: aldeiaId, option_id: 1 }
+                );
+                iniciados += 1;
+            } catch (erro) {
+                falhas.push(obterMensagemErro(erro));
+                console.warn(
+                    '[Script Coleta] A recuperação não conseguiu desbloquear o ' +
+                    'nível 1 da aldeia ' + aldeiaId + '.',
+                    erro
+                );
+            }
+            if (indice + 1 < ids.length) {
+                await esperar(700 + Math.round(Math.random() * 500));
+            }
         }
+
+        return {
+            iniciados: iniciados,
+            motivo: falhas.length
+                ? resumirMensagem(falhas[0], 100)
+                : (ignoradas && !iniciados
+                    ? 'as aldeias já tiveram uma tentativa recente.'
+                    : '')
+        };
     }
 
     function obterIdAldeiaAtual() {
@@ -1402,54 +1691,109 @@
             Math.round(Math.random() * 15000);
     }
 
-    async function carregarDadosColeta() {
-        var urlInicial = criarUrlColetaEmMassa(0);
-        var primeira = await obterDocumento(urlInicial, 25000);
-        var ultimaPagina = obterUltimaPagina(primeira.document);
-        var paginas = [{
-            page: 0,
-            document: primeira.document,
-            url: primeira.url
-        }];
-        var numeros = [];
-        for (var pagina = 1; pagina <= ultimaPagina; pagina += 1) {
-            numeros.push(pagina);
-        }
-
-        var restantes = await mapearComConcorrencia(numeros, 3, async function (numero) {
-            var resposta = await obterDocumento(
-                criarUrlColetaEmMassa(numero),
-                25000
-            );
-            return {
-                page: numero,
-                document: resposta.document,
-                url: resposta.url
+    async function carregarDadosColeta(aldeiasEspecificas, geracaoAtual) {
+        var dadosGrupo;
+        if (Array.isArray(aldeiasEspecificas)) {
+            dadosGrupo = {
+                villages: aldeiasEspecificas.map(String),
+                name: 'Aldeias a confirmar'
             };
-        });
-        Array.prototype.push.apply(paginas, restantes);
+        } else {
+            dadosGrupo = await obterDadosGrupo(CONFIG.groupId);
+        }
+        if (!dadosGrupo.villages.length) {
+            throw new Error('O grupo escolhido não contém aldeias.');
+        }
 
         var optionBases = {};
         var porId = {};
-        paginas.forEach(function (item) {
-            var extraido = extrairDadosPagina(item.document);
-            Object.keys(extraido.optionBases).forEach(function (id) {
-                optionBases[String(id)] = extraido.optionBases[id];
-            });
-            extraido.villages.forEach(function (aldeia) {
-                porId[String(aldeia.id)] = aldeia;
-            });
-        });
+        var naoLidas = [];
+        var erros = [];
+
+        for (var indice = 0; indice < dadosGrupo.villages.length; indice += 1) {
+            if (
+                geracaoAtual !== undefined &&
+                (geracaoAtual !== geracao || !estaLigado())
+            ) {
+                break;
+            }
+            var aldeiaId = String(dadosGrupo.villages[indice]);
+            atualizarBotao(
+                'A ler ' + dadosGrupo.name + ' — aldeia ' +
+                (indice + 1) + '/' + dadosGrupo.villages.length
+            );
+            atualizarProgressoGrupo(
+                dadosGrupo.name,
+                indice + 1,
+                dadosGrupo.villages.length
+            );
+
+            try {
+                var resposta = await obterDocumento(
+                    criarUrlColetaIndividual(aldeiaId),
+                    25000
+                );
+                if (documentoTemProtecaoBot(resposta.document)) {
+                    throw new Error(
+                        'O jogo pediu uma verificação ao ler a aldeia ' + aldeiaId + '.'
+                    );
+                }
+                var extraido = extrairDadosPagina(resposta.document);
+                Object.keys(extraido.optionBases).forEach(function (id) {
+                    optionBases[String(id)] = extraido.optionBases[id];
+                });
+                var aldeia = extraido.villages.find(function (item) {
+                    return String(item.id) === aldeiaId;
+                }) || (extraido.villages.length === 1
+                    ? extraido.villages[0]
+                    : null);
+                if (aldeia) {
+                    porId[aldeiaId] = aldeia;
+                } else {
+                    naoLidas.push(aldeiaId);
+                }
+            } catch (erro) {
+                if (/verifica(?:ção|cao)/i.test(obterMensagemErro(erro))) {
+                    throw erro;
+                }
+                naoLidas.push(aldeiaId);
+                erros.push(
+                    'Aldeia ' + aldeiaId + ': ' + obterMensagemErro(erro)
+                );
+                console.warn(
+                    '[Script Coleta] Não foi possível ler a aldeia ' + aldeiaId + '.',
+                    erro
+                );
+            }
+
+            if (indice + 1 < dadosGrupo.villages.length) {
+                await esperar(300 + Math.round(Math.random() * 300));
+            }
+        }
 
         return {
             optionBases: optionBases,
             villages: Object.keys(porId).map(function (id) {
                 return porId[id];
-            })
+            }),
+            requestedVillageIds: dadosGrupo.villages.slice(),
+            unreadVillageIds: naoLidas,
+            groupName: dadosGrupo.name,
+            errors: erros
         };
     }
 
-    function criarUrlColetaEmMassa(pagina) {
+    function atualizarProgressoGrupo(nome, atual, total) {
+        var resumo = document.querySelector(
+            '#' + PANEL_ID + ' [data-sc-group-status]'
+        );
+        if (resumo) {
+            resumo.textContent = nome + ': a processar aldeia ' + atual + '/' +
+                total + ' separadamente em segundo plano.';
+        }
+    }
+
+    function criarUrlColetaIndividual(aldeiaId) {
         var url;
         if (window.game_data && window.game_data.link_base_pure) {
             url = new URL(
@@ -1460,31 +1804,16 @@
             url = new URL(window.location.href);
             url.searchParams.set('screen', 'place');
         }
-        url.searchParams.set('mode', 'scavenge_mass');
+        url.searchParams.set('mode', 'scavenge');
         url.searchParams.set('group', String(CONFIG.groupId));
-        url.searchParams.set('page', String(Math.max(0, Number(pagina) || 0)));
-        ['action', 'ajax', 'ajaxaction', 'h'].forEach(function (chave) {
+        if (Number(aldeiaId) > 0) {
+            url.searchParams.set('village', String(Math.floor(Number(aldeiaId))));
+        }
+        ['action', 'ajax', 'ajaxaction', 'h', 'page'].forEach(function (chave) {
             url.searchParams.delete(chave);
         });
         url.hash = '';
         return url.href;
-    }
-
-    function obterUltimaPagina(documento) {
-        var ultima = 0;
-        documento.querySelectorAll('a[href*="page="]').forEach(function (link) {
-            try {
-                var pagina = Number(
-                    new URL(link.href, window.location.href).searchParams.get('page')
-                );
-                if (Number.isFinite(pagina)) {
-                    ultima = Math.max(ultima, pagina);
-                }
-            } catch (erro) {
-                // Ignora ligações incompletas da paginação.
-            }
-        });
-        return Math.min(500, ultima);
     }
 
     function extrairDadosPagina(documento) {
@@ -1493,6 +1822,7 @@
             var texto = script.textContent || '';
             if (
                 texto.indexOf('ScavengeMassScreen') === -1 &&
+                texto.indexOf('ScavengeScreen') === -1 &&
                 texto.indexOf('unit_counts_home') === -1 &&
                 texto.indexOf('duration_factor') === -1
             ) {
@@ -1572,7 +1902,7 @@
 
     function extrairArgumentosScavenge(texto) {
         var chamadas = [];
-        var padrao = /ScavengeMassScreen\.(?:init|start)\s*\(/g;
+        var padrao = /Scavenge(?:Mass)?Screen\.(?:init|start)\s*\(/g;
         var resultado;
         while ((resultado = padrao.exec(texto))) {
             var inicio = padrao.lastIndex;
@@ -1848,7 +2178,7 @@
     }
 
     function abrirOuFocarSeparadorTrabalho() {
-        if (estaNaColetaEmMassa()) {
+        if (estaNaPaginaTrabalho()) {
             criarPainel();
             atualizarBotao('Separador de trabalho aberto');
             try {
@@ -1875,7 +2205,7 @@
                 // Se não for possível focar, tenta abrir pelo URL normal.
             }
         }
-        var worker = window.open(criarUrlColetaEmMassa(0), WORKER_TAB_NAME);
+        var worker = window.open(criarUrlColetaIndividual(obterIdAldeiaAtual()), WORKER_TAB_NAME);
         if (!worker) {
             atualizarBotao('Popup bloqueado — permite popups e clica novamente');
             return false;
@@ -1908,7 +2238,7 @@
     }
 
     function publicarHeartbeat() {
-        if (!estaLigado() || !estaNaColetaEmMassa()) {
+        if (!estaLigado() || !estaNaPaginaTrabalho()) {
             pararHeartbeat(true);
             return;
         }
@@ -1954,7 +2284,7 @@
     }
 
     function iniciarSupervisor() {
-        if (estaNaColetaEmMassa() || timerSupervisor !== null) {
+        if (estaNaPaginaTrabalho() || timerSupervisor !== null) {
             return;
         }
         timerSupervisor = window.setInterval(function () {
@@ -2000,7 +2330,8 @@
         } else if (evento.key === SETTINGS_KEY) {
             CONFIG = carregarConfiguracao();
             preencherPainel();
-            if (estaLigado() && estaNaColetaEmMassa()) {
+            carregarGruposNoPainel();
+            if (estaLigado() && estaNaPaginaTrabalho()) {
                 reiniciarAutomacaoAposEdicao();
             }
         }
