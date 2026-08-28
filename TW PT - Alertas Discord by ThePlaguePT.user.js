@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.69
+// @version      1.3.71
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.69';
+    const SCRIPT_VERSION = '1.3.71';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
 
     console.log(`[TW Discord Alerts] Versao ${SCRIPT_VERSION} carregada`);
@@ -3658,6 +3658,24 @@
         return totals;
     }
 
+    function isFarmAssistantTroopRow(rowText) {
+        return /am[_-]?farm|farm[_-]?icon|assistente\s+de\s+farm|farm\s+assistant|saque|pilhagem/.test(rowText);
+    }
+
+    function parseFarmAssistantTroopTotals(doc) {
+        const totals = createTroopTotals();
+
+        getPlaceTroopTables(doc).forEach(tableInfo => {
+            tableInfo.rows.forEach(item => {
+                if (!isFarmAssistantTroopRow(item.text)) return;
+                if (isTotalTroopRow(item.text)) return;
+                addTroopTotals(totals, item.totals);
+            });
+        });
+
+        return totals;
+    }
+
     function parseSupportTroopBreakdown(doc) {
         const stationedTotals = createTroopTotals();
         const transitTotals = createTroopTotals();
@@ -3700,6 +3718,7 @@
                     if (isTotalTroopRow(item.text)) return;
                     if (isSupportTroopOverviewRow(item.text)) return;
                     if (isScavengingTroopOverviewRow(item.text)) return;
+                    if (isFarmAssistantTroopRow(item.text)) return;
 
                     addTroopTotals(totals, item.totals);
                 });
@@ -4661,6 +4680,11 @@
         const rebuiltSupportStationedTotals = createTroopTotals();
         const rebuiltSupportTransitTotals = createTroopTotals();
         const rebuiltScavengingTotals = createTroopTotals();
+        const rebuiltHomeAllTotals = createTroopTotals();
+        const rebuiltScavengingAllTotals = createTroopTotals();
+        const rebuiltTransitAllTotals = createTroopTotals();
+        const rebuiltFarmAllTotals = createTroopTotals();
+        const rebuiltSupportAllTotals = createTroopTotals();
         const rebuiltVillages = [];
         let placeVillageCount = 0;
         let movementVillageCount = 0;
@@ -4677,6 +4701,7 @@
                 const homeTotals = parseHomeDefenseTroopTotals(doc);
                 const homeDefenseTotals = getDefenseTroopTotals(homeTotals);
                 const scavengingTotals = parseScavengingTroopTotals(doc);
+                const farmTotals = parseFarmAssistantTroopTotals(doc);
                 const scavengingDefenseTotals = getDefenseTroopTotals(scavengingTotals);
                 const supportBreakdown = parseSupportTroopBreakdown(doc);
                 const supportStationedDefenseTotals = getDefenseTroopTotals(supportBreakdown.stationedTotals);
@@ -4696,7 +4721,14 @@
                 addTroopTotals(defenseTotals, homeDefenseTotals);
                 addTroopTotals(placeTotals, homeTotals);
                 addTroopTotals(placeTotals, scavengingTotals);
+                addTroopTotals(placeTotals, farmTotals);
                 addTroopTotals(placeTotals, transitTotals);
+                addTroopTotals(rebuiltHomeAllTotals, homeTotals);
+                addTroopTotals(rebuiltScavengingAllTotals, scavengingTotals);
+                addTroopTotals(rebuiltFarmAllTotals, farmTotals);
+                addTroopTotals(rebuiltTransitAllTotals, transitTotals);
+                addTroopTotals(rebuiltSupportAllTotals, supportBreakdown.stationedTotals);
+                addTroopTotals(rebuiltSupportAllTotals, supportBreakdown.transitTotals);
                 addTroopTotals(rebuiltSupportTotals, supportDefenseTotals);
                 addTroopTotals(rebuiltSupportStationedTotals, supportStationedDefenseTotals);
                 addTroopTotals(rebuiltSupportTransitTotals, supportTransitDefenseTotals);
@@ -4731,7 +4763,7 @@
 
                 placeVillageCount += 1;
 
-                if (hasTroopValues(scavengingTotals) || hasTroopValues(transitTotals)) {
+                if (hasTroopValues(scavengingTotals) || hasTroopValues(farmTotals) || hasTroopValues(transitTotals)) {
                     movementVillageCount += 1;
                 }
             } catch (error) {
@@ -4767,6 +4799,11 @@
             summary.scavengingTotals = hasTroopValues(rebuiltScavengingTotals)
                 ? getDefenseTroopTotals(rebuiltScavengingTotals)
                 : overviewScavengingTotals;
+            summary.homeAllTotals = rebuiltHomeAllTotals;
+            summary.scavengingAllTotals = rebuiltScavengingAllTotals;
+            summary.transitAllTotals = rebuiltTransitAllTotals;
+            summary.farmAllTotals = rebuiltFarmAllTotals;
+            summary.supportAllTotals = rebuiltSupportAllTotals;
             summary.villages = rebuiltVillages;
             summary.placeScanIncomplete = false;
         } else {

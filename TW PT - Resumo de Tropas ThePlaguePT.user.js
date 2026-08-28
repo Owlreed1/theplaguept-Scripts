@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Resumo de Tropas - ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT/TribalWars-Scripts
-// @version      1.4.0
+// @version      1.6.0
 // @description  Resume as tropas do grupo atual, classifica os exercitos e exporta um cartao PNG.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -17,7 +17,7 @@
     const APP = {
         id: 'twp-troop-summary',
         title: 'Resumo de Tropas',
-        version: '1.4.0',
+        version: '1.6.0',
         storageKey: 'twp_troop_summary_settings_v1'
     };
 
@@ -383,19 +383,28 @@
             ]);
             const villages = parseOverview(completeDoc);
             const totals = villages.reduce((sum, village) => addUnits(sum, village.units), emptyUnits());
-            const supportTotals = parseAwaySupports(awayDoc);
+            const overviewSupport = parseAwaySupports(awayDoc);
             const group = document.querySelector('#group_selection option:checked')?.textContent?.trim() || 'Todas';
-            state.summary = { villages, totals, armies: classify(villages), group, generatedAt: new Date(), activities: null, knightTraining };
+            state.progress = `A analisar ${villages.length} Praças de Reuniões…`;
             render();
             const detected = await collectActivities(villages);
-            UNIT_KEYS.forEach(key => { supportTotals[key] = Math.max(supportTotals[key] || 0, detected.support[key] || 0); });
-            const detectedAway = emptyUnits();
             UNIT_KEYS.forEach(key => {
-                detectedAway[key] = (detected.scavenge[key] || 0) + (detected.farm[key] || 0) + (detected.transit[key] || 0) + (supportTotals[key] || 0);
+                detected.support[key] = Math.max(detected.support[key] || 0, overviewSupport[key] || 0);
             });
-            const homeTotals = unitCount(detected.home) ? detected.home : emptyUnits();
-            if (!unitCount(homeTotals)) UNIT_KEYS.forEach(key => { homeTotals[key] = Math.max(0, (totals[key] || 0) - detectedAway[key]); });
-            state.summary.activities = reconcileActivities(totals, homeTotals, detected, supportTotals);
+            let homeTotals = detected.home;
+            if (!unitCount(homeTotals)) {
+                homeTotals = emptyUnits();
+                UNIT_KEYS.forEach(key => {
+                    const away = (detected.scavenge[key] || 0) + (detected.farm[key] || 0) +
+                        (detected.transit[key] || 0) + (detected.support[key] || 0);
+                    homeTotals[key] = Math.max(0, (totals[key] || 0) - away);
+                });
+            }
+            const activities = reconcileActivities(totals, homeTotals, detected, detected.support);
+            state.summary = {
+                villages, totals, armies: classify(villages), group, generatedAt: new Date(),
+                activities, knightTraining
+            };
         } catch (error) {
             notify(error.message || String(error), 'error');
         } finally {
