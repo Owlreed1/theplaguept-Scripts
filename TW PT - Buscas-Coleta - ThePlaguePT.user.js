@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.2.0
+// @version      1.2.1
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-    var SCRIPT_VERSION = '1.2.0';
+    var SCRIPT_VERSION = '1.2.1';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -33,7 +33,6 @@
     var TOOLBAR_ID = 'tp-theplaguept-script-bar';
     var WORKER_TAB_NAME = 'scriptColetaWorker_' + WORLD_SCOPE;
     var WORKER_TIMEOUT = 12000;
-    var REQUEST_BATCH_SIZE = 200;
     var RETRY_WITHOUT_WORK = 5 * 60 * 1000;
     var INITIAL_UNLOCK_RETRY = 30 * 60 * 1000;
 
@@ -95,6 +94,11 @@
 
     var CONFIG = carregarConfiguracao();
     var estado = carregarEstado();
+    if (estado.scriptVersion !== SCRIPT_VERSION) {
+        estado.scriptVersion = SCRIPT_VERSION;
+        estado.nextRunAt = 0;
+        escreverJsonSeguro(localStorage, STATE_KEY, estado);
+    }
     var tabId = Date.now() + '-' + Math.random().toString(36).slice(2);
     var botao = null;
     var timerPrincipal = null;
@@ -248,6 +252,7 @@
     function carregarEstado() {
         var guardado = lerJsonSeguro(localStorage, STATE_KEY, {});
         return {
+            scriptVersion: String(guardado.scriptVersion || ''),
             nextRunAt: Number(guardado.nextRunAt) || 0,
             lastRunAt: Number(guardado.lastRunAt) || 0,
             lastSummary: String(guardado.lastSummary || ''),
@@ -1110,6 +1115,7 @@
                         ' aldeia(s) — desbloqueio do nível 1 iniciado';
                     guardarEstado();
                     atualizarBotao(estado.lastSummary);
+                    atualizarPaginaNoFimDaRonda(geracaoAtual);
                     return;
                 }
                 throw new Error(
@@ -1139,6 +1145,7 @@
             estado.nextRunAt = resultado.nextRunAt;
             guardarEstado();
             atualizarBotao(resultado.summary);
+            atualizarPaginaNoFimDaRonda(geracaoAtual);
         } catch (erro) {
             if (geracaoAtual !== geracao || !estaLigado()) {
                 return;
@@ -1159,6 +1166,19 @@
                 agendarProximaExecucao();
             }
         }
+    }
+
+    function atualizarPaginaNoFimDaRonda(geracaoAtual) {
+        window.setTimeout(function () {
+            if (
+                geracaoAtual === geracao &&
+                estaLigado() &&
+                estaNaPaginaTrabalho() &&
+                !temProtecaoBot()
+            ) {
+                window.location.reload();
+            }
+        }, 750);
     }
 
     async function planearEEnviar(dados, geracaoAtual) {
@@ -1512,7 +1532,7 @@
             await postTribalWars(
                 'scavenge_api',
                 { ajaxaction: 'send_squads' },
-                { squad_requests: aldeia.requests.slice(0, REQUEST_BATCH_SIZE) }
+                { squad_requests: aldeia.requests }
             );
             aldeiasEnviadas.add(aldeia.villageId);
             if (indice + 1 < porAldeia.length) {
@@ -2127,25 +2147,6 @@
         } finally {
             window.clearTimeout(temporizador);
         }
-    }
-
-    async function mapearComConcorrencia(itens, limite, tarefa) {
-        var resultados = new Array(itens.length);
-        var proximo = 0;
-        async function trabalhador() {
-            while (proximo < itens.length) {
-                var indice = proximo;
-                proximo += 1;
-                resultados[indice] = await tarefa(itens[indice], indice);
-            }
-        }
-        var trabalhadores = [];
-        var quantidade = Math.min(Math.max(1, limite), itens.length);
-        for (var indice = 0; indice < quantidade; indice += 1) {
-            trabalhadores.push(trabalhador());
-        }
-        await Promise.all(trabalhadores);
-        return resultados;
     }
 
     function postTribalWars(controlador, acao, dados) {
