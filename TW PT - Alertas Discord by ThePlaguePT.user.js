@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.68
+// @version      1.3.69
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.68';
+    const SCRIPT_VERSION = '1.3.69';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
 
     console.log(`[TW Discord Alerts] Versao ${SCRIPT_VERSION} carregada`);
@@ -3799,6 +3799,16 @@
         return /\b(apoio|apoios|apoiar|apoiando|suporte|suportes|support|supports|supporting|reforco|reforcos|reinforcement|reinforcements|unterstutzung|unterstuetzung|verstarkung|verstaerkung|ondersteuning|soutien|renfort|apoyo|apoyos|rinforzo|rinforzi|wsparcie|posilky|podpora|sprijin|suport|tamogatas|erosites|stotte|stod|stöd|tuki|destek)\b/.test(rowText);
     }
 
+    function isSupportDetailTroopRow(rowText, row) {
+        if (!row || !row.querySelector('input[type="checkbox"]')) return false;
+        if (isTotalTroopRow(rowText)) return false;
+        if (isOwnTroopOverviewRow(rowText)) return false;
+        if (isHomeAvailableTroopOverviewRow(rowText)) return false;
+        if (isScavengingTroopOverviewRow(rowText)) return false;
+
+        return rowHasCoords(row);
+    }
+
     function getSupportSectionTroopColumns(table) {
         const info = getTroopTableGridInfo(table);
         let bestColumns = [];
@@ -4447,6 +4457,7 @@
             const rowText = getTroopOverviewRowText(row);
 
             if (isIgnoredTroopOverviewRow(rowText)) return;
+            if (isSupportDetailTroopRow(rowText, row)) return;
 
             if (detectedVillageKey) {
                 currentVillageKey = detectedVillageKey;
@@ -4779,7 +4790,7 @@
     }
 
     async function buildTroopsOverviewSummary() {
-        const doc = await fetchTroopsOverviewDocument();
+        const doc = await fetchTroopsOverviewDocument('complete');
         const summary = parseTroopsOverview(doc);
 
         if (!summary) return null;
