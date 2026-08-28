@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.5
+// @version      1.3.6
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.5',
+        version: '1.3.6',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -41,7 +41,7 @@
         minAttackMs: 223,
         idlePollMs: 2500,
         requestTimeoutMs: 25000,
-        returnSafetyMs: 15000,
+        impactSafetyMs: 1000,
         activeSyncMs: 15000,
         activeSyncGraceMs: 30000,
         commandRateWindowMs: 1000,
@@ -2335,6 +2335,11 @@
                 if (exhaustedModels.has(progress.model)) continue;
                 const config = settings.models[progress.model];
                 const maximum = getSameVillageLimit(config);
+                if (Math.max(0, Number(progress.sent) || 0) >= maximum) {
+                    row.dataset.twPtAutofarmSent = '1';
+                    state.processedTargets.add(targetKey);
+                    continue;
+                }
                 const targetStatus = getActiveTargetStatus(
                     progress.model,
                     targetKey,
@@ -2995,7 +3000,10 @@
         const targetKey = String(details.targetKey || '');
         const maximum = getSameVillageLimit(config);
         const targetStatus = getActiveTargetStatus(model, targetKey, config);
-        const sent = targetKey ? targetStatus.count + 1 : 1;
+        const previousSent = targetKey && run.round.targets[targetKey]?.model === model
+            ? Math.max(0, Number(run.round.targets[targetKey].sent) || 0)
+            : 0;
+        const sent = targetKey ? Math.max(previousSent, targetStatus.count) + 1 : 1;
         const complete = !targetKey || sent >= maximum;
         const now = Date.now();
         const nextAt = complete
@@ -3055,10 +3063,10 @@
             const roundBadge = state.settingsPanel.querySelector(`[data-model-round-count="${model}"]`);
             const activeValue = state.settingsPanel.querySelector(`[data-model-active-value="${model}"]`);
             const roundValue = state.settingsPanel.querySelector(`[data-model-round-value="${model}"]`);
-            const nextReturn = getNextActiveReturn(model);
+            const nextImpact = getNextActiveImpact(model);
             if (activeBadge) {
-                activeBadge.title = nextReturn
-                    ? `${activeCount} ataque(s) em curso. Próxima vaga prevista: ${formatClock(nextReturn)}.`
+                activeBadge.title = nextImpact
+                    ? `${activeCount} ataque(s) a caminho do alvo. Próximo impacto previsto: ${formatClock(nextImpact)}.`
                     : `${activeCount} ataque(s) em curso.`;
             }
             if (activeValue) activeValue.textContent = `${activeCount}/${maximum}`;
@@ -3074,10 +3082,10 @@
         const spyRoundBadge = state.settingsPanel.querySelector('[data-spy-round-count]');
         const spyActiveValue = state.settingsPanel.querySelector('[data-spy-active-value]');
         const spyRoundValue = state.settingsPanel.querySelector('[data-spy-round-value]');
-        const spyNextReturn = getNextActiveReturn('spy');
+        const spyNextImpact = getNextActiveImpact('spy');
         if (spyActiveBadge) {
-            spyActiveBadge.title = spyNextReturn
-                ? `${spyActive} espionagem(ns) em curso. Próxima vaga prevista: ${formatClock(spyNextReturn)}.`
+            spyActiveBadge.title = spyNextImpact
+                ? `${spyActive} espionagem(ns) a caminho. Próximo impacto previsto: ${formatClock(spyNextImpact)}.`
                 : `${spyActive} espionagem(ns) em curso.`;
         }
         if (spyActiveValue) spyActiveValue.textContent = `${spyActive}/${spyMaximum}`;
@@ -3107,23 +3115,34 @@
                 return;
             }
             const model = ['a', 'b', 'c', 'spy'].includes(value.model) ? value.model : '';
-            const returnAt = Number(value.returnAt) || 0;
-            if (!model || returnAt <= now) {
+            const sentAt = Math.max(0, Number(value.sentAt) || now);
+            const distance = Number.isFinite(Number(value.distance))
+                ? Math.max(0.01, Number(value.distance))
+                : 999;
+            const minutesPerField = Math.max(1, Number(value.minutesPerField) || 35);
+            const unitSpeed = Math.max(0.01, Number(value.unitSpeed) || 1);
+            const predictedImpactAt = sentAt + Math.ceil(
+                distance * minutesPerField * 60 * 1000 * unitSpeed
+            ) + APP.impactSafetyMs;
+            const impactAt = Math.max(sentAt, Number(value.impactAt) || predictedImpactAt);
+            const nextTargetAt = Math.max(0, Number(value.nextTargetAt) || 0);
+            if (!model || Math.max(impactAt, nextTargetAt) <= now) {
                 changed = true;
                 return;
             }
+            if (!Number(value.impactAt)) changed = true;
             clean.push({
                 id: String(value.id || makeId()),
                 model,
                 sourceId: String(value.sourceId || ''),
                 targetKey: String(value.targetKey || ''),
                 targetCoord: String(value.targetCoord || ''),
-                sentAt: Math.max(0, Number(value.sentAt) || now),
-                returnAt,
-                nextTargetAt: Math.max(0, Number(value.nextTargetAt) || 0),
-                distance: Math.max(0, Number(value.distance) || 0),
-                minutesPerField: Math.max(1, Number(value.minutesPerField) || 35),
-                unitSpeed: Math.max(0.01, Number(value.unitSpeed) || 1),
+                sentAt,
+                impactAt,
+                nextTargetAt,
+                distance,
+                minutesPerField,
+                unitSpeed,
             });
         });
 
@@ -3182,8 +3201,16 @@
             if (getVillageId() !== sourceId || state.destroyed) return false;
 
             const attacks = readActiveAttacks();
+            const syncNow = Date.now();
+            const activeBefore = new Set(attacks.filter(attack => (
+                attack.sourceId === sourceId && attack.impactAt > syncNow
+            )).map(attack => attack.id));
             const reconciled = reconcileActiveAttacks(attacks, sourceId, snapshot.commands);
-            if (reconciled.length === attacks.length) return false;
+            const activeAfter = new Set(reconciled.filter(attack => (
+                attack.sourceId === sourceId && attack.impactAt > syncNow
+            )).map(attack => attack.id));
+            const released = Array.from(activeBefore).filter(id => !activeAfter.has(id)).length;
+            if (reconciled.length === attacks.length && released === 0) return false;
 
             writeActiveAttacks(reconciled);
             state.idleScans = 0;
@@ -3196,8 +3223,9 @@
                 scheduleFarmStep(100);
             }
             console.info(
-                `[${APP.shortName}] Ataques em curso sincronizados com o Ponto de Encontro: ` +
-                `${attacks.length - reconciled.length} comando(s) já regressaram.`
+                `[${APP.shortName}] Ataques a caminho sincronizados com o Ponto de Encontro: ` +
+                `${released} comando(s) já atingiram o alvo ` +
+                'ou deixaram de estar em saída.'
             );
             return true;
         })().catch(error => {
@@ -3228,13 +3256,8 @@
     function extractTravellingCommands(documentValue) {
         const roots = Array.from(documentValue.querySelectorAll([
             '#commands_outgoings',
-            '#commands_returns',
-            '#commands_returning',
             '[id*="commands_outgoing"]',
-            '[id*="commands_return"]',
             '.commands_outgoings',
-            '.commands_returns',
-            '.commands_returning',
         ].join(',')));
         if (!roots.length) {
             const fallbackRows = Array.from(documentValue.querySelectorAll([
@@ -3243,6 +3266,8 @@
                 '#content_value table[class*="command"] tr',
             ].join(','))).filter(row => (
                 !row.closest('#commands_incomings,[id*="commands_incoming"]') &&
+                !row.closest('#commands_returns,#commands_returning,[id*="commands_return"],.commands_returns,.commands_returning,[class*="commands_return"]') &&
+                !/(?:return|returning|regresso|retorno)/i.test(`${row.id} ${row.className}`) &&
                 row.querySelector('td')
             ));
             if (fallbackRows.length) roots.push(...fallbackRows);
@@ -3264,6 +3289,8 @@
         const commands = [];
         rows.forEach(row => {
             if (row.closest('#commands_incomings,[id*="commands_incoming"]')) return;
+            if (row.closest('#commands_returns,#commands_returning,[id*="commands_return"],.commands_returns,.commands_returning,[class*="commands_return"]')) return;
+            if (/(?:return|returning|regresso|retorno)/i.test(`${row.id} ${row.className}`)) return;
             if (!row.querySelector('td')) return;
             const looksLikeCommand = Boolean(row.querySelector([
                 '.timer',
@@ -3271,7 +3298,7 @@
                 '.quickedit',
                 'a[href*="screen=info_command"]',
                 'img[src*="command/"]',
-            ].join(','))) || /(?:command|return|attack)/i.test(`${row.id} ${row.className}`);
+            ].join(','))) || /(?:command|attack|outgoing)/i.test(`${row.id} ${row.className}`);
             if (!looksLikeCommand) return;
             commands.push({ keys: extractTravellingCommandKeys(row) });
         });
@@ -3315,6 +3342,10 @@
         const keepIds = new Set();
 
         current.forEach(attack => {
+            if (attack.impactAt <= now) {
+                keepIds.add(attack.id);
+                return;
+            }
             const keys = new Set([
                 attack.targetKey,
                 attack.targetCoord ? `coord:${attack.targetCoord}` : '',
@@ -3337,6 +3368,11 @@
             const anonymous = commands.find(command => !command.used && command.keys.size === 0);
             if (anonymous) {
                 anonymous.used = true;
+                keepIds.add(attack.id);
+                return;
+            }
+            if (attack.nextTargetAt > now) {
+                attack.impactAt = now;
                 keepIds.add(attack.id);
             }
         });
@@ -3361,7 +3397,7 @@
             targetKey: String(details.targetKey || ''),
             targetCoord: String(details.targetCoord || ''),
             sentAt,
-            returnAt: sentAt + Math.ceil(travelMs * 2) + APP.returnSafetyMs,
+            impactAt: sentAt + Math.ceil(travelMs) + APP.impactSafetyMs,
             nextTargetAt: Math.max(0, Number(details.nextTargetAt) || 0),
             distance,
             minutesPerField,
@@ -3388,7 +3424,7 @@
             ? attacksValue
             : getActiveAttacksForCurrentVillage();
         attacks.forEach(attack => {
-            if (attack.model in counts) counts[attack.model] += 1;
+            if (attack.model in counts && attack.impactAt > Date.now()) counts[attack.model] += 1;
         });
         return counts;
     }
@@ -3410,15 +3446,21 @@
                 : 0;
             nextAt = Math.max(nextAt, storedNextAt || migratedNextAt);
         });
-        return { count: matching.length, maximum, nextAt };
+        return {
+            count: matching.filter(attack => attack.impactAt > Date.now()).length,
+            maximum,
+            nextAt,
+        };
     }
 
-    function getNextActiveReturn(model) {
+    function getNextActiveImpact(model) {
         const sourceId = getVillageId();
-        const returnTimes = readActiveAttacks().filter(attack => (
-            attack.model === model && (!sourceId || attack.sourceId === sourceId)
-        )).map(attack => attack.returnAt);
-        return returnTimes.length ? Math.min(...returnTimes) : 0;
+        const impactTimes = readActiveAttacks().filter(attack => (
+            attack.model === model &&
+            attack.impactAt > Date.now() &&
+            (!sourceId || attack.sourceId === sourceId)
+        )).map(attack => attack.impactAt);
+        return impactTimes.length ? Math.min(...impactTimes) : 0;
     }
 
     function formatClock(timestamp) {
@@ -3486,7 +3528,7 @@
 
         console.warn(
             `[${APP.shortName}] Não foi possível ler as unidades do Modelo ${model.toUpperCase()}; ` +
-            'o regresso será calculado pela unidade mais lenta.'
+            'o impacto será calculado pela unidade mais lenta.'
         );
         return UNIT_MINUTES_PER_FIELD.snob;
     }
