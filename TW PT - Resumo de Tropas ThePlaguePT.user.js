@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Resumo de Tropas - ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT/TribalWars-Scripts
-// @version      1.6.0
+// @version      1.7.0
 // @description  Resume as tropas do grupo atual, classifica os exercitos e exporta um cartao PNG.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -17,7 +17,7 @@
     const APP = {
         id: 'twp-troop-summary',
         title: 'Resumo de Tropas',
-        version: '1.6.0',
+        version: '1.7.0',
         storageKey: 'twp_troop_summary_settings_v1'
     };
 
@@ -129,17 +129,44 @@
     function parseOverview(doc) {
         const found = findTroopTable(doc);
         if (!found) throw new Error('Não encontrei a tabela de tropas. Abre a Vista geral > Tropas e tenta novamente.');
-        const villages = [];
+        const villagesByCoords = new Map();
+        let currentCoords = '';
         for (const row of directRows(found.table)) {
             if (row.querySelector('th')) continue;
-            const text = row.textContent || '';
-            const coords = text.match(/\b\d{1,3}\|\d{1,3}\b/)?.[0] || '';
-            if (!coords) continue;
-            const cells = Array.from(row.children);
-            const units = emptyUnits();
-            found.columns.forEach(({ key, index }) => { units[key] = number(cells[index]?.textContent); });
-            if (UNIT_KEYS.some(key => units[key] > 0)) villages.push({ id: villageId(row), coords, units });
+            const text = normalizedRowText(row);
+            if (!text || /\b(selecionar|seleccionar|select)\b/.test(text)) continue;
+            const detectedCoords = (row.textContent || '').match(/\b\d{1,3}\s*\|\s*\d{1,3}\b/)?.[0]?.replace(/\s/g, '') || '';
+            if (detectedCoords) currentCoords = detectedCoords;
+            if (!currentCoords) continue;
+            if (!villagesByCoords.has(currentCoords)) {
+                villagesByCoords.set(currentCoords, {
+                    id: villageId(row), coords: currentCoords, totals: emptyUnits(), attackUnits: emptyUnits(),
+                    fallback: emptyUnits(), hasTotal: false, hasAttack: false
+                });
+            }
+            const village = villagesByCoords.get(currentCoords);
+            if (!village.id && detectedCoords) village.id = villageId(row);
+            const rowUnits = parseRowFromRight(row, found.columns);
+            if (!unitCount(rowUnits)) continue;
+            if (isSupportRow(text) || isScavengeRow(text)) continue;
+            if (isTotalRow(text)) {
+                village.totals = rowUnits; village.attackUnits = rowUnits;
+                village.hasTotal = true; village.hasAttack = true;
+                continue;
+            }
+            const ownRow = /as suas proprias|suas proprias|tropas proprias|proprias|own troops|your own|own units|eigene truppen|eigene/.test(text);
+            if (!village.hasAttack && (detectedCoords || ownRow)) {
+                village.attackUnits = rowUnits; village.hasAttack = true;
+            }
+            if (!village.hasTotal) UNIT_KEYS.forEach(key => { village.fallback[key] = Math.max(village.fallback[key] || 0, rowUnits[key] || 0); });
         }
+        const villages = Array.from(villagesByCoords.values()).map(village => {
+            if (!village.hasTotal) village.totals = village.fallback;
+            if (!village.hasAttack || !unitCount(village.attackUnits)) village.attackUnits = village.totals;
+            village.units = village.totals;
+            delete village.fallback; delete village.hasTotal; delete village.hasAttack;
+            return village;
+        }).filter(village => unitCount(village.units));
         if (!villages.length) throw new Error('A tabela foi encontrada, mas não continha aldeias com tropas.');
         return villages;
     }
@@ -151,6 +178,7 @@
         url.searchParams.set('type', type);
         url.searchParams.set('units_type', type);
         url.searchParams.set('page', '-1');
+        url.searchParams.delete('group');
         ['action', 'ajax', 'h'].forEach(key => url.searchParams.delete(key));
         return url;
     }
@@ -351,21 +379,22 @@
         };
         const attackKeys = ['axe', 'light', 'marcher', 'ram', 'catapult'];
         const defenseKeys = ['spear', 'sword', 'archer', 'heavy'];
-        for (const { units } of villages) {
-            const attackPop = population(units, attackKeys);
+        for (const village of villages) {
+            const units = village.units || emptyUnits();
+            const attackUnits = village.attackUnits || units;
+            const attackPop = population(attackUnits, attackKeys);
             const defensePop = population(units, defenseKeys);
-            const scoutPop = population(units, ['spy']);
-            if (units.snob > 0) {
-                if (units.snob > 1) result.noble.trains[units.snob] = (result.noble.trains[units.snob] || 0) + 1;
-                else if (units.axe >= 5000 && units.light >= 2000) result.noble.full += 1;
+            if (attackUnits.snob > 0) {
+                if (attackUnits.snob > 1) result.noble.trains[attackUnits.snob] = (result.noble.trains[attackUnits.snob] || 0) + 1;
+                else if (attackUnits.axe >= 5000 && attackUnits.light >= 2000) result.noble.full += 1;
                 continue;
             }
-            if (attackPop >= defensePop * 1.15 && attackPop >= scoutPop) {
-                if (units.axe >= 5000 && units.light >= 2000) result.attack.full += 1;
-                else if (units.axe >= 2500 && units.light >= 1000) result.attack.half += 1;
-                else if (units.axe > 0 && units.light > 0) result.attack.small += 1;
-                if (units.catapult * POP.catapult >= attackPop * 0.2) result.attack.catapult += 1;
-            } else if (defensePop >= attackPop && defensePop >= scoutPop) {
+            if (attackUnits.axe > 0 && attackUnits.light > 0) {
+                if (attackUnits.axe >= 5000 && attackUnits.light >= 2000) result.attack.full += 1;
+                else if (attackUnits.axe >= 2500 && attackUnits.light >= 1000) result.attack.half += 1;
+                else if (attackUnits.axe > 0 && attackUnits.light > 0) result.attack.small += 1;
+                if (attackUnits.catapult * POP.catapult >= attackPop * 0.2) result.attack.catapult += 1;
+            } else if (defensePop > 0) {
                 increment(result.defense, tier(defensePop, state.settings.defensePopulation));
             }
         }
@@ -403,7 +432,8 @@
             const activities = reconcileActivities(totals, homeTotals, detected, detected.support);
             state.summary = {
                 villages, totals, armies: classify(villages), group, generatedAt: new Date(),
-                activities, knightTraining
+                activities, knightTraining,
+                expectedVillageCount: Number(window.game_data?.player?.villages) || villages.length
             };
         } catch (error) {
             notify(error.message || String(error), 'error');
@@ -472,7 +502,7 @@
             return `${section ? `<div class="${APP.id}-section"><span>${escapeHtml(section)}</span>${defenseInput}</div>` : ''}<div class="${APP.id}-army"><span>» ${escapeHtml(label)}</span><b>${format(count)}</b></div>`;
         }).join('');
         return `<div class="${APP.id}-card" id="${APP.id}-card">
-            <div class="${APP.id}-meta"><b>Jogador:</b> ${escapeHtml(playerName())}<br><b>Grupo:</b> ${escapeHtml(s.group)}<br><b>Aldeias:</b> ${format(s.villages.length)} · <b>População:</b> ${format(totalPopulation(s.totals))}<br><b>Hora do servidor:</b> ${escapeHtml(document.querySelector('#serverTime')?.textContent || s.generatedAt.toLocaleTimeString('pt-PT'))} ${escapeHtml(document.querySelector('#serverDate')?.textContent || s.generatedAt.toLocaleDateString('pt-PT'))}</div>
+            <div class="${APP.id}-meta"><b>Jogador:</b> ${escapeHtml(playerName())}<br><b>Grupo:</b> ${escapeHtml(s.group)}<br><b>Aldeias:</b> ${format(s.expectedVillageCount)}${s.villages.length !== s.expectedVillageCount ? ` <span class="${APP.id}-warning">(lidas ${format(s.villages.length)})</span>` : ''} · <b>População:</b> ${format(totalPopulation(s.totals))}<br><b>Hora do servidor:</b> ${escapeHtml(document.querySelector('#serverTime')?.textContent || s.generatedAt.toLocaleTimeString('pt-PT'))} ${escapeHtml(document.querySelector('#serverDate')?.textContent || s.generatedAt.toLocaleDateString('pt-PT'))}</div>
             <div class="${APP.id}-columns"><div>${rows}</div><div><div class="${APP.id}-section">Unidades</div>${unitRows}<div class="${APP.id}-section">Totais</div><div class="${APP.id}-unit"><span>Unidades</span><b>${format(UNIT_KEYS.reduce((n, key) => n + s.totals[key], 0))}</b></div><div class="${APP.id}-unit"><span>População</span><b>${format(totalPopulation(s.totals))}</b></div></div></div>
             <div class="${APP.id}-section">Distribuição do total de tropas</div>${activityHtml(s.activities)}
             <small>${APP.title} v${APP.version} · ThePlaguePT</small>
