@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.71
+// @version      1.3.73
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.71';
+    const SCRIPT_VERSION = '1.3.73';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
 
     console.log(`[TW Discord Alerts] Versao ${SCRIPT_VERSION} carregada`);
@@ -5276,19 +5276,25 @@
             style.id = 'tp-theplaguept-script-bar-style';
             style.textContent = `
 #tp-theplaguept-script-bar {
-    position: absolute !important;
+    position: fixed !important;
     top: 8px !important;
     left: 414px !important;
+    right: auto !important;
+    bottom: auto !important;
     z-index: 2147483647 !important;
-    width: 350px !important;
+    width: auto !important;
+    min-width: 0 !important;
     height: 34px !important;
     display: flex !important;
+    flex-direction: row !important;
     align-items: center !important;
     justify-content: flex-start !important;
     gap: 5px !important;
     padding: 0 8px !important;
     box-sizing: border-box !important;
     pointer-events: none !important;
+    overflow: visible !important;
+    transform: none !important;
 }
 
 #tp-theplaguept-script-bar > * {
@@ -5329,7 +5335,7 @@
     align-items: center !important;
     justify-content: center !important;
     gap: 0 !important;
-    overflow: hidden !important;
+    overflow: visible !important;
 }
 
 #tp-theplaguept-script-bar > button:hover,
@@ -5337,7 +5343,9 @@
 #tp-theplaguept-script-bar > * > button:hover,
 #tp-theplaguept-script-bar > * > button:focus-visible,
 #tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,
-#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible {
+#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible,
+#tp-theplaguept-script-bar > #tp-od-est-launcher:hover,
+#tp-theplaguept-script-bar > #tp-od-est-launcher:focus-visible {
     width: 30px !important;
     min-width: 30px !important;
     max-width: 30px !important;
@@ -5364,6 +5372,11 @@
 #tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button { order: 60 !important; }
 #tp-theplaguept-script-bar #tpResumo24h-launcher { order: 70 !important; }
 #tp-theplaguept-script-bar #tpconq-launcher { order: 80 !important; }
+#tp-theplaguept-script-bar #twp-troop-summary-launcher { order: 85 !important; }
+#tp-theplaguept-script-bar #auto-farm-a-toggle { order: 90 !important; }
+#tp-theplaguept-script-bar #tp-od-est-launcher { order: 92 !important; }
+#tp-theplaguept-script-bar #script-coleta-toggle { order: 94 !important; }
+
 #tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]::after {
     content: attr(data-tp-title) !important;
     position: absolute !important;
@@ -5390,6 +5403,41 @@
 #tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:hover::after,
 #tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:focus-within::after {
     display: block !important;
+}
+
+@media (max-width: 1919px) {
+    #tp-theplaguept-script-bar {
+        top: 50vh !important;
+        left: max(12px, calc((100vw - 1220px) / 2 + 8px)) !important;
+        right: auto !important;
+        bottom: auto !important;
+        width: 34px !important;
+        min-width: 34px !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: calc(100vh - 118px) !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 5px !important;
+        padding: 8px 2px !important;
+        transform: translateY(-50%) !important;
+    }
+
+    #tp-theplaguept-script-bar > #auto-farm-a-toggle::after,
+    #tp-theplaguept-script-bar > #script-coleta-toggle::after,
+    #tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]::after {
+        top: 50% !important;
+        left: 38px !important;
+        transform: translateY(-50%) !important;
+    }
+
+    #tp-theplaguept-script-bar [data-auto-farm-countdown],
+    #tp-theplaguept-script-bar [data-script-coleta-countdown] {
+        top: 50% !important;
+        left: 38px !important;
+        transform: translateY(-50%) !important;
+    }
 }
 `;
             (uiDoc.head || uiDoc.documentElement).appendChild(style);
@@ -5487,13 +5535,31 @@
             const rect = element.getBoundingClientRect();
             const tooltipRect = tooltip.getBoundingClientRect();
             const viewportWidth = tooltipWin.innerWidth || tooltipDoc.documentElement.clientWidth || 1024;
-            const left = Math.max(6, Math.min(
-                rect.left + (rect.width / 2) - (tooltipRect.width / 2),
-                viewportWidth - tooltipRect.width - 6
-            ));
+            const viewportHeight = tooltipWin.innerHeight || tooltipDoc.documentElement.clientHeight || 768;
+            const isSideBar = Boolean(
+                tooltipWin.matchMedia &&
+                tooltipWin.matchMedia('(max-width: 1919px)').matches
+            );
+
+            let left;
+            let top;
+
+            if (isSideBar) {
+                left = Math.max(6, Math.min(rect.right + 8, viewportWidth - tooltipRect.width - 6));
+                top = Math.max(6, Math.min(
+                    rect.top + (rect.height / 2) - (tooltipRect.height / 2),
+                    viewportHeight - tooltipRect.height - 6
+                ));
+            } else {
+                left = Math.max(6, Math.min(
+                    rect.left + (rect.width / 2) - (tooltipRect.width / 2),
+                    viewportWidth - tooltipRect.width - 6
+                ));
+                top = rect.bottom + 6;
+            }
 
             tooltip.style.setProperty('left', `${left}px`, 'important');
-            tooltip.style.setProperty('top', `${rect.bottom + 6}px`, 'important');
+            tooltip.style.setProperty('top', `${top}px`, 'important');
         };
 
         if (!element.dataset.tpTooltipReady) {

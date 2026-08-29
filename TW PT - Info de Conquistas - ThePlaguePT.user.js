@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Info de Conquistas - ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.57
+// @version      1.0.59
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        *://*/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.57",
+        version: "1.0.59",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -114,930 +114,175 @@
         const style = document.createElement("style");
         style.id = `${APP.id}-style`;
         style.textContent = `
-            #${APP.id}-launcher {
-                position: fixed !important;
-                left: 12px;
-                right: auto !important;
-                top: 370px;
-                bottom: auto !important;
-                z-index: 2147483647;
-                box-sizing: border-box;
-                display: flex;
-                align-items: center;
-                justify-content: flex-start;
-                gap: 0;
-                width: 30px;
-                min-width: 30px;
-                height: 28px;
-                overflow: hidden;
-                border: 1px solid #4f120f;
-                border-radius: 2px;
-                background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
-                box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.45);
-                color: #fff;
-                font: bold 12px Verdana, Arial, sans-serif;
-                text-shadow: 1px 1px 1px #000;
-                white-space: nowrap;
-                padding: 0 6px;
-                cursor: pointer;
-                transition: width .18s ease, min-width .18s ease, padding .18s ease, gap .18s ease, background .18s ease;
-            }
-            #${APP.id}-launcher:hover,
-            #${APP.id}-launcher:focus-visible {
-                width: 244px;
-                min-width: 244px;
-                gap: 8px;
-                padding: 0 9px;
-                background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
-            }
-            #${APP.id}-launcher .${APP.id}-launcher-icon {
-                position: relative;
-                display: block;
-                width: 16px;
-                height: 15px;
-                flex: 0 0 16px;
-                box-sizing: border-box;
-                border: 1px solid #f1d28d;
-                border-radius: 2px;
-                background:
-                    linear-gradient(90deg, rgba(255,241,184,.35) 0 2px, transparent 2px 6px, rgba(255,241,184,.28) 6px 8px, transparent 8px 12px, rgba(255,241,184,.35) 12px),
-                    linear-gradient(to bottom, #f2d08a, #d49a40);
-                box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 1px 1px #000;
-                transform: skewX(-8deg);
-            }
-            #${APP.id}-launcher .${APP.id}-launcher-icon::before {
-                content: "";
-                position: absolute;
-                left: 6px;
-                top: 1px;
-                width: 1px;
-                height: 11px;
-                background: rgba(96,57,19,.75);
-                box-shadow: 5px 0 0 rgba(96,57,19,.65);
-            }
-            #${APP.id}-launcher .${APP.id}-launcher-icon::after {
-                content: "";
-                position: absolute;
-                left: 2px;
-                top: 5px;
-                width: 4px;
-                height: 4px;
-                border-radius: 50%;
-                background: #d9152f;
-                box-shadow: 0 0 0 1px #fff1b8;
-            }
-            #${APP.id}-launcher .${APP.id}-launcher-text {
-                display: inline-block;
-                max-width: 0;
-                opacity: 0;
-                overflow: hidden;
-                white-space: nowrap;
-                transform: translateX(-4px);
-                transition: max-width .18s ease, opacity .14s ease, transform .18s ease;
-            }
-            #${APP.id}-launcher:hover .${APP.id}-launcher-text,
-            #${APP.id}-launcher:focus-visible .${APP.id}-launcher-text {
-                max-width: 198px;
-                opacity: 1;
-                transform: translateX(0);
-            }
-            #${APP.id}-panel,
-            #${APP.id}-panel * {
-                box-sizing: border-box;
-            }
-            #popup_box_${APP.dialogId} {
-                position: fixed !important;
-                top: 50% !important;
-                left: 50% !important;
-                right: auto !important;
-                bottom: auto !important;
-                transform: translate(-50%, -50%) !important;
-                margin: 0 !important;
-                width: min(1320px, calc(100vw - 24px)) !important;
-                max-width: calc(100vw - 24px) !important;
-                max-height: calc(100vh - 8px) !important;
-                box-sizing: border-box !important;
-                z-index: 20002 !important;
-                overflow: visible !important;
-            }
-            .popup_box:has(.${APP.id}-shell),
-            [id^="popup_box_"]:has(.${APP.id}-shell) {
-                position: fixed !important;
-                top: 50% !important;
-                left: 50% !important;
-                right: auto !important;
-                bottom: auto !important;
-                transform: translate(-50%, -50%) !important;
-                margin: 0 !important;
-                width: min(1320px, calc(100vw - 24px)) !important;
-                max-width: calc(100vw - 24px) !important;
-                max-height: calc(100vh - 8px) !important;
-                box-sizing: border-box !important;
-                overflow: visible !important;
-            }
-            #popup_box_${APP.dialogId} .popup_box_content,
-            #popup_box_${APP.dialogId} .popup_box_content > div {
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
-                overflow-x: hidden !important;
-                overflow-y: hidden !important;
-            }
-            #popup_box_${APP.dialogId} .${APP.id}-frame {
-                width: 100% !important;
-                max-width: 100% !important;
-            }
-            #popup_box_${APP.dialogId} .${APP.id}-shell {
-                width: 100% !important;
-                max-width: 100% !important;
-            }
-            #${APP.id}-panel {
-                position: fixed;
-                z-index: 20001;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                width: min(1320px, calc(100vw - 24px));
-                max-width: calc(100vw - 24px);
-                max-height: calc(100vh - 18px);
-                box-sizing: border-box;
-                overflow: visible;
-                margin: 0;
-                padding: 0;
-                background: transparent;
-                border: 0;
-                border-radius: 0;
-                color: #3b1607;
-                font-family: Arial, Verdana, sans-serif;
-            }
-            #${APP.id}-panel.${APP.id}-hidden { display: none; }
-            .${APP.id}-shell {
-                position: relative;
-                width: min(1260px, calc(100vw - 72px));
-                max-width: 100%;
-                min-width: 0;
-                margin: 0 auto;
-                padding: 0;
-                overflow: visible;
-            }
-            .${APP.id}-frame {
-                position: relative;
-                z-index: 1;
-                display: flex;
-                flex-direction: column;
-                width: 100%;
-                max-width: 100%;
-                min-width: 0;
-                max-height: calc(100vh - 42px);
-                border: 2px solid #7e211c;
-                border-radius: 4px;
-                background: #f4e4b8;
-                color: #3b2508;
-                overflow: hidden;
-            }
-            .${APP.id}-head {
-                padding: 9px 14px 8px;
-                background: linear-gradient(to bottom, #f7e8c1 0%, #edd49a 100%);
-                border-bottom: 1px solid #c98c48;
-            }
-            .${APP.id}-head strong {
-                display: block;
-                color: #8f2b25;
-                font-size: 16px;
-                line-height: 20px;
-                font-weight: bold;
-            }
-            .${APP.id}-head span {
-                display: block;
-                margin-top: 2px;
-                color: #5e3b16;
-                font-size: 12px;
-                line-height: 15px;
-            }
-            .${APP.id}-head span span {
-                display: inline;
-                margin-top: 0;
-            }
-            .${APP.id}-close {
-                position: absolute;
-                top: -12px;
-                right: -12px;
-                z-index: 3;
-                width: 20px;
-                height: 20px;
-                line-height: 16px;
-                padding: 0;
-                border: 2px solid #4c2a12;
-                border-radius: 2px;
-                background: #f6d28b;
-                color: #1b0d07;
-                cursor: pointer;
-                font-family: Verdana, Arial, sans-serif;
-                font-size: 18px;
-                font-weight: 700;
-                text-align: center;
-                box-shadow: 0 1px 3px rgba(0,0,0,.5);
-            }
-            .${APP.id}-close:hover {
-                background: #ffe0a0;
-            }
-            .${APP.id}-body {
-                display: flex;
-                flex-direction: column;
-                min-height: 0;
-                min-width: 0;
-                padding: 6px 14px 8px;
-                overflow: hidden;
-            }
-            .${APP.id}-section {
-                display: grid;
-                grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
-                gap: 8px 18px;
-                min-width: 0;
-                padding: 8px 0 9px 12px;
-                background: transparent;
-                border-top: 1px solid #d5b579;
-                border-bottom: 0;
-                border-left: 4px solid #9b6a2f;
-            }
-            .${APP.id}-section:first-child {
-                border-top: 0;
-            }
-            .${APP.id}-section:last-child {
-                padding-bottom: 0;
-            }
-            .${APP.id}-filters { border-left-color: #c72d2d; }
-            .${APP.id}-settings-section { border-left-color: #8b48c8; }
-            .${APP.id}-summary-section { border-left-color: #1f9ac5; }
-            .${APP.id}-list-section {
-                border-left-color: #e0a51d;
-                min-height: 0;
-            }
-            .${APP.id}-list-section .${APP.id}-section-options {
-                min-height: 0;
-                overflow: hidden;
-            }
-            .${APP.id}-actions-section {
-                border-left-color: #8a6424;
-                border-bottom: 0;
-            }
-            .${APP.id}-section-title {
-                margin: 0 0 3px;
-                color: #8f2b25;
-                font-size: 13px;
-                line-height: 16px;
-                font-weight: bold;
-                text-transform: uppercase;
-            }
-            .${APP.id}-section-desc {
-                margin: 2px 0 0;
-                color: #5e3b16;
-                font-size: 11px;
-                line-height: 14px;
-            }
-            .${APP.id}-section-options {
-                min-width: 0;
-            }
-            .${APP.id}-toolbar {
-                display: grid;
-                grid-template-columns: repeat(4, minmax(115px, 1fr));
-                gap: 6px 7px;
-            }
-            .${APP.id}-field {
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-                min-width: 0;
-            }
-            .${APP.id}-field label {
-                color: #111;
-                font-size: 11px;
-                font-weight: 700;
-            }
-            .${APP.id}-field input,
-            .${APP.id}-field select {
-                width: 100%;
-                box-sizing: border-box;
-                height: 28px;
-                border: 1px solid #b57d2e;
-                border-radius: 2px;
-                background: #fff6d7;
-                color: #241006;
-                padding: 5px 7px;
-                font: 11px Verdana, Arial, sans-serif;
-                box-shadow: inset 0 1px 2px rgba(0,0,0,.12);
-            }
-            .${APP.id}-field input:focus,
-            .${APP.id}-field select:focus {
-                outline: 2px solid rgba(167,34,30,.25);
-                border-color: #a7221e;
-            }
-            .${APP.id}-actions {
-                display: grid;
-                grid-template-columns: 150px minmax(150px, 1fr) minmax(150px, 1fr) minmax(120px, auto);
-                align-items: start;
-                gap: 8px 10px;
-            }
-            .${APP.id}-action-stack {
-                display: grid;
-                gap: 7px;
-            }
-            .${APP.id}-button {
-                min-height: 32px;
-                border: 1px solid #681511;
-                border-radius: 3px;
-                background: linear-gradient(to bottom, #b13a34, #922722 55%, #731914);
-                color: #fff;
-                cursor: pointer;
-                font: bold 11px Verdana, Arial, sans-serif;
-                padding: 6px 10px;
-                text-shadow: 1px 1px 1px #000;
-                box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.3);
-                white-space: nowrap;
-            }
-            .${APP.id}-button:hover {
-                background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
-            }
-            .${APP.id}-button.${APP.id}-brown {
-                border-color: #4e2e1c;
-                background: linear-gradient(to bottom, #7b543a, #5e3b28 55%, #442819);
-            }
-            .${APP.id}-button.${APP.id}-brown:hover {
-                background: linear-gradient(to bottom, #8a6042, #6f4630 55%, #52301e);
-            }
-            .${APP.id}-button:disabled {
-                opacity: .55;
-                cursor: wait;
-            }
-            .${APP.id}-check {
-                flex-direction: row;
-                align-items: center;
-                gap: 6px;
-                color: #111;
-                font-weight: 700;
-                min-height: 32px;
-            }
-            .${APP.id}-check input {
-                width: auto;
-                height: auto;
-                margin: 0;
-                accent-color: #d9152f;
-            }
-            .${APP.id}-config-list {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                column-gap: 18px;
-                gap: 0;
-            }
-            .${APP.id}-config-row {
-                display: grid;
-                grid-template-columns: 18px minmax(0, 1fr);
-                gap: 8px;
-                align-items: start;
-                padding: 6px 0;
-                border-top: 1px solid #d5b579;
-            }
-            .${APP.id}-range-row {
-                grid-column: 1 / -1;
-            }
-            .${APP.id}-config-row:first-child {
-                border-top: 0;
-                padding-top: 0;
-            }
-            .${APP.id}-config-row:nth-child(2) {
-                border-top: 0;
-                padding-top: 0;
-            }
-            .${APP.id}-config-row input {
-                width: 13px;
-                height: 13px;
-                margin: 2px 0 0;
-                accent-color: #d9152f;
-            }
-            .${APP.id}-config-row b {
-                display: block;
-                color: #111;
-                font-size: 12px;
-                line-height: 15px;
-            }
-            .${APP.id}-config-row span {
-                display: block;
-                margin-top: 2px;
-                color: #5e3b16;
-                font-size: 11px;
-                line-height: 14px;
-            }
-            .${APP.id}-config-row .${APP.id}-range-head {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 10px;
-                margin: 0;
-            }
-            .${APP.id}-config-row .${APP.id}-range-head span {
-                margin: 0;
-                color: inherit;
-                font: inherit;
-                line-height: inherit;
-            }
-            .${APP.id}-config-row output {
-                color: #8f2b25;
-                font: bold 12px Verdana, Arial, sans-serif;
-            }
-            .${APP.id}-config-row input[type="range"] {
-                width: 100%;
-                height: 16px;
-                margin: 3px 0 0;
-                accent-color: #a22c27;
-            }
-            .${APP.id}-summary {
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 8px;
-            }
-            .${APP.id}-metric {
-                border: 1px solid #b57d2e;
-                border-radius: 2px;
-                background: #fff6d7;
-                padding: 6px 8px;
-                min-width: 0;
-                box-shadow: inset 0 1px 2px rgba(0,0,0,.08);
-            }
-            .${APP.id}-metric b {
-                display: block;
-                font-size: 16px;
-                color: #111;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-            .${APP.id}-metric span {
-                color: #6f4a1e;
-                font-size: 10px;
-                font-weight: 700;
-                text-transform: uppercase;
-            }
-            .${APP.id}-content {
-                max-width: 100%;
-                overflow-x: hidden;
-                overflow-y: auto;
-                height: clamp(170px, 28vh, 270px);
-                max-height: clamp(170px, 28vh, 270px);
-                min-height: 0;
-                border: 1px solid #c99545;
-                background: #fff2c8;
-            }
-            .${APP.id}-table {
-                width: 100%;
-                border-collapse: collapse;
-                table-layout: fixed;
-            }
-            .${APP.id}-table th:nth-child(1),
-            .${APP.id}-table td:nth-child(1) { width: 11%; }
-            .${APP.id}-table th:nth-child(2),
-            .${APP.id}-table td:nth-child(2) { width: 21%; }
-            .${APP.id}-table th:nth-child(3),
-            .${APP.id}-table td:nth-child(3) { width: 8%; }
-            .${APP.id}-table th:nth-child(4),
-            .${APP.id}-table td:nth-child(4) { width: 15%; }
-            .${APP.id}-table th:nth-child(5),
-            .${APP.id}-table td:nth-child(5) { width: 10%; }
-            .${APP.id}-table th:nth-child(6),
-            .${APP.id}-table td:nth-child(6) { width: 15%; }
-            .${APP.id}-table th:nth-child(7),
-            .${APP.id}-table td:nth-child(7) { width: 10%; }
-            .${APP.id}-table th:nth-child(8),
-            .${APP.id}-table td:nth-child(8) { width: 10%; }
-            .${APP.id}-table th,
-            .${APP.id}-table td {
-                border-bottom: 1px solid #d1ad68;
-                padding: 6px 7px;
-                text-align: left;
-                vertical-align: top;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                color: #2d1307;
-            }
-            .${APP.id}-table th {
-                position: sticky;
-                top: 0;
-                z-index: 1;
-                background: linear-gradient(to bottom, #d7b56f, #c89745);
-                color: #3b1607;
-                font-size: 10px;
-                text-transform: uppercase;
-                border-bottom: 1px solid #8c5b22;
-            }
-            .${APP.id}-table tr:nth-child(even) td { background: #f6e2ae; }
-            .${APP.id}-table tr:nth-child(odd) td { background: #fff2c8; }
-            .${APP.id}-table a {
-                color: #603913;
-                font-weight: 700;
-                text-decoration: none;
-            }
-            .${APP.id}-table a:hover { text-decoration: underline; }
-            .${APP.id}-muted { color: #876846; }
-            .${APP.id}-pos { color: #286421; font-weight: 700; }
-            .${APP.id}-neg { color: #923020; font-weight: 700; }
-            .${APP.id}-table td.${APP.id}-muted { color: #876846; }
-            .${APP.id}-table td.${APP.id}-pos { color: #286421; font-weight: 700; }
-            .${APP.id}-table td.${APP.id}-neg { color: #923020; font-weight: 700; }
-            .${APP.id}-map-layer {
-                position: absolute;
-                inset: 0;
-                z-index: 90;
-                overflow: visible;
-                pointer-events: none;
-            }
-            .${APP.id}-minimap-layer {
-                position: absolute;
-                inset: 0;
-                z-index: 70;
-                overflow: hidden;
-                pointer-events: none;
-            }
-            .${APP.id}-minimap-dot {
-                --${APP.id}-marker-color: #d9152f;
-                --${APP.id}-marker-rgb: 217,21,47;
-                --${APP.id}-marker-bg-alpha: .95;
-                --${APP.id}-marker-glow: rgba(217,21,47,.95);
-                position: absolute;
-                z-index: 71;
-                width: 7px;
-                height: 7px;
-                box-sizing: border-box;
-                border: 1px solid #fff1b8;
-                border-radius: 50%;
-                background: rgba(var(--${APP.id}-marker-rgb), var(--${APP.id}-marker-bg-alpha));
-                box-shadow: 0 0 0 1px var(--${APP.id}-marker-color), 0 0 4px var(--${APP.id}-marker-glow), 0 1px 2px rgba(0,0,0,.75);
-                transform: translate(-50%, -50%);
-                pointer-events: none;
-            }
-            .${APP.id}-map-marker {
-                --${APP.id}-marker-color: #d9152f;
-                --${APP.id}-marker-rgb: 217,21,47;
-                --${APP.id}-marker-bg-alpha: .95;
-                --${APP.id}-marker-glow: rgba(217,21,47,.95);
-                position: absolute;
-                z-index: 80;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: 20px;
-                height: 20px;
-                margin: -10px 0 0 -10px;
-                border: 1px solid #fff1b8;
-                border-radius: 50%;
-                background: rgba(var(--${APP.id}-marker-rgb), var(--${APP.id}-marker-bg-alpha));
-                box-shadow: 0 0 0 2px var(--${APP.id}-marker-color), 0 0 9px var(--${APP.id}-marker-glow), inset 0 0 0 1px rgba(91,18,14,.65);
-                color: #fff7d7;
-                font: bold 9px/20px Verdana, Arial, sans-serif;
-                letter-spacing: 0;
-                text-align: center;
-                text-shadow: 1px 1px 1px #000;
-                pointer-events: none;
-            }
-            .${APP.id}-map-age-1h {
-                --${APP.id}-marker-color: #18a83b;
-                --${APP.id}-marker-rgb: 24,168,59;
-                --${APP.id}-marker-glow: rgba(24,168,59,.95);
-            }
-            .${APP.id}-map-age-3h {
-                --${APP.id}-marker-color: #d7b316;
-                --${APP.id}-marker-rgb: 215,179,22;
-                --${APP.id}-marker-glow: rgba(215,179,22,.95);
-            }
-            .${APP.id}-map-age-6h {
-                --${APP.id}-marker-color: #ee7c13;
-                --${APP.id}-marker-rgb: 238,124,19;
-                --${APP.id}-marker-glow: rgba(238,124,19,.95);
-            }
-            .${APP.id}-map-age-old {
-                --${APP.id}-marker-color: #d9152f;
-                --${APP.id}-marker-rgb: 217,21,47;
-                --${APP.id}-marker-glow: rgba(217,21,47,.95);
-            }
-            #${APP.id}-map-load {
-                position: absolute;
-                top: 8px;
-                right: 8px;
-                z-index: 120;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                gap: 0;
-                width: 30px;
-                min-width: 30px;
-                height: 28px;
-                overflow: visible;
-                white-space: nowrap;
-                border: 1px solid #4f120f;
-                border-radius: 2px;
-                background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
-                box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.45);
-                color: #fff;
-                font: bold 12px Verdana, Arial, sans-serif;
-                text-shadow: 1px 1px 1px #000;
-                padding: 0;
-                cursor: pointer;
-                transition: background .12s ease, filter .12s ease;
-            }
-            #${APP.id}-map-load:hover,
-            #${APP.id}-map-load:focus {
-                background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
-            }
-            #${APP.id}-map-load.${APP.id}-map-toggle-off {
-                border-color: #2f302d;
-                background: linear-gradient(to bottom, #7c7d75, #55564f 55%, #353631);
-            }
-            #${APP.id}-map-load.${APP.id}-map-toggle-off:hover,
-            #${APP.id}-map-load.${APP.id}-map-toggle-off:focus {
-                background: linear-gradient(to bottom, #8b8c84, #62635c 55%, #42433d);
-            }
-            #${APP.id}-map-load.${APP.id}-map-toggle-off::after {
-                content: "";
-                position: absolute;
-                left: 5px;
-                top: 12px;
-                width: 20px;
-                height: 3px;
-                border-radius: 3px;
-                background: #f4ead0;
-                box-shadow: 0 0 0 1px #2d2d29, 1px 1px 2px rgba(0,0,0,.75);
-                transform: rotate(-45deg);
-                pointer-events: none;
-            }
-            #${APP.id}-map-load .${APP.id}-map-load-icon {
-                flex: 0 0 17px;
-                position: relative;
-                display: inline-block;
-                width: 17px;
-                height: 15px;
-                border: 1px solid #fff1b8;
-                border-radius: 2px;
-                background:
-                    linear-gradient(90deg, rgba(255,241,184,.35) 0 2px, transparent 2px 6px, rgba(255,241,184,.28) 6px 8px, transparent 8px 12px, rgba(255,241,184,.35) 12px 14px, transparent 14px),
-                    linear-gradient(to bottom, #f2d08a, #d49a40);
-                box-shadow: 0 0 0 1px #7b241f, 0 0 6px rgba(255,214,122,.75);
-                transform: skewX(-8deg);
-            }
-            #${APP.id}-map-load.${APP.id}-map-toggle-off .${APP.id}-map-load-icon {
-                filter: grayscale(1) brightness(.78);
-                opacity: .92;
-                box-shadow: 0 0 0 1px #3c3d38, 0 0 4px rgba(255,255,255,.35);
-            }
-            #${APP.id}-map-load .${APP.id}-map-load-icon::before {
-                content: "";
-                position: absolute;
-                left: 6px;
-                top: 1px;
-                width: 1px;
-                height: 11px;
-                background: rgba(96,57,19,.75);
-                box-shadow: 6px 0 0 rgba(96,57,19,.65);
-            }
-            #${APP.id}-map-load .${APP.id}-map-load-icon::after {
-                content: "";
-                position: absolute;
-                left: 3px;
-                top: 4px;
-                width: 5px;
-                height: 5px;
-                border-radius: 50%;
-                background: #d9152f;
-                box-shadow: 0 0 0 1px #fff1b8;
-            }
-            #${APP.id}-map-load.${APP.id}-map-toggle-off .${APP.id}-map-load-icon::after {
-                background: #6e6f68;
-                box-shadow: 0 0 0 1px #f4ead0;
-            }
-            #${APP.id}-map-load .${APP.id}-map-load-label {
-                display: none;
-            }
-            #${APP.id}-map-load:disabled {
-                opacity: .72;
-                cursor: wait;
-            }
-            #tpMapMarker-mapToolbar #${APP.id}-map-load {
-                position: relative !important;
-                top: auto !important;
-                right: auto !important;
-                bottom: auto !important;
-                left: auto !important;
-                z-index: auto !important;
-                order: 50 !important;
-                box-sizing: border-box !important;
-                width: 30px !important;
-                min-width: 30px !important;
-                max-width: 30px !important;
-                height: 28px !important;
-                min-height: 28px !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                flex: 0 0 30px !important;
-                display: inline-flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                vertical-align: middle !important;
-                line-height: 1 !important;
-            }
-            .${APP.id}-footer {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 10px;
-                margin-top: 10px;
-                color: #5e3b16;
-                font-size: 11px;
-                line-height: 14px;
-            }
-            .${APP.id}-footer a {
-                color: #8f2b25;
-                font-weight: 700;
-                text-decoration: none;
-            }
-            .${APP.id}-footer a:hover {
-                text-decoration: underline;
-            }
-            .${APP.id}-notice {
-                padding: 22px;
-                color: #4f210b;
-                text-align: center;
-                font-weight: 700;
-            }
-            .${APP.id}-loading {
-                opacity: .68;
-                pointer-events: none;
-            }
-            @media (max-width: 920px) {
-                #${APP.id}-panel {
-                    top: 50%;
-                    max-width: calc(100vw - 24px);
-                }
-                .${APP.id}-section {
-                    grid-template-columns: 1fr;
-                    gap: 8px;
-                }
-                .${APP.id}-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-                .${APP.id}-config-list { grid-template-columns: 1fr; }
-                .${APP.id}-range-row { grid-column: auto; }
-                .${APP.id}-summary { grid-template-columns: repeat(2, 1fr); }
-                .${APP.id}-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-                .${APP.id}-action-stack { grid-column: span 2; }
-            }
-        `;
-        document.head.appendChild(style);
+#tp-theplaguept-script-bar {
+    position: fixed !important;
+    top: 8px !important;
+    left: 414px !important;
+    right: auto !important;
+    bottom: auto !important;
+    z-index: 2147483647 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 34px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 5px !important;
+    padding: 0 8px !important;
+    box-sizing: border-box !important;
+    pointer-events: none !important;
+    overflow: visible !important;
+    transform: none !important;
+}
+
+#tp-theplaguept-script-bar > * {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    margin: 0 !important;
+    flex: 0 0 30px !important;
+    pointer-events: auto !important;
+    overflow: visible !important;
+}
+
+#tp-theplaguept-script-bar > button,
+#tp-theplaguept-script-bar > * > button {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 0 30px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    overflow: visible !important;
+}
+
+#tp-theplaguept-script-bar > button:hover,
+#tp-theplaguept-script-bar > button:focus-visible,
+#tp-theplaguept-script-bar > * > button:hover,
+#tp-theplaguept-script-bar > * > button:focus-visible,
+#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,
+#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible,
+#tp-theplaguept-script-bar > #tp-od-est-launcher:hover,
+#tp-theplaguept-script-bar > #tp-od-est-launcher:focus-visible {
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+}
+
+#tp-theplaguept-script-bar .tpdef-launcher-text,
+#tp-theplaguept-script-bar .tw-alerts-toggle-label,
+#tp-theplaguept-script-bar .ti-toggle-label,
+#tp-theplaguept-script-bar .ra-tp-config-button-label,
+#tp-theplaguept-script-bar [class$="-launcherLabel"],
+#tp-theplaguept-script-bar [class$="-launcher-text"] {
+    display: none !important;
+    max-width: 0 !important;
+    opacity: 0 !important;
+}
+
+#tp-theplaguept-script-bar #twHubTp-launcher { order: 10 !important; }
+#tp-theplaguept-script-bar #tw-discord-alerts-ui { order: 20 !important; }
+#tp-theplaguept-script-bar #tpDefLauncher { order: 30 !important; }
+#tp-theplaguept-script-bar #tag-incomings-pt-panel { order: 40 !important; }
+#tp-theplaguept-script-bar #tpMapMarker-launcher { order: 50 !important; }
+#tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button { order: 60 !important; }
+#tp-theplaguept-script-bar #tpResumo24h-launcher { order: 70 !important; }
+#tp-theplaguept-script-bar #tpconq-launcher { order: 80 !important; }
+#tp-theplaguept-script-bar #twp-troop-summary-launcher { order: 85 !important; }
+#tp-theplaguept-script-bar #auto-farm-a-toggle { order: 90 !important; }
+#tp-theplaguept-script-bar #tp-od-est-launcher { order: 92 !important; }
+#tp-theplaguept-script-bar #script-coleta-toggle { order: 94 !important; }
+
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]::after {
+    content: attr(data-tp-title) !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 33px !important;
+    transform: translateX(-50%) !important;
+    display: none !important;
+    white-space: nowrap !important;
+    max-width: 360px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    padding: 4px 8px !important;
+    border: 1px solid #4f120f !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #f6dfaa, #d2a05a) !important;
+    color: #2b1509 !important;
+    font: bold 11px Verdana, Arial, sans-serif !important;
+    text-shadow: 0 1px #fff !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,.55) !important;
+    pointer-events: none !important;
+    z-index: 2147483647 !important;
+}
+
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:hover::after,
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:focus-within::after {
+    display: block !important;
+}
+
+@media (max-width: 1919px) {
+    #tp-theplaguept-script-bar {
+        top: 50vh !important;
+        left: max(12px, calc((100vw - 1220px) / 2 + 8px)) !important;
+        right: auto !important;
+        bottom: auto !important;
+        width: 34px !important;
+        min-width: 34px !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: calc(100vh - 118px) !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 5px !important;
+        padding: 8px 2px !important;
+        transform: translateY(-50%) !important;
     }
 
-    function ensureTpScriptBar(doc = document) {
-        if (!doc || !doc.body) return null;
-        if (!doc.getElementById("tp-theplaguept-script-bar-style")) {
-            const style = doc.createElement("style");
-            style.id = "tp-theplaguept-script-bar-style";
-            style.textContent = '#tp-theplaguept-script-bar{position: absolute !important;top:8px!important;left:414px!important;z-index:2147483647!important;width:350px!important;height:34px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:5px!important;padding:0 8px!important;box-sizing:border-box!important;pointer-events:none!important}#tp-theplaguept-script-bar>*{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;flex:0 0 30px!important;pointer-events:auto!important;overflow:visible!important}#tp-theplaguept-script-bar>button,#tp-theplaguept-script-bar>*>button{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;padding:0!important;flex:0 0 30px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:0!important;overflow:visible!important}#tp-theplaguept-script-bar>button:hover,#tp-theplaguept-script-bar>button:focus-visible,#tp-theplaguept-script-bar>*>button:hover,#tp-theplaguept-script-bar>*>button:focus-visible,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible{width:30px!important;min-width:30px!important;max-width:30px!important;padding:0!important;gap:0!important}#tp-theplaguept-script-bar .tpdef-launcher-text,#tp-theplaguept-script-bar .tw-alerts-toggle-label,#tp-theplaguept-script-bar .ti-toggle-label,#tp-theplaguept-script-bar .ra-tp-config-button-label,#tp-theplaguept-script-bar [class$="-launcherLabel"],#tp-theplaguept-script-bar [class$="-launcher-text"]{display:none!important;max-width:0!important;opacity:0!important}#tp-theplaguept-script-bar #twHubTp-launcher{order:10!important}#tp-theplaguept-script-bar #tw-discord-alerts-ui{order:20!important}#tp-theplaguept-script-bar #tpDefLauncher{order:30!important}#tp-theplaguept-script-bar #tag-incomings-pt-panel{order:40!important}#tp-theplaguept-script-bar #tpMapMarker-launcher{order:50!important}#tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button{order:60!important}#tp-theplaguept-script-bar #tpResumo24h-launcher{order:70!important}#tp-theplaguept-script-bar #tpconq-launcher{order:80!important}#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]::after{content:attr(data-tp-title);position:absolute!important;left:50%!important;top:33px!important;transform:translateX(-50%)!important;display:none!important;white-space:nowrap!important;max-width:360px!important;overflow:hidden!important;text-overflow:ellipsis!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;pointer-events:none!important;z-index:2147483647!important}#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]:hover::after,#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]:focus-within::after{display:block!important}';
-            (doc.head || doc.documentElement).appendChild(style);
-        }
-        let bar = doc.getElementById("tp-theplaguept-script-bar");
-        if (!bar) {
-            bar = doc.createElement("div");
-            bar.id = "tp-theplaguept-script-bar";
-            bar.setAttribute("aria-label", "Botoes ThePlaguePT");
-            (doc.body || doc.documentElement).appendChild(bar);
-        }
-        return bar;
+    #tp-theplaguept-script-bar > #auto-farm-a-toggle::after,
+    #tp-theplaguept-script-bar > #script-coleta-toggle::after,
+    #tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]::after {
+        top: 50% !important;
+        left: 38px !important;
+        transform: translateY(-50%) !important;
     }
 
-    function attachToTpScriptBar(element, doc = document) {
-        const bar = ensureTpScriptBar(doc);
-        if (!bar || !element) return;
-        element.classList.add("tp-theplaguept-script-bar-item");
-        const tooltipButton = element.querySelector && element.querySelector('button[title],button[aria-label]');
-        const tooltipSource =
-            element.getAttribute('data-tp-tooltip') ||
-            element.getAttribute('title') ||
-            element.getAttribute('aria-label') ||
-            (tooltipButton ? tooltipButton.getAttribute('title') || tooltipButton.getAttribute('aria-label') : '') ||
-            '';
-        if (tooltipSource) {
-            element.dataset.tpTooltip = tooltipSource;
-            element.setAttribute('aria-label', tooltipSource);
-            element.removeAttribute('title');
-
-            if (tooltipButton) {
-                tooltipButton.setAttribute('aria-label', tooltipSource);
-                tooltipButton.removeAttribute('title');
-            }
-        }
-
-        const getSharedTooltip = () => {
-            const tooltipDoc = element.ownerDocument || document;
-            let tooltip = tooltipDoc.getElementById('tp-theplaguept-script-bar-tooltip');
-
-            if (!tooltip) {
-                tooltip = tooltipDoc.createElement('div');
-                tooltip.id = 'tp-theplaguept-script-bar-tooltip';
-
-                const tooltipStyles = {
-                    position: 'fixed',
-                    display: 'none',
-                    'z-index': '2147483647',
-                    padding: '4px 8px',
-                    border: '1px solid #4f120f',
-                    'border-radius': '2px',
-                    background: 'linear-gradient(to bottom, #f6dfaa, #d2a05a)',
-                    color: '#2b1509',
-                    font: 'bold 11px Verdana, Arial, sans-serif',
-                    'text-shadow': '0 1px #fff',
-                    'box-shadow': '0 2px 6px rgba(0,0,0,.55)',
-                    'white-space': 'nowrap',
-                    'max-width': '360px',
-                    overflow: 'hidden',
-                    'text-overflow': 'ellipsis',
-                    'pointer-events': 'none'
-                };
-
-                Object.entries(tooltipStyles).forEach(([property, value]) => {
-                    tooltip.style.setProperty(property, value, 'important');
-                });
-
-                (tooltipDoc.body || tooltipDoc.documentElement).appendChild(tooltip);
-            }
-
-            return tooltip;
-        };
-        const hideSharedTooltip = () => {
-            const tooltipDoc = element.ownerDocument || document;
-            const tooltip = tooltipDoc.getElementById('tp-theplaguept-script-bar-tooltip');
-
-            if (tooltip) {
-                tooltip.style.setProperty('display', 'none', 'important');
-            }
-        };
-        const showSharedTooltip = () => {
-            const text = element.dataset.tpTooltip || '';
-            if (!text) return;
-
-            const tooltipDoc = element.ownerDocument || document;
-            const tooltipWin = tooltipDoc.defaultView || window;
-            const tooltip = getSharedTooltip();
-
-            tooltip.textContent = text;
-            tooltip.style.setProperty('display', 'block', 'important');
-
-            const rect = element.getBoundingClientRect();
-            const tooltipRect = tooltip.getBoundingClientRect();
-            const viewportWidth = tooltipWin.innerWidth || tooltipDoc.documentElement.clientWidth || 1024;
-            const left = Math.max(6, Math.min(
-                rect.left + (rect.width / 2) - (tooltipRect.width / 2),
-                viewportWidth - tooltipRect.width - 6
-            ));
-
-            tooltip.style.setProperty('left', `${left}px`, 'important');
-            tooltip.style.setProperty('top', `${rect.bottom + 6}px`, 'important');
-        };
-
-        if (!element.dataset.tpTooltipReady) {
-            element.addEventListener('mouseenter', showSharedTooltip);
-            element.addEventListener('focusin', showSharedTooltip);
-            element.addEventListener('mouseleave', hideSharedTooltip);
-            element.addEventListener('focusout', hideSharedTooltip);
-            element.dataset.tpTooltipReady = '1';
-        }
-        const orders = {"twHubTp-launcher":10,"tw-discord-alerts-ui":20,tpDefLauncher:30,"tag-incomings-pt-panel":40,"tpMapMarker-launcher":50,"renomear-ataques-cores-theplaguept-config-button":60,"tpResumo24h-launcher":70,"tpconq-launcher":80};
-        const applyCompactButtonStyle = node => {
-            if (!node || !node.style) return;
-            node.style.setProperty("position", "relative", "important");
-            node.style.setProperty("top", "auto", "important");
-            node.style.setProperty("left", "auto", "important");
-            node.style.setProperty("right", "auto", "important");
-            node.style.setProperty("bottom", "auto", "important");
-            node.style.setProperty("transform", "none", "important");
-            node.style.setProperty("width", "30px", "important");
-            node.style.setProperty("min-width", "30px", "important");
-            node.style.setProperty("max-width", "30px", "important");
-            node.style.setProperty("height", "28px", "important");
-            node.style.setProperty("min-height", "28px", "important");
-            node.style.setProperty("margin", "0", "important");
-            node.style.setProperty("flex", "0 0 30px", "important");
-        };
-        applyCompactButtonStyle(element);
-        if (orders[element.id]) element.style.setProperty("order", String(orders[element.id]), "important");
-        Array.from(element.children || []).filter(child => child.matches && child.matches("button")).forEach(applyCompactButtonStyle);
-        element.querySelectorAll('.tpdef-launcher-text,.tw-alerts-toggle-label,.ti-toggle-label,.ra-tp-config-button-label,[class$="-launcherLabel"],[class$="-launcher-text"]').forEach(label => {
-            label.style.setProperty("display", "none", "important");
-            label.style.setProperty("max-width", "0", "important");
-            label.style.setProperty("opacity", "0", "important");
-        });
-        if (element.parentElement !== bar) bar.appendChild(element);
+    #tp-theplaguept-script-bar [data-auto-farm-countdown],
+    #tp-theplaguept-script-bar [data-script-coleta-countdown] {
+        top: 50% !important;
+        left: 38px !important;
+        transform: translateY(-50%) !important;
     }
-
-    function createLauncher() {
-        if (document.getElementById(`${APP.id}-launcher`)) return;
-        const button = document.createElement("button");
-        button.id = `${APP.id}-launcher`;
+}
+`;
         button.type = "button";
         button.title = "Conquistas - ThePlaguePT";
         button.setAttribute("aria-label", "Conquistas - ThePlaguePT");
+        button.setAttribute("data-tp-title", "Conquistas - ThePlaguePT");
         button.innerHTML = `
             <span class="${APP.id}-launcher-icon" aria-hidden="true"></span>
             <span class="${APP.id}-launcher-text">Conquistas - ThePlaguePT</span>

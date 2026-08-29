@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.13
+// @version      1.3.17
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.13',
+        version: '1.3.17',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -111,9 +111,13 @@
         settings: null,
         savedTimer: 0,
         farmTimer: 0,
+        farmDueAt: 0,
+        farmTimerToken: 0,
         farmRunning: false,
         farmGeneration: 0,
         roundTimer: 0,
+        roundDueAt: 0,
+        roundTimerToken: 0,
         roundPreparing: false,
         villagePreparing: false,
         groupsLoadGeneration: 0,
@@ -142,6 +146,10 @@
         monitorTimer: 0,
         heartbeatTimer: 0,
         fallbackLeaseTimer: 0,
+        backgroundClock: null,
+        backgroundClockUrl: '',
+        lastHeartbeatAt: 0,
+        lastRecoveryAt: 0,
         releaseLock: null,
         ownsWorker: false,
         acquiringWorker: false,
@@ -179,6 +187,7 @@
         injectStyles();
         createButton();
         bindEvents();
+        startBackgroundClock();
         startCaptchaProtection();
         startMonitor();
 
@@ -228,6 +237,93 @@
 
         window.addEventListener('beforeunload', destroy, { once: true });
         window.addEventListener('pagehide', destroy, { once: true });
+        window.addEventListener('pageshow', recoverBackgroundWork);
+        window.addEventListener('focus', recoverBackgroundWork);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) recoverBackgroundWork();
+        });
+    }
+
+    function startBackgroundClock() {
+        if (state.backgroundClock || typeof Worker !== 'function') return;
+        try {
+            const source = `setInterval(function(){postMessage(Date.now())},250);`;
+            const blob = new Blob([source], { type: 'text/javascript' });
+            const url = URL.createObjectURL(blob);
+            const clock = new Worker(url, { name: `TW-PT-AutoFarm-${world}` });
+            state.backgroundClock = clock;
+            state.backgroundClockUrl = url;
+            clock.addEventListener('message', handleBackgroundPulse);
+            clock.addEventListener('error', () => stopBackgroundClock());
+        } catch (error) {
+            console.warn(
+                `[${APP.shortName}] Relógio de segundo plano indisponível; ` +
+                'mantida a recuperação normal do browser.',
+                error
+            );
+            stopBackgroundClock();
+        }
+    }
+
+    function stopBackgroundClock() {
+        if (state.backgroundClock) {
+            state.backgroundClock.removeEventListener('message', handleBackgroundPulse);
+            state.backgroundClock.terminate();
+            state.backgroundClock = null;
+        }
+        if (state.backgroundClockUrl) {
+            URL.revokeObjectURL(state.backgroundClockUrl);
+            state.backgroundClockUrl = '';
+        }
+    }
+
+    function handleBackgroundPulse() {
+        if (state.destroyed) return;
+        const now = Date.now();
+
+        if (
+            state.ownsWorker &&
+            isEnabled() &&
+            now - state.lastHeartbeatAt >= APP.workerHeartbeatMs
+        ) {
+            publishHeartbeat();
+        }
+
+        if (
+            state.farmTimer &&
+            state.farmDueAt > 0 &&
+            state.farmDueAt <= now &&
+            !state.farmRunning
+        ) {
+            clearFarmTimer();
+            Promise.resolve().then(runFarmStep);
+        }
+
+        if (state.roundTimer && state.roundDueAt > 0 && state.roundDueAt <= now) {
+            clearRoundTimer();
+            if (automationCanRun() && state.ownsWorker) scheduleRoundWait(ensureRunState());
+        }
+
+        if (
+            state.ownsWorker &&
+            automationCanRun() &&
+            now - state.lastRecoveryAt >= APP.monitorMs
+        ) {
+            state.lastRecoveryAt = now;
+            recoverBackgroundWork();
+        }
+    }
+
+    function recoverBackgroundWork() {
+        if (!isFarmPage() || !automationCanRun() || !state.ownsWorker) return;
+        const run = ensureRunState();
+        if (run.round.phase === 'farming') {
+            if (!state.farmRunning && !state.farmTimer) scheduleFarmStep(50);
+            return;
+        }
+        if (run.round.phase === 'waiting') {
+            if (!state.roundTimer) scheduleRoundWait(run);
+        }
     }
 
     function createButton() {
@@ -268,8 +364,170 @@
             const sharedStyle = document.createElement('style');
             sharedStyle.id = APP.toolbarStyleId;
             sharedStyle.textContent = `
-                #${APP.toolbarId}{position:absolute!important;top:8px!important;left:414px!important;z-index:2147483647!important;width:350px!important;height:34px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:5px!important;padding:0 8px!important;box-sizing:border-box!important;pointer-events:none!important;overflow:visible!important}
-                #${APP.toolbarId}>*{position:relative!important;top:auto!important;right:auto!important;bottom:auto!important;left:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;flex:0 0 30px!important;pointer-events:auto!important;overflow:visible!important}
+#tp-theplaguept-script-bar {
+    position: fixed !important;
+    top: 8px !important;
+    left: 414px !important;
+    right: auto !important;
+    bottom: auto !important;
+    z-index: 2147483647 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 34px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 5px !important;
+    padding: 0 8px !important;
+    box-sizing: border-box !important;
+    pointer-events: none !important;
+    overflow: visible !important;
+    transform: none !important;
+}
+
+#tp-theplaguept-script-bar > * {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    margin: 0 !important;
+    flex: 0 0 30px !important;
+    pointer-events: auto !important;
+    overflow: visible !important;
+}
+
+#tp-theplaguept-script-bar > button,
+#tp-theplaguept-script-bar > * > button {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 0 30px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    overflow: visible !important;
+}
+
+#tp-theplaguept-script-bar > button:hover,
+#tp-theplaguept-script-bar > button:focus-visible,
+#tp-theplaguept-script-bar > * > button:hover,
+#tp-theplaguept-script-bar > * > button:focus-visible,
+#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,
+#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible,
+#tp-theplaguept-script-bar > #tp-od-est-launcher:hover,
+#tp-theplaguept-script-bar > #tp-od-est-launcher:focus-visible {
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+}
+
+#tp-theplaguept-script-bar .tpdef-launcher-text,
+#tp-theplaguept-script-bar .tw-alerts-toggle-label,
+#tp-theplaguept-script-bar .ti-toggle-label,
+#tp-theplaguept-script-bar .ra-tp-config-button-label,
+#tp-theplaguept-script-bar [class$="-launcherLabel"],
+#tp-theplaguept-script-bar [class$="-launcher-text"] {
+    display: none !important;
+    max-width: 0 !important;
+    opacity: 0 !important;
+}
+
+#tp-theplaguept-script-bar #twHubTp-launcher { order: 10 !important; }
+#tp-theplaguept-script-bar #tw-discord-alerts-ui { order: 20 !important; }
+#tp-theplaguept-script-bar #tpDefLauncher { order: 30 !important; }
+#tp-theplaguept-script-bar #tag-incomings-pt-panel { order: 40 !important; }
+#tp-theplaguept-script-bar #tpMapMarker-launcher { order: 50 !important; }
+#tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button { order: 60 !important; }
+#tp-theplaguept-script-bar #tpResumo24h-launcher { order: 70 !important; }
+#tp-theplaguept-script-bar #tpconq-launcher { order: 80 !important; }
+#tp-theplaguept-script-bar #twp-troop-summary-launcher { order: 85 !important; }
+#tp-theplaguept-script-bar #auto-farm-a-toggle { order: 90 !important; }
+#tp-theplaguept-script-bar #tp-od-est-launcher { order: 92 !important; }
+#tp-theplaguept-script-bar #script-coleta-toggle { order: 94 !important; }
+
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]::after {
+    content: attr(data-tp-title) !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 33px !important;
+    transform: translateX(-50%) !important;
+    display: none !important;
+    white-space: nowrap !important;
+    max-width: 360px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    padding: 4px 8px !important;
+    border: 1px solid #4f120f !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #f6dfaa, #d2a05a) !important;
+    color: #2b1509 !important;
+    font: bold 11px Verdana, Arial, sans-serif !important;
+    text-shadow: 0 1px #fff !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,.55) !important;
+    pointer-events: none !important;
+    z-index: 2147483647 !important;
+}
+
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:hover::after,
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:focus-within::after {
+    display: block !important;
+}
+
+@media (max-width: 1919px) {
+    #tp-theplaguept-script-bar {
+        top: 50vh !important;
+        left: max(12px, calc((100vw - 1220px) / 2 + 8px)) !important;
+        right: auto !important;
+        bottom: auto !important;
+        width: 34px !important;
+        min-width: 34px !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: calc(100vh - 118px) !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 5px !important;
+        padding: 8px 2px !important;
+        transform: translateY(-50%) !important;
+    }
+
+    #tp-theplaguept-script-bar > #auto-farm-a-toggle::after,
+    #tp-theplaguept-script-bar > #script-coleta-toggle::after,
+    #tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]::after {
+        top: 50% !important;
+        left: 38px !important;
+        transform: translateY(-50%) !important;
+    }
+
+    #tp-theplaguept-script-bar [data-auto-farm-countdown],
+    #tp-theplaguept-script-bar [data-script-coleta-countdown] {
+        top: 50% !important;
+        left: 38px !important;
+        transform: translateY(-50%) !important;
+    }
+}
             `;
             (document.head || document.documentElement).appendChild(sharedStyle);
         }
@@ -291,6 +549,14 @@
             #${APP.buttonId}:hover [data-auto-farm-countdown]:not([hidden]),#${APP.buttonId}:focus-visible [data-auto-farm-countdown]:not([hidden]){display:block!important}
             #${APP.toolbarId}>#${APP.buttonId}::after{content:attr(data-tp-title);position:absolute!important;display:none!important;top:52px!important;left:50%!important;transform:translateX(-50%)!important;min-width:max-content!important;max-width:380px!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
             #${APP.toolbarId}>#${APP.buttonId}:hover::after,#${APP.toolbarId}>#${APP.buttonId}:focus-visible::after{display:block!important}
+            @media(max-width:1919px){
+                #${APP.toolbarId}>#${APP.buttonId}::after,
+                #${APP.buttonId} [data-auto-farm-countdown]{
+                    top:50%!important;
+                    left:38px!important;
+                    transform:translateY(-50%)!important;
+                }
+            }
             #${APP.statusId}{margin:5px 0;padding:5px 9px;border:1px solid #c1a264;background:#f4e4b8;color:#3b260f;font:11px Verdana,Arial,sans-serif;box-sizing:border-box}
             #${APP.statusId} strong{margin-right:9px;color:#5d2d12}
             #${APP.statusId} [data-role="state"]{font-weight:bold}
@@ -655,10 +921,8 @@
         }));
         if (previousGroupId !== state.settings.farm.groupId) {
             state.farmGeneration += 1;
-            window.clearTimeout(state.farmTimer);
-            window.clearTimeout(state.roundTimer);
-            state.farmTimer = 0;
-            state.roundTimer = 0;
+            clearFarmTimer();
+            clearRoundTimer();
             state.farmRunning = false;
             resetRunState();
             loadGroupsIntoPanel();
@@ -1241,6 +1505,7 @@
 
     function publishHeartbeat() {
         if (!state.ownsWorker || !isEnabled()) return;
+        state.lastHeartbeatAt = Date.now();
         const heartbeat = {
             tabId,
             world,
@@ -1248,7 +1513,7 @@
             state: state.captchaPaused ? 'captcha' : 'ready',
             villageId: getVillageId(),
             url: window.location.href,
-            updatedAt: Date.now(),
+            updatedAt: state.lastHeartbeatAt,
         };
         localStorage.setItem(keys.worker, JSON.stringify(heartbeat));
         updateUi();
@@ -1411,10 +1676,8 @@
         state.farmGeneration += 1;
         state.spyAbortController?.abort();
         state.spyAbortController = null;
-        window.clearTimeout(state.farmTimer);
-        window.clearTimeout(state.roundTimer);
-        state.farmTimer = 0;
-        state.roundTimer = 0;
+        clearFarmTimer();
+        clearRoundTimer();
         state.farmRunning = false;
         state.spyRunning = false;
         state.roundPreparing = false;
@@ -1427,15 +1690,37 @@
         hideRoundCountdown();
     }
 
-    function scheduleFarmStep(delayMs) {
+    function clearFarmTimer() {
         window.clearTimeout(state.farmTimer);
         state.farmTimer = 0;
+        state.farmDueAt = 0;
+        state.farmTimerToken += 1;
+    }
+
+    function clearRoundTimer() {
+        window.clearTimeout(state.roundTimer);
+        state.roundTimer = 0;
+        state.roundDueAt = 0;
+        state.roundTimerToken += 1;
+    }
+
+    function scheduleFarmStep(delayMs) {
+        clearFarmTimer();
         if (!isFarmPage() || !automationCanRun() || !state.ownsWorker || state.farmRunning) return;
-        state.farmTimer = window.setTimeout(runFarmStep, Math.max(50, Number(delayMs) || 50));
+        const delay = Math.max(50, Number(delayMs) || 50);
+        const token = state.farmTimerToken;
+        state.farmDueAt = Date.now() + delay;
+        state.farmTimer = window.setTimeout(() => {
+            if (token !== state.farmTimerToken) return;
+            state.farmTimer = 0;
+            state.farmDueAt = 0;
+            runFarmStep();
+        }, delay);
     }
 
     async function runFarmStep() {
         state.farmTimer = 0;
+        state.farmDueAt = 0;
         if (!automationCanRun() || !state.ownsWorker || state.farmRunning) return;
         if (ensureRunState().round.phase !== 'farming') {
             resumeRoundWorkflow();
@@ -2278,10 +2563,8 @@
     function navigateRoundUrl(url) {
         if (!automationCanRun() || !state.ownsWorker) return;
         state.farmGeneration += 1;
-        window.clearTimeout(state.farmTimer);
-        window.clearTimeout(state.roundTimer);
-        state.farmTimer = 0;
-        state.roundTimer = 0;
+        clearFarmTimer();
+        clearRoundTimer();
         state.farmRunning = false;
         state.spyRunning = false;
         state.roundPreparing = false;
@@ -2301,7 +2584,7 @@
     }
 
     function scheduleRoundWait(runValue) {
-        window.clearTimeout(state.roundTimer);
+        clearRoundTimer();
         if (!automationCanRun() || !state.ownsWorker) return;
         const run = runValue || ensureRunState();
         const remaining = Math.max(0, run.round.pauseUntil - Date.now());
@@ -2311,12 +2594,17 @@
         }
 
         showRoundCountdown(Math.ceil(remaining / 1000));
+        const tickDelay = Math.min(1000, remaining);
+        const token = state.roundTimerToken;
+        state.roundDueAt = Date.now() + tickDelay;
         state.roundTimer = window.setTimeout(() => {
+            if (token !== state.roundTimerToken) return;
             state.roundTimer = 0;
+            state.roundDueAt = 0;
             if (automationCanRun() && state.ownsWorker) {
                 scheduleRoundWait(ensureRunState());
             }
-        }, Math.min(1000, remaining));
+        }, tickDelay);
     }
 
     function startNextRound(run) {
@@ -2332,10 +2620,8 @@
     function refreshPageForRound() {
         if (!automationCanRun() || !state.ownsWorker) return;
         state.farmGeneration += 1;
-        window.clearTimeout(state.farmTimer);
-        window.clearTimeout(state.roundTimer);
-        state.farmTimer = 0;
-        state.roundTimer = 0;
+        clearFarmTimer();
+        clearRoundTimer();
         state.farmRunning = false;
         hideRoundCountdown();
         window.setTimeout(() => {
@@ -2401,18 +2687,10 @@
         const settings = state.settings || loadSettings();
         const run = ensureRunState();
         const exhaustedModels = new Set(run.round.exhaustedModels || []);
-        const activeAttacks = getActiveAttacksForCurrentVillage();
-        const activeCounts = getActiveAttackCounts(activeAttacks);
+        const activeCounts = getActiveAttackCounts();
         const now = Date.now();
         state.pendingTargetDueAt = 0;
         state.pageDeferredCandidates = 0;
-
-        rows.sort((first, second) => {
-            const firstDistance = getTargetDistance(first);
-            const secondDistance = getTargetDistance(second);
-            if (firstDistance !== secondDistance) return firstDistance < secondDistance ? -1 : 1;
-            return getDomOrder(first, second);
-        });
 
         for (const row of rows) {
             const targetKey = getTargetKey(row);
@@ -2427,16 +2705,6 @@
                     state.processedTargets.add(targetKey);
                     continue;
                 }
-                const targetStatus = getActiveTargetStatus(
-                    progress.model,
-                    targetKey,
-                    config,
-                    activeAttacks
-                );
-                if (targetStatus.count >= maximum) {
-                    continue;
-                }
-
                 const button = row.querySelector(`a.farm_icon_${progress.model}`);
                 const reportColor = getReportColor(row);
                 if (
@@ -2447,11 +2715,8 @@
                 ) {
                     continue;
                 }
-                const nextAt = Math.max(progress.nextAt || 0, targetStatus.nextAt || 0);
+                const nextAt = Math.max(0, Number(progress.nextAt) || 0);
                 if (isFarmButtonDisabled(button)) {
-                    if (targetStatus.count > 0 || nextAt > now) {
-                        deferFarmRow(Math.max(targetStatus.slotAt || 0, nextAt));
-                    }
                     continue;
                 }
                 if (!modelHasCapacity(progress.model, config, activeCounts)) {
@@ -2477,9 +2742,6 @@
             const selected = selectModelForRow(
                 row,
                 activeCounts,
-                activeAttacks,
-                targetKey,
-                now,
                 exhaustedModels
             );
             if (selected) {
@@ -2519,19 +2781,15 @@
     function selectModelForRow(
         row,
         activeCounts,
-        activeAttacks,
-        targetKey,
-        nowValue,
         exhaustedModelsValue
     ) {
         const settings = state.settings || loadSettings();
         const reportColor = getReportColor(row);
-        const now = Number(nowValue) || Date.now();
         const exhaustedModels = exhaustedModelsValue instanceof Set
             ? exhaustedModelsValue
             : new Set(ensureRunState().round.exhaustedModels || []);
         if (!reportColor) return null;
-        for (const model of ['a', 'b', 'c']) {
+        for (const model of getRowModelOrder(row)) {
             if (exhaustedModels.has(model)) continue;
             const config = settings.models[model];
             const button = row.querySelector(`a.farm_icon_${model}`);
@@ -2542,27 +2800,23 @@
             ) {
                 continue;
             }
-            const targetStatus = getActiveTargetStatus(model, targetKey, config, activeAttacks);
-            if (targetStatus.count >= targetStatus.maximum) {
-                continue;
-            }
-            if (isFarmButtonDisabled(button)) {
-                if (targetStatus.count > 0 || targetStatus.nextAt > now) {
-                    deferFarmRow(Math.max(targetStatus.slotAt || 0, targetStatus.nextAt || 0));
-                }
-                continue;
-            }
+            if (isFarmButtonDisabled(button)) continue;
             if (!modelHasCapacity(model, config, activeCounts)) {
                 deferFarmRow(getNextActiveImpact(model));
-                continue;
-            }
-            if (targetStatus.nextAt > now) {
-                deferFarmRow(targetStatus.nextAt);
                 continue;
             }
             return { model, button, reportColor };
         }
         return null;
+    }
+
+    function getRowModelOrder(row) {
+        const models = [];
+        row.querySelectorAll('a.farm_icon_a,a.farm_icon_b,a.farm_icon_c').forEach(button => {
+            const match = String(button.className || '').match(/farm_icon_([abc])/);
+            if (match && !models.includes(match[1])) models.push(match[1]);
+        });
+        return models.length ? models : ['a', 'b', 'c'];
     }
 
     function modelMatchesRow(row, config, detectedColor) {
@@ -2586,6 +2840,15 @@
         return config.loot.full || config.loot.partial;
     }
 
+    function roundTargetCanSend(model, targetKey, config) {
+        if (!targetKey) return true;
+        const progress = readRunState()?.round?.targets?.[targetKey];
+        if (!progress) return true;
+        return progress.model === model &&
+            Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config) &&
+            Math.max(0, Number(progress.nextAt) || 0) <= Date.now();
+    }
+
     async function sendFarmTask(task) {
         if (hasCaptchaChallenge(document)) pauseForCaptcha('página do jogo');
         if (!automationCanRun()) {
@@ -2596,14 +2859,13 @@
         }
         let currentColor = getReportColor(task.row);
         let currentConfig = state.settings?.models?.[task.model];
-        let targetStatus = getActiveTargetStatus(task.model, task.targetKey, currentConfig);
         if (
             !currentColor ||
             currentColor !== task.reportColor ||
-            !currentConfig?.reports?.[currentColor] ||
+            !currentConfig?.enabled ||
+            !modelMatchesRow(task.row, currentConfig, currentColor) ||
             !modelHasCapacity(task.model, currentConfig) ||
-            targetStatus.count >= targetStatus.maximum ||
-            targetStatus.nextAt > Date.now()
+            !roundTargetCanSend(task.model, task.targetKey, currentConfig)
         ) {
             console.warn(
                 `[${APP.shortName}] Envio ${task.model.toUpperCase()} cancelado: ` +
@@ -2619,29 +2881,27 @@
 
         currentColor = getReportColor(task.row);
         currentConfig = state.settings?.models?.[task.model];
-        targetStatus = getActiveTargetStatus(task.model, task.targetKey, currentConfig);
         if (
             !task.button?.isConnected ||
             isFarmButtonDisabled(task.button) ||
             currentColor !== task.reportColor ||
-            !currentConfig?.reports?.[currentColor] ||
+            !currentConfig?.enabled ||
+            !modelMatchesRow(task.row, currentConfig, currentColor) ||
             !modelHasCapacity(task.model, currentConfig) ||
-            targetStatus.count >= targetStatus.maximum ||
-            targetStatus.nextAt > Date.now()
+            !roundTargetCanSend(task.model, task.targetKey, currentConfig)
         ) return { sent: false, cancelled: true, model: task.model };
 
         await reserveCommandSendSlot();
         currentColor = getReportColor(task.row);
         currentConfig = state.settings?.models?.[task.model];
-        targetStatus = getActiveTargetStatus(task.model, task.targetKey, currentConfig);
         if (
             !task.button?.isConnected ||
             isFarmButtonDisabled(task.button) ||
             currentColor !== task.reportColor ||
-            !currentConfig?.reports?.[currentColor] ||
+            !currentConfig?.enabled ||
+            !modelMatchesRow(task.row, currentConfig, currentColor) ||
             !modelHasCapacity(task.model, currentConfig) ||
-            targetStatus.count >= targetStatus.maximum ||
-            targetStatus.nextAt > Date.now()
+            !roundTargetCanSend(task.model, task.targetKey, currentConfig)
         ) return { sent: false, cancelled: true, model: task.model };
 
         const errorsBefore = captureGameErrors();
@@ -3008,11 +3268,6 @@
             Boolean(button.closest('.farm_icon_disabled'));
     }
 
-    function getDomOrder(first, second) {
-        if (first === second) return 0;
-        return first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
-    }
-
     function normalizeText(value) {
         return String(value || '')
             .toLowerCase()
@@ -3086,11 +3341,10 @@
         const config = state.settings?.models?.[model] || loadSettings().models[model];
         const targetKey = String(details.targetKey || '');
         const maximum = getSameVillageLimit(config);
-        const targetStatus = getActiveTargetStatus(model, targetKey, config);
         const previousSent = targetKey && run.round.targets[targetKey]?.model === model
             ? Math.max(0, Number(run.round.targets[targetKey].sent) || 0)
             : 0;
-        const sent = targetKey ? Math.max(previousSent, targetStatus.count) + 1 : 1;
+        const sent = targetKey ? previousSent + 1 : 1;
         const complete = !targetKey || sent >= maximum;
         const now = Date.now();
         const nextAt = complete
@@ -4094,6 +4348,7 @@
         window.clearTimeout(state.captchaCheckTimer);
         window.clearTimeout(state.captchaResumeTimer);
         window.clearTimeout(state.captchaReloadTimer);
+        stopBackgroundClock();
         stopWorker();
     }
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.3.5
+// @version      2.3.7
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "Marcador - ThePlaguePT",
-        version: "2.3.5",
+        version: "2.3.7",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -522,251 +522,175 @@
     function injectStyles() {
         const style = document.createElement("style");
         style.textContent = `
-            #${APP.id}-launcher{position:fixed!important;top:430px!important;right:auto!important;left:16px!important;z-index:${APP.zIndex}!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;overflow:hidden!important;cursor:pointer!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important;color:#fff!important;font:700 12px Verdana,Arial,sans-serif!important;text-shadow:1px 1px 1px #000!important;white-space:nowrap!important;padding:0 6px!important;transition:width .18s ease,min-width .18s ease,padding .18s ease,gap .18s ease,background .18s ease!important}
-            #${APP.id}-launcher:hover,#${APP.id}-launcher:focus-visible{width:390px!important;min-width:390px!important;gap:8px!important;padding:0 9px!important;background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
-            .${APP.id}-launcherIcon{width:16px!important;height:16px!important;flex:0 0 16px!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
-            .${APP.id}-launcherLabel{display:inline-block!important;max-width:0!important;opacity:0!important;overflow:hidden!important;transform:translateX(-4px)!important;white-space:nowrap!important;transition:max-width .18s ease,opacity .14s ease,transform .18s ease!important}
-            #${APP.id}-launcher:hover .${APP.id}-launcherLabel,#${APP.id}-launcher:focus-visible .${APP.id}-launcherLabel{max-width:345px!important;opacity:1!important;transform:translateX(0)!important}
-            #${APP.id}-mapToolbar{position:absolute!important;top:9px!important;right:47px!important;z-index:1200!important;box-sizing:border-box!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:4px!important}
-            #${APP.id}-mapToolbar button{position:relative!important;top:auto!important;right:auto!important;bottom:auto!important;left:auto!important;z-index:auto!important;box-sizing:border-box!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;padding:0!important;margin:0!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;vertical-align:middle!important;line-height:1!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#b33a34,#8f2420 55%,#681611)!important;cursor:pointer!important;box-shadow:inset 0 1px 0 #ffffff59,inset 0 -1px 0 #00000059,0 2px 5px #00000073!important}
-            #${APP.id}-mapToolbar button:hover{background:linear-gradient(to bottom,#c4473e,#a02c27 55%,#7e1c17)!important}
-            #${APP.id}-attackMapToggle{order:10!important}
-            #${APP.id}-supportMapToggle{order:20!important}
-            #${APP.id}-supportTravelMapToggle{order:25!important}
-            #${APP.id}-bonusMapToggle{order:30!important}
-            #${APP.id}-mapToggle{order:40!important}
-            #${APP.id}-mapToggle .tp-togglePin{display:block!important;width:16px!important;height:16px!important;flex:0 0 16px!important;border:0!important;border-radius:50%!important;background:url("${APP.launcherIcon}") center/contain no-repeat!important;filter:none!important;box-shadow:inset 0 1px 1px #ffffff59,0 1px 1px #000!important}
-            #${APP.id}-bonusMapToggle .tp-toggleBonus,#${APP.id}-supportMapToggle .tp-toggleSupport,#${APP.id}-supportTravelMapToggle .tp-toggleSupportTravel,#${APP.id}-attackMapToggle .tp-toggleAttack{display:grid!important;place-items:center!important;width:16px!important;height:16px!important;flex:0 0 16px!important;margin:0!important;text-shadow:0 1px 1px #000!important}
-            #${APP.id}-bonusMapToggle .tp-toggleBonus{color:#f6d28b!important;font:bold 15px/16px Arial!important}
-            #${APP.id}-supportMapToggle .tp-toggleSupport{color:#9de8ff!important;font:bold 15px/16px Arial!important}
-            #${APP.id}-supportTravelMapToggle .tp-toggleSupportTravel{color:#ffd080!important;font:bold 16px/16px Arial!important}
-            #${APP.id}-attackMapToggle .tp-toggleAttack{color:#fff!important;font:bold 16px/16px Arial!important}
-            #${APP.id}-mapToolbar button.tp-off{border-color:#493b2b!important;background:linear-gradient(#80766a,#514940)!important;filter:saturate(.2)}
-            #${APP.id}-mapToolbar button.tp-off::after{content:"";position:absolute;left:2px;top:12px;width:25px;height:3px;transform:rotate(-45deg);border-radius:2px;background:#f1d7a1;box-shadow:0 0 0 1px #5b1c13}
-            #${APP.id}-panel{position:fixed;inset:0;z-index:60040;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
-            #${APP.id}-panel.tp-hidden{display:none}
-            #${APP.id}-panel .tp-card{width:min(620px,96vw);max-height:92vh;overflow:auto;padding:8px;border:2px solid #473019;border-radius:6px;background:linear-gradient(#d9c99e,#95805b);color:#32190d;box-shadow:0 0 0 1px #d8c99b,0 0 0 4px #5c4429,0 0 0 6px #dacba4e6,inset 0 0 0 2px #fff4cfcf,0 6px 18px #0000008c;font:13px Verdana}
-            #${APP.id}-panel .tp-head{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid #56351c;background:linear-gradient(#8d633d,#5e381e);color:#fff;font-weight:bold;text-shadow:1px 1px #000}
-            #${APP.id}-panel .tp-close{border:0;background:transparent;color:#fff;font:bold 20px Arial;cursor:pointer}
-            #${APP.id}-panel .tp-body{padding:12px}
-            #${APP.id}-panel textarea{width:100%;height:210px;resize:vertical;box-sizing:border-box;padding:8px;border:1px solid #9b7652;background:#fffdf6;font:13px Consolas,monospace}
-            #${APP.id}-panel .tp-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0}
-            #${APP.id}-panel .tp-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
-            #${APP.id}-panel button.tp-action{border:1px solid #653417;border-radius:3px;padding:6px 12px;background:#815026;color:#fff;font-weight:bold;cursor:pointer}
-            #${APP.id}-panel button.tp-secondary{background:#eee0bd;color:#43230f}
-            #${APP.id}-panel .tp-help{color:#67472f;font-size:11px;line-height:1.5}
-            #popup_box_${APP.id}Dialog{width:min(1320px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important}
-            #popup_box_${APP.id}Dialog .popup_box_content{padding:8px!important;background:#d9c99e!important}
-            .${APP.id}-native{box-sizing:border-box;width:100%;max-width:100%;padding:0;color:#3b2508;font:12px Arial,Verdana,sans-serif}
-            .${APP.id}-frame{display:flex;flex-direction:column;max-height:calc(100vh - 62px);overflow:hidden;border:2px solid #7e211c;border-radius:4px;background:#f4e4b8}
-            .${APP.id}-head{padding:6px 12px;border-bottom:1px solid #c98c48;background:linear-gradient(#f7e8c1,#edd49a)}
-            .${APP.id}-head strong{display:block;color:#8f2b25;font-size:16px;line-height:20px}
-            .${APP.id}-head span{color:#5b350f;font-size:11px}
-            .${APP.id}-content{overflow:auto;padding:3px 9px}
-            .${APP.id}-section{display:grid;grid-template-columns:minmax(185px,235px) minmax(0,1fr);gap:5px 12px;padding:5px 0 6px 9px;border-top:1px solid #d5b579;border-left:4px solid #9b6a2f}
-            .${APP.id}-section:first-child{border-top:0}.${APP.id}-section>div{min-width:0}
-            .${APP.id}-section h3{margin:0 0 2px;color:#8f2b25;font-size:12px;line-height:14px;text-transform:uppercase}
-            .${APP.id}-section p{margin:1px 0;color:#5e3b16;font-size:10px;line-height:12px}
-            .${APP.id}-coordsSection{border-left-color:#c72d2d}.${APP.id}-toolsSection{border-left-color:#8b48c8}.${APP.id}-bonusSection{border-left-color:#18874a}.${APP.id}-supportSection{border-left-color:#00a9d6}.${APP.id}-attackSection{border-left-color:#d71920}.${APP.id}-zonesSection{border-left-color:#1f9ac5}.${APP.id}-settingsSection{border-left-color:#e0a51d}.${APP.id}-actionsSection{border-left-color:#8a6424}
-            .${APP.id}-native textarea{width:100%;height:140px;resize:vertical;box-sizing:border-box;padding:5px;border:1px solid #804000;background:#fffdf6;font:12px Consolas,monospace}
-            .${APP.id}-native .tp-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0}
-            .${APP.id}-native .tp-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
-            .${APP.id}-native button.tp-action{border:1px solid #653417;border-radius:3px;padding:6px 12px;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer;text-shadow:1px 1px #000}
-            .${APP.id}-native button.tp-secondary{background:linear-gradient(#fff6dd,#dfc99d);color:#43230f;text-shadow:none}
-            .${APP.id}-native .tp-help{margin-bottom:5px;color:#67472f;font-size:11px;line-height:1.5}
-            .${APP.id}-tools{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:3px 0}
-            .${APP.id}-tool{border:1px solid #9a744b;background:#ead9b3;padding:5px}
-            .${APP.id}-toolTitle{display:block;margin-bottom:4px;color:#4b2411;font:bold 11px Verdana}
-            .${APP.id}-toolLine{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
-            .${APP.id}-enableRow{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin:-5px -5px 5px;padding:5px 7px;border-bottom:1px solid #b58a52;background:#ddc48c}
-            .${APP.id}-enableLabel{display:flex;align-items:center;gap:7px;color:#742019;font:bold 12px Verdana}
-            .${APP.id}-enableLabel input{width:15px;height:15px;margin:0;accent-color:#a82822}
-            .${APP.id}-optionsRow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0;color:#4b3218}
-            .${APP.id}-tool input[type="number"],.${APP.id}-tool select{height:25px;border:1px solid #80522d;background:#fffaf0}
-            .${APP.id}-tool input[type="number"]{width:58px}
-            .${APP.id}-tool button{height:26px;border:1px solid #603419;background:linear-gradient(#9d6b3e,#70401f);color:#fff;font-weight:bold;cursor:pointer}
-            .${APP.id}-bonusTool{grid-column:1/-1;background:#efe0ba}
-            .${APP.id}-bonusOptions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px 8px;margin:3px 0}
-            .${APP.id}-bonusOption{display:flex;align-items:flex-start;gap:5px;min-width:0;color:#3b2508;font-size:11px}
-            .${APP.id}-bonusOption span{overflow-wrap:anywhere}.${APP.id}-bonusEmpty{color:#75583b;font-style:italic}
-            .${APP.id}-zonesSection{display:none}.${APP.id}-zonesSection.tp-visible{display:grid}
-            .${APP.id}-zonesOutput{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;max-height:165px;overflow:auto}
-            .${APP.id}-zoneCard{min-width:0;border:2px solid var(--tp-zone-color);background:#f8eac4}
-            .${APP.id}-zoneHead{display:flex;justify-content:space-between;padding:4px 7px;background:var(--tp-zone-color);color:#fff;text-shadow:1px 1px #000}
-            .${APP.id}-zoneCard textarea{display:block;width:100%;height:48px!important;margin:0;border:0!important;background:#fff8e7!important;font:11px Consolas,monospace!important}
-            .${APP.id}-supportSection .${APP.id}-tool,.${APP.id}-attackSection .${APP.id}-tool{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;align-items:center}
-            .${APP.id}-supportSection .${APP.id}-enableRow,.${APP.id}-attackSection .${APP.id}-enableRow{grid-column:1/-1;margin-bottom:1px}
-            .${APP.id}-supportSection .${APP.id}-toolTitle,.${APP.id}-attackSection .${APP.id}-toolTitle{margin:0}
-            .${APP.id}-supportSection .${APP.id}-optionsRow,.${APP.id}-attackSection .${APP.id}-optionsRow{margin:0}
-            .${APP.id}-supportSection .${APP.id}-toolLine,.${APP.id}-attackSection .${APP.id}-toolLine{justify-self:end}
-            @media(max-width:850px){.${APP.id}-section{grid-template-columns:1fr}.${APP.id}-zonesOutput{grid-template-columns:1fr}}
-            .${APP.id}-marked{overflow:visible!important;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 4px var(--tp-marker-color))!important;outline:3px solid var(--tp-marker-color)!important;outline-offset:1px!important;border-radius:50%!important;z-index:20!important}
-            .${APP.id}-badge{position:absolute;z-index:1000;pointer-events:none;transform:translate(-50%,-115%);padding:1px 3px;border-radius:2px;background:var(--tp-marker-color);color:#fff;text-shadow:0 1px #000;font:bold 9px Arial;white-space:nowrap;box-shadow:0 1px 2px #0008}
-            .${APP.id}-minimapOverlay{position:absolute;inset:0;z-index:50;pointer-events:none;overflow:hidden}
-            .${APP.id}-miniDot{position:absolute;width:9px;height:9px;transform:translate(-50%,-90%) rotate(-45deg);box-sizing:border-box;border:1px solid #4b1512;border-radius:50% 50% 50% 0;background:var(--tp-marker-color);box-shadow:0 1px 2px #000a}
-            .${APP.id}-miniDot::after{content:"";position:absolute;left:2px;top:2px;width:3px;height:3px;border-radius:50%;background:#f3dfb5}
-            .${APP.id}-zoneBadge{position:absolute;z-index:4;transform:translate(-50%,-50%);display:grid;place-items:center;min-width:18px;height:18px;padding:0 2px;border:2px solid #fff;border-radius:50%;background:var(--tp-zone-color);color:#fff;text-shadow:1px 1px #000;font:bold 10px Verdana;box-shadow:0 1px 3px #000}
-            .${APP.id}-mainOverlay{z-index:100!important}
-            .${APP.id}-mapPin{position:absolute;width:0;height:0;z-index:40;pointer-events:none;color:var(--tp-marker-color)}
-            .${APP.id}-pinIcon{position:absolute;left:0;bottom:0;width:15px;height:15px;box-sizing:border-box;transform:translateX(-50%) rotate(-45deg);transform-origin:50% 50%;border:1px solid #5f1713;border-radius:50% 50% 50% 0;background:currentColor;box-shadow:0 1px 2px #0009}
-            .${APP.id}-pinIcon::after{content:"";position:absolute;left:4px;top:4px;width:5px;height:5px;border-radius:50%;background:#f4dfb5;box-shadow:inset 0 0 0 1px #6a2b20}
-            .${APP.id}-pinLabel{position:absolute;left:0;bottom:20px;transform:translateX(-50%);padding:1px 5px 2px;border:2px solid var(--tp-marker-color);border-radius:3px;background:#f7e9c7;color:#35180d;text-shadow:0 1px #fff;font:bold 12px Consolas,"Courier New",monospace;line-height:13px;letter-spacing:.1px;white-space:nowrap;box-shadow:0 1px 3px #0009}
-            .${APP.id}-pinLabel.${APP.id}-pinLabelBonus{display:inline-flex;align-items:center;gap:3px;padding-left:3px}
-            .${APP.id}-pinBonusIcon{display:block;width:15px;height:15px;object-fit:contain;flex:0 0 15px;image-rendering:auto}
-            .${APP.id}-pinLabel::after{content:"";position:absolute;left:50%;bottom:-5px;width:6px;height:6px;transform:translateX(-50%) rotate(45deg);border-right:2px solid var(--tp-marker-color);border-bottom:2px solid var(--tp-marker-color);background:#f7e9c7}
-        `;
-        document.head.appendChild(style);
+#tp-theplaguept-script-bar {
+    position: fixed !important;
+    top: 8px !important;
+    left: 414px !important;
+    right: auto !important;
+    bottom: auto !important;
+    z-index: 2147483647 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 34px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 5px !important;
+    padding: 0 8px !important;
+    box-sizing: border-box !important;
+    pointer-events: none !important;
+    overflow: visible !important;
+    transform: none !important;
+}
+
+#tp-theplaguept-script-bar > * {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    margin: 0 !important;
+    flex: 0 0 30px !important;
+    pointer-events: auto !important;
+    overflow: visible !important;
+}
+
+#tp-theplaguept-script-bar > button,
+#tp-theplaguept-script-bar > * > button {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 0 30px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    overflow: visible !important;
+}
+
+#tp-theplaguept-script-bar > button:hover,
+#tp-theplaguept-script-bar > button:focus-visible,
+#tp-theplaguept-script-bar > * > button:hover,
+#tp-theplaguept-script-bar > * > button:focus-visible,
+#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,
+#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible,
+#tp-theplaguept-script-bar > #tp-od-est-launcher:hover,
+#tp-theplaguept-script-bar > #tp-od-est-launcher:focus-visible {
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+}
+
+#tp-theplaguept-script-bar .tpdef-launcher-text,
+#tp-theplaguept-script-bar .tw-alerts-toggle-label,
+#tp-theplaguept-script-bar .ti-toggle-label,
+#tp-theplaguept-script-bar .ra-tp-config-button-label,
+#tp-theplaguept-script-bar [class$="-launcherLabel"],
+#tp-theplaguept-script-bar [class$="-launcher-text"] {
+    display: none !important;
+    max-width: 0 !important;
+    opacity: 0 !important;
+}
+
+#tp-theplaguept-script-bar #twHubTp-launcher { order: 10 !important; }
+#tp-theplaguept-script-bar #tw-discord-alerts-ui { order: 20 !important; }
+#tp-theplaguept-script-bar #tpDefLauncher { order: 30 !important; }
+#tp-theplaguept-script-bar #tag-incomings-pt-panel { order: 40 !important; }
+#tp-theplaguept-script-bar #tpMapMarker-launcher { order: 50 !important; }
+#tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button { order: 60 !important; }
+#tp-theplaguept-script-bar #tpResumo24h-launcher { order: 70 !important; }
+#tp-theplaguept-script-bar #tpconq-launcher { order: 80 !important; }
+#tp-theplaguept-script-bar #twp-troop-summary-launcher { order: 85 !important; }
+#tp-theplaguept-script-bar #auto-farm-a-toggle { order: 90 !important; }
+#tp-theplaguept-script-bar #tp-od-est-launcher { order: 92 !important; }
+#tp-theplaguept-script-bar #script-coleta-toggle { order: 94 !important; }
+
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]::after {
+    content: attr(data-tp-title) !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 33px !important;
+    transform: translateX(-50%) !important;
+    display: none !important;
+    white-space: nowrap !important;
+    max-width: 360px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    padding: 4px 8px !important;
+    border: 1px solid #4f120f !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #f6dfaa, #d2a05a) !important;
+    color: #2b1509 !important;
+    font: bold 11px Verdana, Arial, sans-serif !important;
+    text-shadow: 0 1px #fff !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,.55) !important;
+    pointer-events: none !important;
+    z-index: 2147483647 !important;
+}
+
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:hover::after,
+#tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]:focus-within::after {
+    display: block !important;
+}
+
+@media (max-width: 1919px) {
+    #tp-theplaguept-script-bar {
+        top: 50vh !important;
+        left: max(12px, calc((100vw - 1220px) / 2 + 8px)) !important;
+        right: auto !important;
+        bottom: auto !important;
+        width: 34px !important;
+        min-width: 34px !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: calc(100vh - 118px) !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 5px !important;
+        padding: 8px 2px !important;
+        transform: translateY(-50%) !important;
     }
 
-    function ensureTpScriptBar(doc = document) {
-        if (!doc || !doc.body) return null;
-        if (!doc.getElementById("tp-theplaguept-script-bar-style")) {
-            const style = doc.createElement("style");
-            style.id = "tp-theplaguept-script-bar-style";
-            style.textContent = '#tp-theplaguept-script-bar{position: absolute !important;top:8px!important;left:414px!important;z-index:2147483647!important;width:350px!important;height:34px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:5px!important;padding:0 8px!important;box-sizing:border-box!important;pointer-events:none!important}#tp-theplaguept-script-bar>*{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;flex:0 0 30px!important;pointer-events:auto!important;overflow:visible!important}#tp-theplaguept-script-bar>button,#tp-theplaguept-script-bar>*>button{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;transform:none!important;width:30px!important;min-width:30px!important;max-width:30px!important;height:28px!important;min-height:28px!important;margin:0!important;padding:0!important;flex:0 0 30px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:0!important;overflow:visible!important}#tp-theplaguept-script-bar>button:hover,#tp-theplaguept-script-bar>button:focus-visible,#tp-theplaguept-script-bar>*>button:hover,#tp-theplaguept-script-bar>*>button:focus-visible,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:hover,#tp-theplaguept-script-bar #tag-incomings-pt-panel:not(.ti-open) .ti-toggle:focus-visible{width:30px!important;min-width:30px!important;max-width:30px!important;padding:0!important;gap:0!important}#tp-theplaguept-script-bar .tpdef-launcher-text,#tp-theplaguept-script-bar .tw-alerts-toggle-label,#tp-theplaguept-script-bar .ti-toggle-label,#tp-theplaguept-script-bar .ra-tp-config-button-label,#tp-theplaguept-script-bar [class$="-launcherLabel"],#tp-theplaguept-script-bar [class$="-launcher-text"]{display:none!important;max-width:0!important;opacity:0!important}#tp-theplaguept-script-bar #twHubTp-launcher{order:10!important}#tp-theplaguept-script-bar #tw-discord-alerts-ui{order:20!important}#tp-theplaguept-script-bar #tpDefLauncher{order:30!important}#tp-theplaguept-script-bar #tag-incomings-pt-panel{order:40!important}#tp-theplaguept-script-bar #tpMapMarker-launcher{order:50!important}#tp-theplaguept-script-bar #renomear-ataques-cores-theplaguept-config-button{order:60!important}#tp-theplaguept-script-bar #tpResumo24h-launcher{order:70!important}#tp-theplaguept-script-bar #tpconq-launcher{order:80!important}#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]::after{content:attr(data-tp-title);position:absolute!important;left:50%!important;top:33px!important;transform:translateX(-50%)!important;display:none!important;white-space:nowrap!important;max-width:360px!important;overflow:hidden!important;text-overflow:ellipsis!important;padding:4px 8px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 11px Verdana,Arial,sans-serif!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 6px #0008!important;pointer-events:none!important;z-index:2147483647!important}#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]:hover::after,#tp-theplaguept-script-bar>.tp-theplaguept-script-bar-item[data-tp-title]:focus-within::after{display:block!important}';
-            (doc.head || doc.documentElement).appendChild(style);
-        }
-        let bar = doc.getElementById("tp-theplaguept-script-bar");
-        if (!bar) {
-            bar = doc.createElement("div");
-            bar.id = "tp-theplaguept-script-bar";
-            bar.setAttribute("aria-label", "Botoes ThePlaguePT");
-            (doc.body || doc.documentElement).appendChild(bar);
-        }
-        return bar;
+    #tp-theplaguept-script-bar > #auto-farm-a-toggle::after,
+    #tp-theplaguept-script-bar > #script-coleta-toggle::after,
+    #tp-theplaguept-script-bar > .tp-theplaguept-script-bar-item[data-tp-title]::after {
+        top: 50% !important;
+        left: 38px !important;
+        transform: translateY(-50%) !important;
     }
 
-    function attachToTpScriptBar(element, doc = document) {
-        const bar = ensureTpScriptBar(doc);
-        if (!bar || !element) return;
-        element.classList.add("tp-theplaguept-script-bar-item");
-        const tooltipButton = element.querySelector && element.querySelector('button[title],button[aria-label]');
-        const tooltipSource =
-            element.getAttribute('data-tp-tooltip') ||
-            element.getAttribute('title') ||
-            element.getAttribute('aria-label') ||
-            (tooltipButton ? tooltipButton.getAttribute('title') || tooltipButton.getAttribute('aria-label') : '') ||
-            '';
-        if (tooltipSource) {
-            element.dataset.tpTooltip = tooltipSource;
-            element.setAttribute('aria-label', tooltipSource);
-            element.removeAttribute('title');
-
-            if (tooltipButton) {
-                tooltipButton.setAttribute('aria-label', tooltipSource);
-                tooltipButton.removeAttribute('title');
-            }
-        }
-
-        const getSharedTooltip = () => {
-            const tooltipDoc = element.ownerDocument || document;
-            let tooltip = tooltipDoc.getElementById('tp-theplaguept-script-bar-tooltip');
-
-            if (!tooltip) {
-                tooltip = tooltipDoc.createElement('div');
-                tooltip.id = 'tp-theplaguept-script-bar-tooltip';
-
-                const tooltipStyles = {
-                    position: 'fixed',
-                    display: 'none',
-                    'z-index': '2147483647',
-                    padding: '4px 8px',
-                    border: '1px solid #4f120f',
-                    'border-radius': '2px',
-                    background: 'linear-gradient(to bottom, #f6dfaa, #d2a05a)',
-                    color: '#2b1509',
-                    font: 'bold 11px Verdana, Arial, sans-serif',
-                    'text-shadow': '0 1px #fff',
-                    'box-shadow': '0 2px 6px rgba(0,0,0,.55)',
-                    'white-space': 'nowrap',
-                    'max-width': '360px',
-                    overflow: 'hidden',
-                    'text-overflow': 'ellipsis',
-                    'pointer-events': 'none'
-                };
-
-                Object.entries(tooltipStyles).forEach(([property, value]) => {
-                    tooltip.style.setProperty(property, value, 'important');
-                });
-
-                (tooltipDoc.body || tooltipDoc.documentElement).appendChild(tooltip);
-            }
-
-            return tooltip;
-        };
-        const hideSharedTooltip = () => {
-            const tooltipDoc = element.ownerDocument || document;
-            const tooltip = tooltipDoc.getElementById('tp-theplaguept-script-bar-tooltip');
-
-            if (tooltip) {
-                tooltip.style.setProperty('display', 'none', 'important');
-            }
-        };
-        const showSharedTooltip = () => {
-            const text = element.dataset.tpTooltip || '';
-            if (!text) return;
-
-            const tooltipDoc = element.ownerDocument || document;
-            const tooltipWin = tooltipDoc.defaultView || window;
-            const tooltip = getSharedTooltip();
-
-            tooltip.textContent = text;
-            tooltip.style.setProperty('display', 'block', 'important');
-
-            const rect = element.getBoundingClientRect();
-            const tooltipRect = tooltip.getBoundingClientRect();
-            const viewportWidth = tooltipWin.innerWidth || tooltipDoc.documentElement.clientWidth || 1024;
-            const left = Math.max(6, Math.min(
-                rect.left + (rect.width / 2) - (tooltipRect.width / 2),
-                viewportWidth - tooltipRect.width - 6
-            ));
-
-            tooltip.style.setProperty('left', `${left}px`, 'important');
-            tooltip.style.setProperty('top', `${rect.bottom + 6}px`, 'important');
-        };
-
-        if (!element.dataset.tpTooltipReady) {
-            element.addEventListener('mouseenter', showSharedTooltip);
-            element.addEventListener('focusin', showSharedTooltip);
-            element.addEventListener('mouseleave', hideSharedTooltip);
-            element.addEventListener('focusout', hideSharedTooltip);
-            element.dataset.tpTooltipReady = '1';
-        }
-        const orders = {"twHubTp-launcher":10,"tw-discord-alerts-ui":20,tpDefLauncher:30,"tag-incomings-pt-panel":40,"tpMapMarker-launcher":50,"renomear-ataques-cores-theplaguept-config-button":60,"tpResumo24h-launcher":70,"tpconq-launcher":80};
-        const applyCompactButtonStyle = node => {
-            if (!node || !node.style) return;
-            node.style.setProperty("position", "relative", "important");
-            node.style.setProperty("top", "auto", "important");
-            node.style.setProperty("left", "auto", "important");
-            node.style.setProperty("right", "auto", "important");
-            node.style.setProperty("bottom", "auto", "important");
-            node.style.setProperty("transform", "none", "important");
-            node.style.setProperty("width", "30px", "important");
-            node.style.setProperty("min-width", "30px", "important");
-            node.style.setProperty("max-width", "30px", "important");
-            node.style.setProperty("height", "28px", "important");
-            node.style.setProperty("min-height", "28px", "important");
-            node.style.setProperty("margin", "0", "important");
-            node.style.setProperty("flex", "0 0 30px", "important");
-        };
-        applyCompactButtonStyle(element);
-        if (orders[element.id]) element.style.setProperty("order", String(orders[element.id]), "important");
-        Array.from(element.children || []).filter(child => child.matches && child.matches("button")).forEach(applyCompactButtonStyle);
-        element.querySelectorAll('.tpdef-launcher-text,.tw-alerts-toggle-label,.ti-toggle-label,.ra-tp-config-button-label,[class$="-launcherLabel"],[class$="-launcher-text"]').forEach(label => {
-            label.style.setProperty("display", "none", "important");
-            label.style.setProperty("max-width", "0", "important");
-            label.style.setProperty("opacity", "0", "important");
-        });
-        if (element.parentElement !== bar) bar.appendChild(element);
+    #tp-theplaguept-script-bar [data-auto-farm-countdown],
+    #tp-theplaguept-script-bar [data-script-coleta-countdown] {
+        top: 50% !important;
+        left: 38px !important;
+        transform: translateY(-50%) !important;
     }
-
-    function createLauncher() {
-        document.getElementById(`${APP.id}-launcher`)?.remove();
-        const button = document.createElement("button");
-        button.id = `${APP.id}-launcher`;
+}
+`;
         button.type = "button";
         button.title = APP.displayTitle;
         button.setAttribute("aria-label", APP.displayTitle);
+        button.setAttribute("data-tp-title", APP.displayTitle);
         button.innerHTML = `<span class="${APP.id}-launcherIcon" aria-hidden="true"></span><span class="${APP.id}-launcherLabel">${escapeHtml(APP.displayTitle)}</span>`;
         button.addEventListener("click", openPanel);
         document.body.appendChild(button);
