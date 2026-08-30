@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.26
+// @version      1.3.27
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -27,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.26',
+        version: '1.3.27',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -46,6 +46,7 @@
         impactSafetyMs: 1000,
         activeSyncMs: 15000,
         activeSyncGraceMs: 30000,
+        workerLaunchGraceMs: 120000,
         commandRateWindowMs: 1000,
         commandRateMaximum: 5,
         commandRateSafetyMs: 30,
@@ -74,6 +75,8 @@
     const keys = Object.freeze({
         enabled: `twPtAutoFarm.v1.${world}.enabled`,
         worker: `twPtAutoFarm.v1.${world}.worker`,
+        workerOpening: `twPtAutoFarm.v1.${world}.workerOpening`,
+        assistantStatus: `twPtAutoFarm.v1.${world}.assistantStatus`,
         settings: `twPtAutoFarm.v1.${world}.settings`,
         run: `twPtAutoFarm.v1.${world}.run`,
         spyHistory: `twPtAutoFarm.v1.${world}.spyHistory`,
@@ -107,7 +110,7 @@
     const workerWindowName = `TW_PT_AutoFarm_${world}`;
     const workerLockName = `twPtAutoFarm-worker-${world}`;
     const workerUrlParameter = 'tp_af_worker';
-    const workerOpenRetryMs = 30000;
+    const workerOpenRetryMs = APP.workerLaunchGraceMs;
 
     const state = {
         button: null,
@@ -202,6 +205,24 @@
         injectStyles();
         createButton();
         bindEvents();
+
+        const assistantAccess = getFarmAssistantAccessState();
+        if (
+            isManagedWorker() &&
+            (!isFarmPage() || assistantAccess === false)
+        ) {
+            stopForUnavailableAssistant(
+                'O Assistente de Saque não está ativo nesta conta. O AutoFarm foi desligado.'
+            );
+            return;
+        }
+        if (!isManagedWorker() && isEnabled() && assistantAccess === false) {
+            stopForUnavailableAssistant(
+                'O Assistente de Saque não está ativo nesta conta. O AutoFarm foi desligado.'
+            );
+            return;
+        }
+
         startBackgroundClock();
         startCaptchaProtection();
         startMonitor();
@@ -243,6 +264,16 @@
             if (event.key === keys.worker) {
                 updateUi();
                 if (!isManagedWorker()) superviseWorker();
+            }
+            if (event.key === keys.assistantStatus && !isManagedWorker() && event.newValue) {
+                try {
+                    const status = JSON.parse(event.newValue);
+                    if (status?.active === false && status.reason) {
+                        notify('error', String(status.reason));
+                    }
+                } catch (_) {
+                    // Um estado inválido é simplesmente ignorado.
+                }
             }
             if (event.key === keys.settings) {
                 state.settings = loadSettings();
@@ -1387,11 +1418,19 @@
     }
 
     function enable(openTab) {
+        if (getFarmAssistantAccessState() === false) {
+            stopForUnavailableAssistant(
+                'Não é possível ligar: o Assistente de Saque não está ativo nesta conta.'
+            );
+            return;
+        }
         const wasEnabled = isEnabled();
         if (!wasEnabled) resetRunState();
         else ensureRunState();
+        localStorage.removeItem(keys.assistantStatus);
         localStorage.setItem(keys.enabled, '1');
         state.popupBlocked = false;
+        state.nextWorkerOpenAttemptAt = 0;
 
         if (hasCaptchaChallenge(document)) pauseForCaptcha('página do jogo');
 
@@ -1407,6 +1446,7 @@
     function disable() {
         localStorage.setItem(keys.enabled, '0');
         state.popupBlocked = false;
+        clearWorkerOpening(false);
         stopWorker();
         if (!isManagedWorker() && state.workerWindow && !state.workerWindow.closed) {
             try {
@@ -1423,9 +1463,34 @@
         notify('success', `${APP.shortName} desligado em ${world}.`);
     }
 
+    function stopForUnavailableAssistant(reason) {
+        const message = String(reason || 'O Assistente de Saque não está disponível.');
+        localStorage.setItem(keys.assistantStatus, JSON.stringify({
+            active: false,
+            reason: message,
+            updatedAt: Date.now(),
+        }));
+        localStorage.setItem(keys.enabled, '0');
+        localStorage.removeItem(keys.worker);
+        clearWorkerOpening(false);
+        state.popupBlocked = false;
+        state.nextWorkerOpenAttemptAt = Number.POSITIVE_INFINITY;
+        stopWorker();
+        updateUi();
+        notify('error', message);
+        closeManagedWorkerWindow(150, false);
+    }
+
     function openWorker(fromUserGesture) {
         if (state.captchaPaused || hasCaptchaChallenge(document)) {
             pauseForCaptcha('página do jogo');
+            return null;
+        }
+
+        if (getFarmAssistantAccessState() === false) {
+            stopForUnavailableAssistant(
+                'Não é possível abrir: o Assistente de Saque não está ativo nesta conta.'
+            );
             return null;
         }
 
@@ -1434,6 +1499,15 @@
             updateUi();
             return window;
         }
+
+        const opening = readWorkerOpening();
+        if (isFreshWorkerOpening(opening)) {
+            updateUi();
+            return state.workerWindow && !state.workerWindow.closed
+                ? state.workerWindow
+                : null;
+        }
+        if (opening) clearWorkerOpening(false);
 
         const controllerHadFocus = typeof document.hasFocus === 'function'
             ? document.hasFocus()
@@ -1461,6 +1535,11 @@
 
         const url = new URL(buildFarmUrl());
         url.searchParams.set(workerUrlParameter, '1');
+        url.hash = `${workerUrlParameter}=1`;
+        if (!claimWorkerOpening(url.href)) {
+            updateUi();
+            return null;
+        }
         let worker = null;
         let openedByManager = false;
         if (typeof GM_openInTab === 'function') {
@@ -1487,6 +1566,7 @@
         }
 
         if (!worker) {
+            clearWorkerOpening();
             state.popupBlocked = true;
             state.nextWorkerOpenAttemptAt = Date.now() + workerOpenRetryMs;
             updateUi();
@@ -1505,7 +1585,8 @@
                 if (state.workerWindow !== worker) return;
                 state.workerWindow = null;
                 state.managerOpenedWorker = false;
-                state.nextWorkerOpenAttemptAt = 0;
+                clearWorkerOpening();
+                state.nextWorkerOpenAttemptAt = Date.now() + workerOpenRetryMs;
                 if (!state.destroyed) superviseWorker();
             };
         }
@@ -1563,6 +1644,7 @@
             state.managerOpenedWorker = false;
         }
         const heartbeat = readWorker();
+        const opening = readWorkerOpening();
         const liveWorkerReference = state.workerWindow && !state.workerWindow.closed;
         if (
             isFreshWorker(heartbeat) ||
@@ -1572,6 +1654,11 @@
             return;
         }
         if (heartbeat && !isFreshWorker(heartbeat)) localStorage.removeItem(keys.worker);
+        if (isFreshWorkerOpening(opening)) {
+            updateUi();
+            return;
+        }
+        if (opening) clearWorkerOpening(false);
 
         const run = prepareRoundForWorkerOpen();
         if (run.round.phase === 'waiting' && run.round.pauseUntil > Date.now()) {
@@ -1684,6 +1771,7 @@
             updatedAt: state.lastHeartbeatAt,
         };
         localStorage.setItem(keys.worker, JSON.stringify(heartbeat));
+        clearWorkerOpening(false);
         updateUi();
     }
 
@@ -4409,6 +4497,46 @@
         }
     }
 
+    function readWorkerOpening() {
+        try {
+            const value = JSON.parse(localStorage.getItem(keys.workerOpening) || 'null');
+            return value && value.world === world ? value : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function isFreshWorkerOpening(opening) {
+        return Boolean(
+            opening &&
+            opening.version === APP.version &&
+            Number.isFinite(Number(opening.openedAt)) &&
+            Date.now() - Number(opening.openedAt) < APP.workerLaunchGraceMs
+        );
+    }
+
+    function claimWorkerOpening(url) {
+        const current = readWorkerOpening();
+        if (isFreshWorkerOpening(current)) return current.tabId === tabId;
+
+        const opening = {
+            tabId,
+            world,
+            version: APP.version,
+            url: String(url || ''),
+            openedAt: Date.now(),
+        };
+        localStorage.setItem(keys.workerOpening, JSON.stringify(opening));
+        return readWorkerOpening()?.tabId === tabId;
+    }
+
+    function clearWorkerOpening(onlyOwned = true) {
+        const current = readWorkerOpening();
+        if (!current || !onlyOwned || current.tabId === tabId) {
+            localStorage.removeItem(keys.workerOpening);
+        }
+    }
+
     function isFreshWorker(worker) {
         return Boolean(
             worker &&
@@ -4424,8 +4552,11 @@
 
     function isManagedWorker() {
         try {
+            const url = new URL(window.location.href);
+            const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
             return window.name === workerWindowName ||
-                new URL(window.location.href).searchParams.get(workerUrlParameter) === '1';
+                url.searchParams.get(workerUrlParameter) === '1' ||
+                hash.get(workerUrlParameter) === '1';
         } catch (_) {
             return window.name === workerWindowName;
         }
@@ -4434,7 +4565,83 @@
     function isFarmPage() {
         const gameScreen = String(window.game_data?.screen || '').toLowerCase();
         const urlScreen = String(new URL(window.location.href).searchParams.get('screen') || '').toLowerCase();
-        return gameScreen === 'am_farm' || urlScreen === 'am_farm';
+        return gameScreen ? gameScreen === 'am_farm' : urlScreen === 'am_farm';
+    }
+
+    function getFarmAssistantAccessState() {
+        if (hasFarmAssistantInterface()) return true;
+
+        const features = window.game_data?.features;
+        if (features && typeof features === 'object') {
+            const entries = Object.entries(features);
+            const farmState = featureStateFromEntries(entries, [
+                'farmassistant',
+                'farmassistent',
+                'farmmanager',
+            ]);
+            if (farmState !== null) return farmState;
+
+            const accountManagerState = featureStateFromEntries(entries, [
+                'accountmanager',
+                'accountmanagement',
+            ]);
+            if (accountManagerState !== null) return accountManagerState;
+        }
+
+        if (isFarmPage() && hasFarmAssistantUnavailableMessage()) return false;
+        return null;
+    }
+
+    function featureStateFromEntries(entries, names) {
+        let inactiveSeen = false;
+        for (const [key, value] of entries) {
+            const normalizedKey = String(key).toLowerCase().replace(/[^a-z]/g, '');
+            if (!names.includes(normalizedKey)) continue;
+            const stateValue = normalizeFeatureActiveState(value);
+            if (stateValue === true) return true;
+            if (stateValue === false) inactiveSeen = true;
+        }
+        return inactiveSeen ? false : null;
+    }
+
+    function normalizeFeatureActiveState(value) {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return Number.isFinite(value) ? value > 0 : null;
+        if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            if (['true', 'active', 'enabled', '1'].includes(normalized)) return true;
+            if (['false', 'inactive', 'disabled', '0', ''].includes(normalized)) return false;
+            const numeric = Number(normalized);
+            return Number.isFinite(numeric) ? numeric > 0 : null;
+        }
+        if (value && typeof value === 'object') {
+            for (const key of ['active', 'enabled']) {
+                if (!(key in value)) continue;
+                const stateValue = normalizeFeatureActiveState(value[key]);
+                if (stateValue !== null) return stateValue;
+            }
+        }
+        return null;
+    }
+
+    function hasFarmAssistantInterface() {
+        if (typeof window.Accountmanager?.farm?.sendUnits === 'function') return true;
+        return Boolean(document.querySelector([
+            '#am_widget_Farm',
+            '#farm_commands',
+            'a.farm_icon_a',
+            'a.farm_icon_b',
+            '.farm_icon_a',
+            '.farm_icon_b',
+        ].join(',')));
+    }
+
+    function hasFarmAssistantUnavailableMessage() {
+        const text = String(document.body?.innerText || document.body?.textContent || '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        return /(?:assistente de (?:saque|farm)|farm assistant|gestor de conta|account manager).{0,140}(?:n[aã]o (?:est[aá] )?ativ|inativ|expir|necess[aá]ri|indispon[ií]vel|not active|disabled|expired|required)/i.test(text) ||
+            /(?:ativar|adquirir|comprar|enable|activate).{0,100}(?:assistente de (?:saque|farm)|farm assistant|gestor de conta|account manager)/i.test(text);
     }
 
     function getWorld() {
