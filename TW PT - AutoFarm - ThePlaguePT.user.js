@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.20
+// @version      1.3.22
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.20',
+        version: '1.3.22',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -347,13 +347,21 @@
         button.className = 'tp-theplaguept-script-bar-item';
         button.type = 'button';
         button.innerHTML = `
-            <span class="auto-farm-a-launcher-icon">SF</span>
+            <span class="auto-farm-a-launcher-icon">F</span>
+            <span data-auto-farm-power role="switch" aria-checked="false"
+                title="Ligar ou desligar o AutoFarm">&#x23FB;</span>
             <span data-auto-farm-dot aria-hidden="true"></span>
             <span data-auto-farm-countdown hidden></span>
         `;
         button.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();
+            const power = event.target?.closest?.('[data-auto-farm-power]');
+            if (power) {
+                if (isEnabled()) disable();
+                else enable(true);
+                return;
+            }
             openWorker(true);
         });
 
@@ -557,6 +565,10 @@
             #${APP.buttonId} [data-auto-farm-dot]{position:absolute!important;right:2px!important;bottom:2px!important;width:6px!important;height:6px!important;border:1px solid #2b1509!important;border-radius:50%!important;background:#ff6b6b!important;box-shadow:0 0 2px #000!important}
             #${APP.buttonId}.af-ligado [data-auto-farm-dot]{background:#7cfc00!important}
             #${APP.buttonId}.af-verificacao [data-auto-farm-dot]{background:#ffe34a!important}
+            #${APP.buttonId} [data-auto-farm-power]{position:absolute!important;right:-7px!important;top:-7px!important;width:15px!important;height:15px!important;display:flex!important;align-items:center!important;justify-content:center!important;border:1px solid #4f120f!important;border-radius:50%!important;background:#a92d27!important;color:#fff!important;font:bold 10px/13px Arial,sans-serif!important;text-shadow:0 1px #000!important;box-shadow:0 1px 3px #0009!important;cursor:pointer!important;pointer-events:auto!important;z-index:4!important}
+            #${APP.buttonId}.af-ligado [data-auto-farm-power]{background:#3f8a29!important}
+            #${APP.buttonId}.af-verificacao [data-auto-farm-power]{background:#c27b16!important}
+            #${APP.buttonId} [data-auto-farm-power]:hover{filter:brightness(1.25)!important}
             #${APP.buttonId} [data-auto-farm-countdown]{position:absolute!important;display:none!important;top:31px!important;left:50%!important;transform:translateX(-50%)!important;min-width:46px!important;padding:3px 5px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 10px Verdana,Arial,sans-serif!important;line-height:13px!important;text-align:center!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 5px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}
             #${APP.buttonId} [data-auto-farm-countdown][hidden]{display:none!important}
             #${APP.buttonId}:hover [data-auto-farm-countdown]:not([hidden]),#${APP.buttonId}:focus-visible [data-auto-farm-countdown]:not([hidden]){display:block!important}
@@ -1744,10 +1756,15 @@
             state.button.classList.toggle('af-ligado', enabled && !captchaPaused);
             state.button.classList.toggle('af-verificacao', captchaPaused);
             state.button.dataset.tpTitle = captchaPaused
-                ? `${APP_DISPLAY_TITLE}: ${label}. Clique para abrir o separador e resolver manualmente.`
-                : `${APP_DISPLAY_TITLE}: ${label}. Clique para abrir ou focar o separador de trabalho.`;
+                ? `${APP_DISPLAY_TITLE}: ${label}. Clique em F para abrir o separador e resolver manualmente; clique em ⏻ para desligar.`
+                : `${APP_DISPLAY_TITLE}: ${label}. Clique em F para abrir ou focar; clique em ⏻ para ligar/desligar.`;
             state.button.setAttribute('aria-label', state.button.dataset.tpTitle);
             state.button.removeAttribute('aria-pressed');
+            const power = state.button.querySelector('[data-auto-farm-power]');
+            if (power) {
+                power.setAttribute('aria-checked', enabled ? 'true' : 'false');
+                power.setAttribute('title', enabled ? 'Desligar AutoFarm' : 'Ligar AutoFarm');
+            }
         }
 
         const settingsToggle = document.getElementById(APP.settingsToggleId);
@@ -1850,7 +1867,7 @@
         state.farmRunning = true;
         let task = null;
         let finishRequested = false;
-        let finishVillageRequested = false;
+        let stopRoundRequested = false;
         let pendingDelay = 0;
         let retryDelay = 0;
         try {
@@ -1862,7 +1879,7 @@
                     task = null;
                     if (outcome?.noTroops) {
                         const run = markFarmModelExhausted(outcome.model);
-                        finishVillageRequested = !hasUsableFarmModel(run);
+                        stopRoundRequested = !hasUsableFarmModel(run);
                         retryDelay = 100;
                     } else if (outcome?.rateLimited) {
                         retryDelay = APP.commandRateWindowMs + APP.commandRateSafetyMs;
@@ -1893,7 +1910,7 @@
                             task = null;
                             if (outcome?.noTroops) {
                                 const run = markFarmModelExhausted(outcome.model);
-                                finishVillageRequested = !hasUsableFarmModel(run);
+                                stopRoundRequested = !hasUsableFarmModel(run);
                                 retryDelay = 100;
                             } else if (outcome?.rateLimited) {
                                 retryDelay = APP.commandRateWindowMs + APP.commandRateSafetyMs;
@@ -1910,7 +1927,7 @@
             if (generation !== state.farmGeneration) return;
             state.farmRunning = false;
             if (automationCanRun() && state.ownsWorker) {
-                if (finishVillageRequested) finishCurrentVillageFarm();
+                if (stopRoundRequested) beginRoundPause(ensureRunState());
                 else if (finishRequested) finishRound();
                 else if (task) scheduleFarmStep(randomizedAttackDelay());
                 else scheduleFarmStep(
@@ -2087,9 +2104,10 @@
         runSpyPhase(generation).then(result => {
             if (generation !== state.farmGeneration) return;
             state.spyRunning = false;
-            setSpyStatus('Pronto');
+            setSpyStatus(result?.noTroops ? 'Sem batedores' : 'Pronto');
             if (automationCanRun() && state.ownsWorker) {
-                completeCurrentVillage(ensureRunState());
+                if (result?.noTroops) beginRoundPause(ensureRunState());
+                else completeCurrentVillage(ensureRunState());
             }
         }).catch(error => {
             if (generation !== state.farmGeneration) return;
@@ -2153,6 +2171,7 @@
         }
 
         let sentNow = 0;
+        let noTroops = false;
         for (let index = 0; index < candidates.length; index += 1) {
             const currentConfig = state.settings?.spy;
             if (
@@ -2176,6 +2195,7 @@
                 run.round.spy.attempted[String(target.id)] = message.slice(0, 40) || 'erro';
                 writeRunState(run);
                 if (errorMeansNoScouts(message)) {
+                    noTroops = true;
                     setSpyStatus('Sem batedores');
                     break;
                 }
@@ -2211,7 +2231,8 @@
         return {
             sent: ensureRunState().round.spy.sent,
             sentNow,
-            reason: 'concluído',
+            noTroops,
+            reason: noTroops ? 'sem batedores' : 'concluído',
         };
     }
 

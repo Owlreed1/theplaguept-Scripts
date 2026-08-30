@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.3.4
+// @version      1.3.5
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-    var SCRIPT_VERSION = '1.3.4';
+    var SCRIPT_VERSION = '1.3.5';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -342,7 +342,7 @@
         botao.className = 'tp-theplaguept-script-bar-item';
         botao.type = 'button';
         botao.innerHTML =
-            '<span class="script-coleta-launcher-icon">SC</span>' +
+            '<span class="script-coleta-launcher-icon">B</span>' +
             '<span data-script-coleta-power role="switch" aria-checked="false" ' +
             'title="Ligar ou desligar Buscas/Coleta">&#x23FB;</span>' +
             '<span data-script-coleta-countdown hidden></span>';
@@ -1060,7 +1060,7 @@
         }
 
         if (!iniciarHeartbeat()) {
-            atualizarBotao('Em pausa — outro separador SC está ativo');
+            atualizarBotao('Em pausa — outro separador de Buscas está ativo');
             return;
         }
 
@@ -2659,7 +2659,7 @@
             proximaTentativaAbrirWorker = Date.now() + AUTO_OPEN_RETRY;
             atualizarBotao(
                 automatico
-                    ? 'Abertura automática bloqueada — permite popups ou clica em SC'
+                    ? 'Abertura automática bloqueada — permite popups ou clica em B'
                     : 'Popup bloqueado — permite popups e clica novamente'
             );
             return false;
@@ -2833,7 +2833,7 @@
         estadoAtual = mensagem || (ligado ? 'Ativo' : 'Parado');
         var titulo = SCRIPT_NAME + ' v' + SCRIPT_VERSION + ': ' +
             (ligado ? 'LIGADO' : 'DESLIGADO') + ' — ' + estadoAtual +
-            '. Clique em SC para abrir/focar; clique em ⏻ para ligar/desligar.';
+            '. Clique em B para abrir/focar; clique em ⏻ para ligar/desligar.';
         botao.classList.toggle('sc-ligado', ligado);
         botao.setAttribute('aria-label', titulo);
         botao.setAttribute('data-tp-title', titulo);

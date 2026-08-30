@@ -819,11 +819,13 @@
 .${APP.id}-mapPin {
     position: absolute !important;
     z-index: ${APP.zIndex + 1} !important;
-    transform: translate(-50%, -100%) !important;
+    transform: translate(-50%, -100%) translateY(-3px) !important;
     pointer-events: none !important;
     display: inline-flex !important;
+    flex-direction: column-reverse !important;
     align-items: center !important;
-    gap: 3px !important;
+    justify-content: flex-start !important;
+    gap: 1px !important;
 }
 
 .${APP.id}-pinIcon,
@@ -833,30 +835,44 @@
 }
 
 .${APP.id}-pinIcon {
-    width: 13px !important;
-    height: 13px !important;
+    position: relative !important;
+    width: 17px !important;
+    height: 17px !important;
     display: inline-block !important;
-    flex: 0 0 13px !important;
+    flex: 0 0 17px !important;
     border: 2px solid #fff !important;
-    border-radius: 50% !important;
-    box-shadow: 0 0 0 1px #2b120b, 0 1px 4px rgba(0,0,0,.7) !important;
+    border-radius: 50% 50% 50% 0 !important;
+    box-shadow: 0 0 0 1px #2b120b, 0 2px 4px rgba(0,0,0,.72) !important;
+    transform: rotate(-45deg) !important;
+    transform-origin: 50% 50% !important;
     box-sizing: border-box !important;
 }
 
 .${APP.id}-pinIcon::after {
-    content: none !important;
+    content: "" !important;
+    position: absolute !important;
+    left: 4px !important;
+    top: 4px !important;
+    width: 5px !important;
+    height: 5px !important;
+    border-radius: 50% !important;
+    background: #fff !important;
+    box-shadow: 0 0 0 1px rgba(38,17,8,.7) !important;
 }
 
 .${APP.id}-pinLabel {
     display: inline-flex !important;
     align-items: center !important;
     gap: 3px !important;
-    padding: 1px 4px !important;
-    border-radius: 3px !important;
-    background: rgba(25, 18, 12, .82) !important;
-    color: #fff !important;
-    font: bold 11px Arial, sans-serif !important;
-    text-shadow: 0 1px #000 !important;
+    padding: 2px 4px !important;
+    border: 1px solid #b77718 !important;
+    border-radius: 2px !important;
+    background: #fff1bd !important;
+    color: #321b08 !important;
+    font: bold 12px Arial, sans-serif !important;
+    line-height: 13px !important;
+    text-shadow: 0 1px rgba(255,255,255,.8) !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,.45) !important;
     white-space: nowrap !important;
 }
 
@@ -893,11 +909,12 @@
 
 .${APP.id}-miniDot {
     position: absolute !important;
-    width: 7px !important;
-    height: 7px !important;
+    width: 10px !important;
+    height: 10px !important;
     border: 1px solid #fff !important;
-    border-radius: 50% !important;
-    transform: translate(-50%, -50%) !important;
+    border-radius: 50% 50% 50% 0 !important;
+    transform: translate(-50%, -121%) rotate(-45deg) !important;
+    transform-origin: 50% 50% !important;
     box-shadow: 0 0 0 1px #211, 0 1px 3px rgba(0,0,0,.6) !important;
     box-sizing: border-box !important;
 }
