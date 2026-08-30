@@ -19,6 +19,7 @@
     const screen = params.get("screen") || game_data.screen || "";
 
     const APP = { id: "tp-od-est", version: "2.0.2" };
+    const APP_DISPLAY_TITLE = `Estimador de tropas por OD - ThePlaguePT v${APP.version}`;
     const nf = new Intl.NumberFormat("pt-PT");
     const world = game_data.world || location.host;
     const playerId = Number(game_data.player?.id || 0);
@@ -137,7 +138,7 @@
         button.id = `${APP.id}-launcher`;
         button.className = "tp-theplaguept-script-bar-item";
         button.type = "button";
-        button.title = "Estimador de tropas por OD - ThePlaguePT";
+        button.title = APP_DISPLAY_TITLE;
         button.setAttribute("aria-label", button.title);
         button.setAttribute("data-tp-title", button.title);
         button.innerHTML = `<span class="${APP.id}-launcherIcon">OD</span><span class="${APP.id}-launcherLabel">Estimador de tropas por OD</span>`;

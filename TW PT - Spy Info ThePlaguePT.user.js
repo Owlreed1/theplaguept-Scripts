@@ -43,7 +43,10 @@
         id: "tpResumo24h",
         version: "1.0.31",
         title: "Spy/Info",
-        displayTitle: "Spy/Info - ThePlaguePT",
+        displayBaseTitle: "Spy/Info - ThePlaguePT",
+        get displayTitle() {
+            return `${this.displayBaseTitle} v${this.version}`;
+        },
         dialogId: "tpResumo24hInfoJogador",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='9' width='2' height='5' fill='%23f6d28b'/%3E%3Crect x='6' y='5' width='2' height='9' fill='%23f6d28b'/%3E%3Crect x='10' y='2' width='2' height='12' fill='%23f6d28b'/%3E%3Cpath d='M1 14.5h14' stroke='%2340140d'/%3E%3C/svg%3E",
@@ -5200,7 +5203,10 @@
         id: "tpResumo24hTribo",
         version: "1.0.31",
         title: "Spy/Info",
-        displayTitle: "Spy/Info - ThePlaguePT",
+        displayBaseTitle: "Spy/Info - ThePlaguePT",
+        get displayTitle() {
+            return `${this.displayBaseTitle} v${this.version}`;
+        },
         dialogId: "tpResumo24hInfoTribo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
         launcherIcon: "https://dspt.innogamescdn.com/asset/f441272cc5/graphic/welcome/player_points.webp",

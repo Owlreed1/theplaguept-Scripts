@@ -20,8 +20,8 @@
     const ALERTA_NOBRE_KEY = "tag_incomings_pt_alerta_nobre_v1";
     const ALERTA_NOBRE_STATE_VERSION = 2;
     const ESTADO_CONTADOR_ATAQUES_VERSION = 3;
-    const VERSAO_SCRIPT = "1.0.47";
-    const NOME_LANCADOR = "Etiquetador - TheplaguePT";
+    const VERSAO_SCRIPT = "1.0.49";
+    const NOME_LANCADOR = `Etiquetador - TheplaguePT v${VERSAO_SCRIPT}`;
 
     const CONFIG_PADRAO = {
         ativo: true,

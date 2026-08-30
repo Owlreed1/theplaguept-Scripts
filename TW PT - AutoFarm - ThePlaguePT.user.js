@@ -51,6 +51,7 @@
         captchaObserveDebounceMs: 80,
         spyHistoryMs: 365 * 24 * 60 * 60 * 1000,
     });
+    const APP_DISPLAY_TITLE = `${APP.name} v${APP.version}`;
     const UNIT_MINUTES_PER_FIELD = Object.freeze({
         spear: 18,
         sword: 22,
@@ -1625,8 +1626,8 @@
             state.button.classList.toggle('af-ligado', enabled && !captchaPaused);
             state.button.classList.toggle('af-verificacao', captchaPaused);
             state.button.dataset.tpTitle = captchaPaused
-                ? `${APP.name}: ${label}. Clique para abrir o separador e resolver manualmente.`
-                : `${APP.name}: ${label}. Clique para abrir ou focar o separador de trabalho.`;
+                ? `${APP_DISPLAY_TITLE}: ${label}. Clique para abrir o separador e resolver manualmente.`
+                : `${APP_DISPLAY_TITLE}: ${label}. Clique para abrir ou focar o separador de trabalho.`;
             state.button.setAttribute('aria-label', state.button.dataset.tpTitle);
             state.button.removeAttribute('aria-pressed');
         }

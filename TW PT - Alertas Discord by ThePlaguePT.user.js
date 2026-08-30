@@ -23,6 +23,7 @@
 
     const SCRIPT_VERSION = '1.3.73';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
+    const SCRIPT_DISPLAY_TITLE = `Alertas Discord - ThePlaguePT v${SCRIPT_VERSION}`;
 
     console.log(`[TW Discord Alerts] Versao ${SCRIPT_VERSION} carregada`);
 
@@ -6824,9 +6825,9 @@
         const root = uiDoc.createElement('div');
         root.id = 'tw-discord-alerts-ui';
         root.innerHTML = `
-<button id="tw-discord-alerts-toggle" type="button" title="Alertas Discord - ThePlaguePT" aria-label="Alertas Discord - ThePlaguePT">
+    <button id="tw-discord-alerts-toggle" type="button" title="${SCRIPT_DISPLAY_TITLE}" aria-label="${SCRIPT_DISPLAY_TITLE}">
     <span class="tw-alerts-eye"></span>
-    <span class="tw-alerts-toggle-label">Alertas Discord - ThePlaguePT</span>
+    <span class="tw-alerts-toggle-label">${SCRIPT_DISPLAY_TITLE}</span>
 </button>
 
 <div id="tw-discord-alerts-backdrop"></div>

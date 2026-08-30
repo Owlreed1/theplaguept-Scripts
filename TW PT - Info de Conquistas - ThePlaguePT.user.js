@@ -280,12 +280,13 @@
 }
 `;
         button.type = "button";
-        button.title = "Conquistas - ThePlaguePT";
-        button.setAttribute("aria-label", "Conquistas - ThePlaguePT");
-        button.setAttribute("data-tp-title", "Conquistas - ThePlaguePT");
+        const launcherTitle = `Conquistas - ThePlaguePT v${APP.version}`;
+        button.title = launcherTitle;
+        button.setAttribute("aria-label", launcherTitle);
+        button.setAttribute("data-tp-title", launcherTitle);
         button.innerHTML = `
             <span class="${APP.id}-launcher-icon" aria-hidden="true"></span>
-            <span class="${APP.id}-launcher-text">Conquistas - ThePlaguePT</span>
+            <span class="${APP.id}-launcher-text">${launcherTitle}</span>
         `;
         button.addEventListener("click", openPanel);
         document.body.appendChild(button);

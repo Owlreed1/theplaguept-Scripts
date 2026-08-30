@@ -2484,7 +2484,7 @@
         }
         var ligado = estaLigado();
         estadoAtual = mensagem || (ligado ? 'Ativo' : 'Parado');
-        var titulo = 'Buscas/Coleta: ' +
+        var titulo = SCRIPT_NAME + ' v' + SCRIPT_VERSION + ': ' +
             (ligado ? 'LIGADO' : 'DESLIGADO') + ' — ' + estadoAtual +
             '. Clique em SC para abrir/focar; clique em ⏻ para ligar/desligar.';
         botao.classList.toggle('sc-ligado', ligado);

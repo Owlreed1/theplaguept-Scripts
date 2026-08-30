@@ -22,8 +22,11 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        displayTitle: "Marcador - ThePlaguePT",
         version: "2.5.10",
+        displayBaseTitle: "Marcador - ThePlaguePT",
+        get displayTitle() {
+            return `${this.displayBaseTitle} v${this.version}`;
+        },
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -819,7 +822,7 @@
     transform: translate(-50%, -100%) !important;
     pointer-events: none !important;
     display: inline-flex !important;
-    align-items: flex-end !important;
+    align-items: center !important;
     gap: 3px !important;
 }
 
@@ -830,29 +833,18 @@
 }
 
 .${APP.id}-pinIcon {
-    position: relative !important;
-    width: 16px !important;
-    height: 16px !important;
+    width: 13px !important;
+    height: 13px !important;
     display: inline-block !important;
-    flex: 0 0 16px !important;
+    flex: 0 0 13px !important;
     border: 2px solid #fff !important;
-    border-radius: 50% 50% 50% 0 !important;
-    box-shadow: 0 0 0 1px #2b120b, 0 2px 4px rgba(0,0,0,.7) !important;
-    transform: rotate(-45deg) !important;
-    transform-origin: 50% 50% !important;
+    border-radius: 50% !important;
+    box-shadow: 0 0 0 1px #2b120b, 0 1px 4px rgba(0,0,0,.7) !important;
     box-sizing: border-box !important;
 }
 
 .${APP.id}-pinIcon::after {
-    content: "" !important;
-    position: absolute !important;
-    left: 4px !important;
-    top: 4px !important;
-    width: 5px !important;
-    height: 5px !important;
-    border-radius: 50% !important;
-    background: #fff !important;
-    box-shadow: 0 0 0 1px rgba(35,15,8,.55) !important;
+    content: none !important;
 }
 
 .${APP.id}-pinLabel {
@@ -901,11 +893,11 @@
 
 .${APP.id}-miniDot {
     position: absolute !important;
-    width: 9px !important;
-    height: 9px !important;
+    width: 7px !important;
+    height: 7px !important;
     border: 1px solid #fff !important;
-    border-radius: 50% 50% 50% 0 !important;
-    transform: translate(-50%, -86%) rotate(-45deg) !important;
+    border-radius: 50% !important;
+    transform: translate(-50%, -50%) !important;
     box-shadow: 0 0 0 1px #211, 0 1px 3px rgba(0,0,0,.6) !important;
     box-sizing: border-box !important;
 }

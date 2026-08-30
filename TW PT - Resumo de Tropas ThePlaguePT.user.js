@@ -689,10 +689,11 @@
         if (!window.game_data?.player) return;
         installStyle();
         const launcher = document.createElement('button');
-        launcher.id = `${APP.id}-launcher`; launcher.title = `${APP.title} - ThePlaguePT`;
-        launcher.setAttribute('aria-label', `${APP.title} - ThePlaguePT`);
-        launcher.setAttribute('data-tp-title', `${APP.title} - ThePlaguePT`);
-        launcher.innerHTML = `<span class="${APP.id}-launcherIcon"></span><span class="${APP.id}-launcherLabel">${APP.title}</span>`;
+        const launcherTitle = `${APP.title} - ThePlaguePT v${APP.version}`;
+        launcher.id = `${APP.id}-launcher`; launcher.title = launcherTitle;
+        launcher.setAttribute('aria-label', launcherTitle);
+        launcher.setAttribute('data-tp-title', launcherTitle);
+        launcher.innerHTML = `<span class="${APP.id}-launcherIcon"></span><span class="${APP.id}-launcherLabel">${launcherTitle}</span>`;
         launcher.addEventListener('click', openModal);
         let bar = document.getElementById('tp-theplaguept-script-bar');
         if (!bar) {

@@ -24,6 +24,10 @@
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
         version: '0.1.153',
+        displayBaseTitle: 'Defesa - ThePlaguePT',
+        get displayTitle() {
+            return `${this.displayBaseTitle} v${this.version}`;
+        },
         styleId: 'tpdefStyles',
         troopPop: {
             spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -2118,9 +2122,9 @@
         if ($('#tpDefLauncher').length) return;
 
         $('body').append(`
-            <button type="button" id="tpDefLauncher" title="Defesa - ThePlaguePT" aria-label="Defesa - ThePlaguePT">
+            <button type="button" id="tpDefLauncher" title="${APP.displayTitle}" aria-label="${APP.displayTitle}">
                 <span class="tpdef-launcher-icon"><span class="tpdef-launcher-shield"></span></span>
-                <span class="tpdef-launcher-text">Defesa - ThePlaguePT</span>
+                <span class="tpdef-launcher-text">${APP.displayTitle}</span>
             </button>
         `);
         $('#tpDefLauncher').off('click.tpdef').on('click.tpdef', openSettings);

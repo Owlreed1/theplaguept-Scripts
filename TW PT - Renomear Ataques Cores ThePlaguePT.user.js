@@ -16,6 +16,8 @@
     "use strict";
 
     const SCRIPT_ID = "renomear-ataques-cores-theplaguept";
+    const SCRIPT_VERSION = "1.0.10";
+    const SCRIPT_DISPLAY_TITLE = `Renomeador - ThePlaguePT v${SCRIPT_VERSION}`;
     const STYLE_ID = `${SCRIPT_ID}-style`;
     const STORAGE_KEY = `${SCRIPT_ID}-config-v1`;
     const CONFIG_BUTTON_ID = `${SCRIPT_ID}-config-button`;
@@ -431,11 +433,11 @@
         botao.id = CONFIG_BUTTON_ID;
         botao.type = "button";
         botao.className = "ra-tp-config-button";
-        botao.title = "Renomeador - ThePlaguePT";
-        botao.setAttribute("aria-label", "Abrir Renomeador - ThePlaguePT");
+        botao.title = SCRIPT_DISPLAY_TITLE;
+        botao.setAttribute("aria-label", SCRIPT_DISPLAY_TITLE);
         botao.innerHTML = `
             <span class="ra-tp-config-button-icon" aria-hidden="true">R</span>
-            <span class="ra-tp-config-button-label">Renomeador - ThePlaguePT</span>
+            <span class="ra-tp-config-button-label">${SCRIPT_DISPLAY_TITLE}</span>
         `;
         botao.addEventListener("click", abrirPainelConfiguracao);
 
