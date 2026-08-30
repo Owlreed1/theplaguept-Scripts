@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.24
+// @version      1.3.25
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.24',
+        version: '1.3.25',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -1423,6 +1423,9 @@
             return window;
         }
 
+        const controllerHadFocus = typeof document.hasFocus === 'function'
+            ? document.hasFocus()
+            : !document.hidden;
         const existingWorker = readWorker();
         const freshExistingWorker = isFreshWorker(existingWorker);
         const liveWorkerReference = state.workerWindow && !state.workerWindow.closed;
@@ -1487,8 +1490,12 @@
         state.nextWorkerOpenAttemptAt = Date.now() + workerOpenRetryMs;
         state.popupBlocked = false;
         try {
-            worker.blur();
-            window.focus();
+            if (fromUserGesture) {
+                worker.focus();
+            } else {
+                worker.blur();
+                if (controllerHadFocus) window.focus();
+            }
         } catch (_) {
             // Alguns browsers não permitem controlar o foco de outro separador.
         }
