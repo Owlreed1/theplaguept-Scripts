@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.3.7
+// @version      2.3.8
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "Marcador - ThePlaguePT",
-        version: "2.3.7",
+        version: "2.3.8",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -75,6 +75,7 @@
         supportTravelMapToggle: null,
         attackMapToggle: null,
         launcherPositionFrame: 0,
+        mapToolbarRecovery: 0,
     };
 
     load();
@@ -83,8 +84,9 @@
     registerHubShortcut();
     setupWorldTabResume();
 
-    if (gd.screen === "map" || /[?&]screen=map(?:&|$)/.test(location.search)) {
+    if (isMapScreen()) {
         waitForMap();
+        setupMapToolbarRecovery();
     }
 
     function load() {
@@ -520,7 +522,10 @@
     }
 
     function injectStyles() {
+        if (document.getElementById(`${APP.id}-styles`)) return;
+
         const style = document.createElement("style");
+        style.id = `${APP.id}-styles`;
         style.textContent = `
 #tp-theplaguept-script-bar {
     position: fixed !important;
@@ -686,7 +691,234 @@
         transform: translateY(-50%) !important;
     }
 }
+
+#${APP.id}-launcher {
+    position: fixed !important;
+    top: 250px !important;
+    left: 12px !important;
+    z-index: ${APP.zIndex} !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    border: 1px solid #4f120f !important;
+    border-radius: 3px !important;
+    background: linear-gradient(to bottom, #b03a31, #7b201b) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 1px 3px rgba(0,0,0,.55) !important;
+    color: #fff !important;
+    cursor: pointer !important;
+    overflow: visible !important;
+}
+
+#${APP.id}-launcher:hover,
+#${APP.id}-launcher:focus-visible {
+    background: linear-gradient(to bottom, #c4473b, #8a2720) !important;
+}
+
+.${APP.id}-launcherIcon {
+    width: 17px !important;
+    height: 17px !important;
+    display: block !important;
+    background: url("${APP.launcherIcon}") center / contain no-repeat !important;
+}
+
+.${APP.id}-launcherLabel {
+    display: none !important;
+}
+
+#${APP.id}-mapToolbar {
+    position: absolute !important;
+    top: 10px !important;
+    right: 10px !important;
+    z-index: ${APP.zIndex + 2} !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    padding: 4px !important;
+    border: 1px solid rgba(30, 22, 16, .85) !important;
+    border-radius: 3px !important;
+    background: rgba(46, 42, 38, .72) !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,.45) !important;
+    pointer-events: auto !important;
+}
+
+#${APP.id}-mapToolbar button {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    min-height: 28px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    border: 1px solid #2f241a !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #737373, #3f3f3f) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 1px 2px rgba(0,0,0,.55) !important;
+    color: #fff !important;
+    font: bold 15px Arial, sans-serif !important;
+    line-height: 1 !important;
+    cursor: pointer !important;
+}
+
+#${APP.id}-mapToolbar button:hover {
+    filter: brightness(1.12) !important;
+}
+
+#${APP.id}-mapToolbar button.tp-off {
+    opacity: .48 !important;
+    filter: grayscale(.45) !important;
+}
+
+#${APP.id}-mapToolbar .tp-togglePin {
+    width: 15px !important;
+    height: 15px !important;
+    display: block !important;
+    border-radius: 50% 50% 50% 0 !important;
+    background: #e9d26d !important;
+    border: 2px solid #3b160f !important;
+    transform: rotate(-45deg) !important;
+    box-sizing: border-box !important;
+}
+
+#${APP.id}-mapToolbar .tp-togglePin::after {
+    content: "" !important;
+    width: 5px !important;
+    height: 5px !important;
+    position: absolute !important;
+    left: 3px !important;
+    top: 3px !important;
+    border-radius: 50% !important;
+    background: #a32620 !important;
+}
+
+#${APP.id}-mapToolbar .tp-toggleBonus,
+#${APP.id}-mapToolbar .tp-toggleSupport,
+#${APP.id}-mapToolbar .tp-toggleSupportTravel,
+#${APP.id}-mapToolbar .tp-toggleAttack {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.${APP.id}-mapPin {
+    position: absolute !important;
+    z-index: ${APP.zIndex + 1} !important;
+    transform: translate(-50%, -100%) !important;
+    pointer-events: none !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+}
+
+.${APP.id}-pinIcon,
+.${APP.id}-badge,
+.${APP.id}-miniDot {
+    background: var(--tp-marker-color, ${APP.defaultColor}) !important;
+}
+
+.${APP.id}-pinIcon {
+    width: 13px !important;
+    height: 13px !important;
+    display: inline-block !important;
+    border: 2px solid #fff !important;
+    border-radius: 50% !important;
+    box-shadow: 0 0 0 1px #2b120b, 0 1px 4px rgba(0,0,0,.7) !important;
+}
+
+.${APP.id}-pinLabel {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    padding: 1px 4px !important;
+    border-radius: 3px !important;
+    background: rgba(25, 18, 12, .82) !important;
+    color: #fff !important;
+    font: bold 11px Arial, sans-serif !important;
+    text-shadow: 0 1px #000 !important;
+    white-space: nowrap !important;
+}
+
+.${APP.id}-pinBonusIcon {
+    width: 14px !important;
+    height: 14px !important;
+}
+
+.${APP.id}-badge,
+.${APP.id}-zoneBadge {
+    position: absolute !important;
+    z-index: ${APP.zIndex + 1} !important;
+    transform: translate(-50%, -100%) !important;
+    padding: 1px 4px !important;
+    border-radius: 3px !important;
+    color: #fff !important;
+    font: bold 11px Arial, sans-serif !important;
+    text-shadow: 0 1px #000 !important;
+    pointer-events: none !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,.55) !important;
+}
+
+.${APP.id}-zoneBadge {
+    background: var(--tp-zone-color, ${APP.defaultColor}) !important;
+}
+
+.${APP.id}-minimapOverlay,
+.${APP.id}-mainOverlay {
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: ${APP.zIndex + 1} !important;
+    pointer-events: none !important;
+}
+
+.${APP.id}-miniDot {
+    position: absolute !important;
+    width: 7px !important;
+    height: 7px !important;
+    border: 1px solid #fff !important;
+    border-radius: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    box-shadow: 0 0 0 1px #211, 0 1px 3px rgba(0,0,0,.6) !important;
+}
 `;
+        (document.head || document.documentElement).appendChild(style);
+    }
+
+    function ensureTpScriptBar(doc = document) {
+        if (!doc || !doc.body) return null;
+
+        let bar = doc.getElementById("tp-theplaguept-script-bar");
+
+        if (!bar) {
+            bar = doc.createElement("div");
+            bar.id = "tp-theplaguept-script-bar";
+            bar.setAttribute("aria-label", "Botoes ThePlaguePT");
+            (doc.body || doc.documentElement).appendChild(bar);
+        }
+
+        return bar;
+    }
+
+    function attachToTpScriptBar(element, doc = document) {
+        const bar = ensureTpScriptBar(doc);
+        if (!bar || !element) return;
+
+        element.classList.add("tp-theplaguept-script-bar-item");
+        element.setAttribute("data-tp-title", element.getAttribute("data-tp-title") || element.getAttribute("aria-label") || APP.displayTitle);
+        bar.appendChild(element);
+    }
+
+    function createLauncher() {
+        document.getElementById(`${APP.id}-launcher`)?.remove();
+
+        const button = document.createElement("button");
+        button.id = `${APP.id}-launcher`;
         button.type = "button";
         button.title = APP.displayTitle;
         button.setAttribute("aria-label", APP.displayTitle);
@@ -699,8 +931,26 @@
         setupLauncherPosition();
     }
 
+    function isMapScreen() {
+        return gd.screen === "map" || /[?&]screen=map(?:&|$)/.test(location.search) || Boolean(window.TWMap?.map);
+    }
+
     function getMapToggleHost() {
-        const host = document.querySelector("#map_wrap") || document.querySelector("#map_container") || document.querySelector("#map")?.parentElement;
+        const candidates = [
+            document.querySelector("#map_wrap"),
+            document.querySelector("#map_container"),
+            document.querySelector("#map")?.parentElement,
+            document.querySelector("#map"),
+            document.querySelector("#content_value")
+        ].filter(Boolean);
+
+        const host = candidates.find((element) =>
+            element.id === "map_wrap" ||
+            element.id === "map_container" ||
+            element.id === "map" ||
+            element.querySelector?.("#map,[id^='map_village_'],img[id*='village']")
+        ) || null;
+
         if (host && getComputedStyle(host).position === "static") host.style.position = "relative";
         return host;
     }
@@ -719,8 +969,45 @@
             host.appendChild(toolbar);
         }
 
+        toolbar.style.setProperty("display", "flex", "important");
+        toolbar.style.setProperty("visibility", "visible", "important");
+        toolbar.style.setProperty("opacity", "1", "important");
+        toolbar.style.setProperty("z-index", String(APP.zIndex + 2), "important");
         state.mapToolbar = toolbar;
         return toolbar;
+    }
+
+    function createMapToolbarButtons() {
+        if (!getMapToolbar()) return false;
+
+        createMapToggle();
+        createBonusMapToggle();
+        createSupportMapToggle();
+        createSupportTravelMapToggle();
+        createAttackMapToggle();
+
+        return true;
+    }
+
+    function hasCompleteMapToolbar() {
+        const toolbar = document.getElementById(`${APP.id}-mapToolbar`);
+        return Boolean(
+            toolbar?.isConnected &&
+            document.getElementById(`${APP.id}-mapToggle`) &&
+            document.getElementById(`${APP.id}-bonusMapToggle`) &&
+            document.getElementById(`${APP.id}-supportMapToggle`) &&
+            document.getElementById(`${APP.id}-supportTravelMapToggle`) &&
+            document.getElementById(`${APP.id}-attackMapToggle`)
+        );
+    }
+
+    function setupMapToolbarRecovery() {
+        if (state.mapToolbarRecovery) return;
+
+        state.mapToolbarRecovery = window.setInterval(() => {
+            if (document.hidden || !isMapScreen()) return;
+            if (!hasCompleteMapToolbar()) createMapToolbarButtons();
+        }, 1500);
     }
 
     function createMapToggle() {
@@ -1136,22 +1423,21 @@
     }
 
     function waitForMap(attempt = 0) {
-        if (document.querySelector("#map, #map_wrap, #map_container") || attempt > 80) {
-            createMapToggle();
-            createBonusMapToggle();
-            createSupportMapToggle();
-            createSupportTravelMapToggle();
-            createAttackMapToggle();
+        if (!getMapToggleHost()) {
+            setTimeout(() => waitForMap(attempt + 1), attempt < 120 ? 250 : 1000);
+            return;
+        }
+
+        if (createMapToolbarButtons()) {
             observeMap();
+            setupMapToolbarRecovery();
             const loaders = [];
             if (state.bonusEnabled && state.bonusTypes.length) loaders.push(loadBonusBarbarians());
             if (state.supportEnabled) loaders.push(loadSupportedVillages());
             if (state.supportTravelEnabled) loaders.push(loadTravelingSupportVillages());
             if (state.attackEnabled) loaders.push(loadAttackedVillages());
             Promise.allSettled(loaders).then(() => refreshMarkers(true));
-            return;
         }
-        setTimeout(() => waitForMap(attempt + 1), 250);
     }
 
     function setupWorldTabResume() {
@@ -1167,20 +1453,16 @@
 
     async function resumeWorldTab() {
         if (state.resumeRunning || document.hidden) return;
-        if (!(gd.screen === "map" || /[?&]screen=map(?:&|$)/.test(location.search))) return;
-        if (!document.querySelector("#map,#map_wrap,#map_container")) {
+        if (!isMapScreen()) return;
+        if (!getMapToggleHost()) {
             waitForMap();
             return;
         }
         state.resumeRunning = true;
         try {
             if (!document.getElementById(`${APP.id}-launcher`)) createLauncher();
-            const toolbarMissing = !document.getElementById(`${APP.id}-mapToolbar`);
-            if (toolbarMissing || !document.getElementById(`${APP.id}-mapToggle`)) createMapToggle();
-            if (toolbarMissing || !document.getElementById(`${APP.id}-bonusMapToggle`)) createBonusMapToggle();
-            if (toolbarMissing || !document.getElementById(`${APP.id}-supportMapToggle`)) createSupportMapToggle();
-            if (toolbarMissing || !document.getElementById(`${APP.id}-supportTravelMapToggle`)) createSupportTravelMapToggle();
-            if (toolbarMissing || !document.getElementById(`${APP.id}-attackMapToggle`)) createAttackMapToggle();
+            createMapToolbarButtons();
+            setupMapToolbarRecovery();
             if (!state.observer) observeMap();
 
             const loaders = [];
