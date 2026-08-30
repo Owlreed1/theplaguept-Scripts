@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.25
+// @version      1.3.26
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -11,12 +11,14 @@
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20AutoFarm%20-%20ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20AutoFarm%20-%20ThePlaguePT.user.js
-// @grant        none
+// @grant        GM_openInTab
+// @grant        unsafeWindow
+// @grant        window.close
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==
 
-(() => {
+((window, closeCurrentTab) => {
     'use strict';
 
     if (window.top !== window.self || !/\/game\.php$/i.test(window.location.pathname)) return;
@@ -25,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.25',
+        version: '1.3.26',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -146,6 +148,7 @@
         processedRows: new WeakSet(),
         processedTargets: new Set(),
         workerWindow: null,
+        managerOpenedWorker: false,
         nextWorkerOpenAttemptAt: 0,
         closingWorker: false,
         monitorTimer: 0,
@@ -167,7 +170,7 @@
         name: APP.name,
         version: APP.version,
         world,
-        enable: () => enable(true),
+        enable: () => enable(false),
         disable,
         openWorker: () => openWorker(true),
         isEnabled,
@@ -188,6 +191,13 @@
     ready(init);
 
     function init() {
+        if (isManagedWorker()) {
+            try {
+                window.name = workerWindowName;
+            } catch (_) {
+                // O parâmetro do URL continua a identificar o separador de trabalho.
+            }
+        }
         state.settings = loadSettings();
         injectStyles();
         createButton();
@@ -358,7 +368,7 @@
             const power = event.target?.closest?.('[data-auto-farm-power]');
             if (power) {
                 if (isEnabled()) disable();
-                else enable(true);
+                else enable(false);
                 return;
             }
             openWorker(true);
@@ -1405,7 +1415,9 @@
                 // O navegador pode já ter eliminado a referência ao separador.
             }
             state.workerWindow = null;
+            state.managerOpenedWorker = false;
         }
+        state.managerOpenedWorker = false;
         closeManagedWorkerWindow(100, false);
         updateUi();
         notify('success', `${APP.shortName} desligado em ${world}.`);
@@ -1429,36 +1441,16 @@
         const existingWorker = readWorker();
         const freshExistingWorker = isFreshWorker(existingWorker);
         const liveWorkerReference = state.workerWindow && !state.workerWindow.closed;
+        if (liveWorkerReference && state.managerOpenedWorker) {
+            updateUi();
+            return state.workerWindow;
+        }
         if (
             freshExistingWorker ||
             (liveWorkerReference && Date.now() < state.nextWorkerOpenAttemptAt)
         ) {
-            try {
-                const existing = window.open('', workerWindowName);
-                if (existing) {
-                    state.workerWindow = existing;
-                    let blankWorker = false;
-                    try {
-                        blankWorker = !existing.location?.href || existing.location.href === 'about:blank';
-                    } catch (_) {
-                        // O separador do jogo é normalmente da mesma origem.
-                    }
-                    if (
-                        blankWorker ||
-                        (fromUserGesture && !freshExistingWorker && isEnabled())
-                    ) {
-                        prepareRoundForWorkerOpen(fromUserGesture && isEnabled());
-                        const workerUrl = new URL(buildFarmUrl());
-                        workerUrl.searchParams.set(workerUrlParameter, '1');
-                        existing.location.replace(workerUrl.href);
-                    }
-                    if (fromUserGesture) existing.focus();
-                    updateUi();
-                    return existing;
-                }
-            } catch (_) {
-                // Se não for possível focar, tenta abrir novamente pelo URL normal.
-            }
+            updateUi();
+            return liveWorkerReference ? state.workerWindow : null;
         }
 
         const run = prepareRoundForWorkerOpen(fromUserGesture && isEnabled());
@@ -1470,10 +1462,28 @@
         const url = new URL(buildFarmUrl());
         url.searchParams.set(workerUrlParameter, '1');
         let worker = null;
-        try {
-            worker = window.open(url.href, workerWindowName);
-        } catch (error) {
-            console.error(`[${APP.shortName}] Não foi possível abrir o worker.`, error);
+        let openedByManager = false;
+        if (typeof GM_openInTab === 'function') {
+            try {
+                worker = GM_openInTab(url.href, {
+                    active: false,
+                    insert: true,
+                    setParent: true,
+                });
+                openedByManager = Boolean(worker);
+            } catch (error) {
+                console.warn(
+                    `[${APP.shortName}] A abertura em segundo plano não ficou disponível.`,
+                    error
+                );
+            }
+        }
+        if (!worker) {
+            try {
+                worker = window.open(url.href, workerWindowName);
+            } catch (error) {
+                console.error(`[${APP.shortName}] Não foi possível abrir o worker.`, error);
+            }
         }
 
         if (!worker) {
@@ -1487,17 +1497,25 @@
         }
 
         state.workerWindow = worker;
+        state.managerOpenedWorker = openedByManager;
         state.nextWorkerOpenAttemptAt = Date.now() + workerOpenRetryMs;
         state.popupBlocked = false;
-        try {
-            if (fromUserGesture) {
-                worker.focus();
-            } else {
+        if (openedByManager && 'onclose' in worker) {
+            worker.onclose = () => {
+                if (state.workerWindow !== worker) return;
+                state.workerWindow = null;
+                state.managerOpenedWorker = false;
+                state.nextWorkerOpenAttemptAt = 0;
+                if (!state.destroyed) superviseWorker();
+            };
+        }
+        if (!openedByManager) {
+            try {
                 worker.blur();
                 if (controllerHadFocus) window.focus();
+            } catch (_) {
+                // Alguns browsers não permitem controlar o foco de outro separador.
             }
-        } catch (_) {
-            // Alguns browsers não permitem controlar o foco de outro separador.
         }
 
         notify('success', 'Assistente de Saque aberto num separador próprio. A página atual não foi alterada.');
@@ -1540,7 +1558,10 @@
             state.destroyed
         ) return;
 
-        if (state.workerWindow?.closed) state.workerWindow = null;
+        if (state.workerWindow?.closed) {
+            state.workerWindow = null;
+            state.managerOpenedWorker = false;
+        }
         const heartbeat = readWorker();
         const liveWorkerReference = state.workerWindow && !state.workerWindow.closed;
         if (
@@ -1571,7 +1592,8 @@
             }
             stopWorker();
             try {
-                window.close();
+                if (typeof closeCurrentTab === 'function') closeCurrentTab();
+                else window.close();
             } catch (error) {
                 console.warn(`[${APP.shortName}] O navegador não permitiu fechar o separador.`, error);
             }
@@ -1690,7 +1712,10 @@
     function startMonitor() {
         window.clearInterval(state.monitorTimer);
         state.monitorTimer = window.setInterval(() => {
-            if (state.workerWindow?.closed) state.workerWindow = null;
+            if (state.workerWindow?.closed) {
+                state.workerWindow = null;
+                state.managerOpenedWorker = false;
+            }
             if (monitorCaptchaProtection()) {
                 updateUi();
                 return;
@@ -4629,4 +4654,7 @@
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
     }
-})();
+})(
+    typeof unsafeWindow !== 'undefined' ? unsafeWindow : window,
+    typeof window.close === 'function' ? window.close.bind(window) : null
+);
