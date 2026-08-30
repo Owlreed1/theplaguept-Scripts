@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.19
+// @version      1.3.20
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.19',
+        version: '1.3.20',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -104,6 +104,8 @@
     });
     const workerWindowName = `TW_PT_AutoFarm_${world}`;
     const workerLockName = `twPtAutoFarm-worker-${world}`;
+    const workerUrlParameter = 'tp_af_worker';
+    const workerOpenRetryMs = 30000;
 
     const state = {
         button: null,
@@ -144,6 +146,8 @@
         processedRows: new WeakSet(),
         processedTargets: new Set(),
         workerWindow: null,
+        nextWorkerOpenAttemptAt: 0,
+        closingWorker: false,
         monitorTimer: 0,
         heartbeatTimer: 0,
         fallbackLeaseTimer: 0,
@@ -197,10 +201,11 @@
             createModelsPanel();
             startSettingsTimer();
             if (!state.captchaPaused) loadWorldUnitSpeed();
-            if (isEnabled() && !state.captchaPaused) startWorker();
+            if (isEnabled() && !state.captchaPaused && isManagedWorker()) startWorker();
         }
 
         updateUi();
+        if (isEnabled() && !state.captchaPaused && !isManagedWorker()) superviseWorker();
         console.info(`[${APP.shortName}] v${APP.version} carregado em ${world}.`);
 
         if (window.__autoFarmAController) {
@@ -214,12 +219,21 @@
     function bindEvents() {
         window.addEventListener('storage', event => {
             if (event.key === keys.enabled) {
-                if (isEnabled() && isFarmPage() && !state.captchaPaused) startWorker();
-                if (!isEnabled()) stopWorker();
+                if (isEnabled() && isManagedWorker() && isFarmPage() && !state.captchaPaused) {
+                    startWorker();
+                }
+                if (isEnabled() && !isManagedWorker() && !state.captchaPaused) superviseWorker();
+                if (!isEnabled()) {
+                    stopWorker();
+                    closeManagedWorkerWindow(100, false);
+                }
                 updateUi();
             }
 
-            if (event.key === keys.worker) updateUi();
+            if (event.key === keys.worker) {
+                updateUi();
+                if (!isManagedWorker()) superviseWorker();
+            }
             if (event.key === keys.settings) {
                 state.settings = loadSettings();
                 renderSettingsUi();
@@ -229,6 +243,7 @@
             if (event.key === keys.run) {
                 renderModelCounts();
                 if (state.ownsWorker && !state.captchaPaused) resumeRoundWorkflow();
+                if (!isManagedWorker() && !state.captchaPaused) superviseWorker();
             }
             if (event.key === keys.activeAttacks) {
                 renderModelCounts();
@@ -305,13 +320,10 @@
             if (automationCanRun() && state.ownsWorker) scheduleRoundWait(ensureRunState());
         }
 
-        if (
-            state.ownsWorker &&
-            automationCanRun() &&
-            now - state.lastRecoveryAt >= APP.monitorMs
-        ) {
+        if (automationCanRun() && now - state.lastRecoveryAt >= APP.monitorMs) {
             state.lastRecoveryAt = now;
-            recoverBackgroundWork();
+            if (isManagedWorker()) recoverBackgroundWork();
+            else superviseWorker();
         }
     }
 
@@ -1340,7 +1352,8 @@
             loadGroupsIntoPanel();
             loadWorldUnitSpeed();
             if (state.ownsWorker) resumeRoundWorkflow();
-            else startWorker();
+            else if (isManagedWorker()) startWorker();
+            else superviseWorker();
         }, APP.captchaResumeMs);
     }
 
@@ -1364,13 +1377,11 @@
 
         if (hasCaptchaChallenge(document)) pauseForCaptcha('página do jogo');
 
-        if (isFarmPage()) {
-            if (!state.captchaPaused) {
-                startWorker();
-                notify('success', `${APP.shortName} ligado em ${world}.`);
-            }
-        } else if (openTab && !state.captchaPaused) {
-            openWorker(true);
+        if (!state.captchaPaused) {
+            if (isManagedWorker() && isFarmPage()) startWorker();
+            else if (openTab) openWorker(true);
+            else superviseWorker();
+            notify('success', `${APP.shortName} ligado em ${world}.`);
         }
         updateUi();
     }
@@ -1379,6 +1390,15 @@
         localStorage.setItem(keys.enabled, '0');
         state.popupBlocked = false;
         stopWorker();
+        if (!isManagedWorker() && state.workerWindow && !state.workerWindow.closed) {
+            try {
+                state.workerWindow.close();
+            } catch (_) {
+                // O navegador pode já ter eliminado a referência ao separador.
+            }
+            state.workerWindow = null;
+        }
+        closeManagedWorkerWindow(100, false);
         updateUi();
         notify('success', `${APP.shortName} desligado em ${world}.`);
     }
@@ -1389,22 +1409,49 @@
             return null;
         }
 
-        if (isFarmPage()) {
+        if (isManagedWorker() && isFarmPage()) {
             startWorker();
             updateUi();
             return window;
         }
 
-        const url = buildFarmUrl();
+        const existingWorker = readWorker();
+        const liveWorkerReference = state.workerWindow && !state.workerWindow.closed;
+        if (
+            isFreshWorker(existingWorker) ||
+            (liveWorkerReference && Date.now() < state.nextWorkerOpenAttemptAt)
+        ) {
+            try {
+                const existing = window.open('', workerWindowName);
+                if (existing) {
+                    state.workerWindow = existing;
+                    if (fromUserGesture) existing.focus();
+                    updateUi();
+                    return existing;
+                }
+            } catch (_) {
+                // Se não for possível focar, tenta abrir novamente pelo URL normal.
+            }
+        }
+
+        const run = prepareRoundForWorkerOpen();
+        if (run.round.phase === 'waiting' && run.round.pauseUntil > Date.now()) {
+            updateUi();
+            return null;
+        }
+
+        const url = new URL(buildFarmUrl());
+        url.searchParams.set(workerUrlParameter, '1');
         let worker = null;
         try {
-            worker = window.open(url, workerWindowName);
+            worker = window.open(url.href, workerWindowName);
         } catch (error) {
             console.error(`[${APP.shortName}] Não foi possível abrir o worker.`, error);
         }
 
         if (!worker) {
             state.popupBlocked = true;
+            state.nextWorkerOpenAttemptAt = Date.now() + workerOpenRetryMs;
             updateUi();
             if (fromUserGesture) {
                 notify('error', 'O browser bloqueou o separador do Assistente de Saque. Autoriza pop-ups para este mundo e clica novamente no botão AF.');
@@ -1413,6 +1460,7 @@
         }
 
         state.workerWindow = worker;
+        state.nextWorkerOpenAttemptAt = Date.now() + workerOpenRetryMs;
         state.popupBlocked = false;
         try {
             worker.blur();
@@ -1439,8 +1487,71 @@
         return url.toString();
     }
 
+    function prepareRoundForWorkerOpen() {
+        const run = ensureRunState();
+        if (run.round.phase === 'waiting' && run.round.pauseUntil <= Date.now()) {
+            run.round.number += 1;
+            run.round.pauseUntil = 0;
+            run.round.phase = 'start_reloading';
+            writeRunState(run);
+        }
+        return run;
+    }
+
+    function superviseWorker() {
+        if (
+            isManagedWorker() ||
+            !isEnabled() ||
+            state.captchaPaused ||
+            state.destroyed
+        ) return;
+
+        if (state.workerWindow?.closed) state.workerWindow = null;
+        const heartbeat = readWorker();
+        const liveWorkerReference = state.workerWindow && !state.workerWindow.closed;
+        if (
+            isFreshWorker(heartbeat) ||
+            (liveWorkerReference && Date.now() < state.nextWorkerOpenAttemptAt)
+        ) {
+            updateUi();
+            return;
+        }
+        if (heartbeat && !isFreshWorker(heartbeat)) localStorage.removeItem(keys.worker);
+
+        const run = prepareRoundForWorkerOpen();
+        if (run.round.phase === 'waiting' && run.round.pauseUntil > Date.now()) {
+            updateUi();
+            return;
+        }
+        if (Date.now() < state.nextWorkerOpenAttemptAt) return;
+        openWorker(false);
+    }
+
+    function closeManagedWorkerWindow(delayMs, preserveCaptcha = true) {
+        if (!isManagedWorker() || state.closingWorker) return;
+        state.closingWorker = true;
+        window.setTimeout(() => {
+            if (preserveCaptcha && state.captchaPaused) {
+                state.closingWorker = false;
+                return;
+            }
+            stopWorker();
+            try {
+                window.close();
+            } catch (error) {
+                console.warn(`[${APP.shortName}] O navegador não permitiu fechar o separador.`, error);
+            }
+        }, Math.max(0, Number(delayMs) || 0));
+    }
+
     function startWorker() {
-        if (!isFarmPage() || !automationCanRun() || state.ownsWorker || state.acquiringWorker) return;
+        if (
+            !isFarmPage() ||
+            !isManagedWorker() ||
+            !automationCanRun() ||
+            state.ownsWorker ||
+            state.acquiringWorker
+        ) return;
 
         state.acquiringWorker = true;
         state.duplicateWorker = false;
@@ -1550,13 +1661,20 @@
                 updateUi();
                 return;
             }
-            if (isFarmPage() && isEnabled() && !state.ownsWorker && !state.acquiringWorker) {
+            if (
+                isManagedWorker() &&
+                isFarmPage() &&
+                isEnabled() &&
+                !state.ownsWorker &&
+                !state.acquiringWorker
+            ) {
                 const worker = readWorker();
                 if (!isFreshWorker(worker)) startWorker();
             }
-            if (isFarmPage() && isEnabled() && state.ownsWorker) {
+            if (isManagedWorker() && isFarmPage() && isEnabled() && state.ownsWorker) {
                 syncActiveAttacksWithGame(false);
             }
+            if (!isManagedWorker()) superviseWorker();
             updateUi();
         }, APP.monitorMs);
     }
@@ -1582,16 +1700,16 @@
         } else if (state.captchaPaused) {
             text = 'CAPTCHA — pausa';
             title = 'AutoFarm pausado até a verificação ser resolvida';
+        } else if (run?.round?.phase === 'waiting' && run.round.pauseUntil > now) {
+            const remaining = formatShortDuration(run.round.pauseUntil - now);
+            text = `Nova ronda ${remaining}`;
+            title = `Tempo até ao início da próxima ronda: ${remaining}`;
         } else if (!state.ownsWorker && state.acquiringWorker) {
             text = 'A iniciar…';
             title = 'A preparar o worker deste mundo';
         } else if (!state.ownsWorker) {
             text = 'A aguardar worker';
             title = 'A aguardar o worker deste mundo';
-        } else if (run?.round?.phase === 'waiting' && run.round.pauseUntil > now) {
-            const remaining = formatShortDuration(run.round.pauseUntil - now);
-            text = `Nova ronda ${remaining}`;
-            title = `Tempo até ao início da próxima ronda: ${remaining}`;
         } else if (state.farmRunning) {
             text = 'A enviar…';
             title = 'A processar o próximo envio';
@@ -1860,7 +1978,8 @@
         }
 
         if (run.round.phase === 'waiting') {
-            scheduleRoundWait(run);
+            if (isManagedWorker()) closeManagedWorkerWindow(750);
+            else scheduleRoundWait(run);
             return;
         }
 
@@ -2581,7 +2700,14 @@
         run.round.phase = 'waiting';
         run.round.pauseUntil = Date.now() + randomizedRoundPauseMs(settings.general.roundPauseSeconds);
         writeRunState(run);
-        scheduleRoundWait(run);
+        showRoundCountdown(Math.ceil((run.round.pauseUntil - Date.now()) / 1000));
+        if (isManagedWorker()) {
+            const status = state.panel?.querySelector('[data-role="state"]');
+            if (status) status.textContent = 'Ronda concluída — a fechar separador';
+            closeManagedWorkerWindow(750);
+        } else {
+            scheduleRoundWait(run);
+        }
     }
 
     function scheduleRoundWait(runValue) {
@@ -4137,6 +4263,7 @@
     function isFreshWorker(worker) {
         return Boolean(
             worker &&
+            worker.version === APP.version &&
             Number.isFinite(Number(worker.updatedAt)) &&
             Date.now() - Number(worker.updatedAt) < APP.workerFreshMs
         );
@@ -4144,6 +4271,15 @@
 
     function isEnabled() {
         return localStorage.getItem(keys.enabled) === '1';
+    }
+
+    function isManagedWorker() {
+        try {
+            return window.name === workerWindowName ||
+                new URL(window.location.href).searchParams.get(workerUrlParameter) === '1';
+        } catch (_) {
+            return window.name === workerWindowName;
+        }
     }
 
     function isFarmPage() {
