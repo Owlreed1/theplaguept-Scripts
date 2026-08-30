@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.22
+// @version      1.3.23
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.22',
+        version: '1.3.23',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -1428,15 +1428,31 @@
         }
 
         const existingWorker = readWorker();
+        const freshExistingWorker = isFreshWorker(existingWorker);
         const liveWorkerReference = state.workerWindow && !state.workerWindow.closed;
         if (
-            isFreshWorker(existingWorker) ||
+            freshExistingWorker ||
             (liveWorkerReference && Date.now() < state.nextWorkerOpenAttemptAt)
         ) {
             try {
                 const existing = window.open('', workerWindowName);
                 if (existing) {
                     state.workerWindow = existing;
+                    let blankWorker = false;
+                    try {
+                        blankWorker = !existing.location?.href || existing.location.href === 'about:blank';
+                    } catch (_) {
+                        // O separador do jogo é normalmente da mesma origem.
+                    }
+                    if (
+                        blankWorker ||
+                        (fromUserGesture && !freshExistingWorker && isEnabled())
+                    ) {
+                        prepareRoundForWorkerOpen(fromUserGesture && isEnabled());
+                        const workerUrl = new URL(buildFarmUrl());
+                        workerUrl.searchParams.set(workerUrlParameter, '1');
+                        existing.location.replace(workerUrl.href);
+                    }
                     if (fromUserGesture) existing.focus();
                     updateUi();
                     return existing;
@@ -1446,7 +1462,7 @@
             }
         }
 
-        const run = prepareRoundForWorkerOpen();
+        const run = prepareRoundForWorkerOpen(fromUserGesture && isEnabled());
         if (run.round.phase === 'waiting' && run.round.pauseUntil > Date.now()) {
             updateUi();
             return null;
@@ -1466,7 +1482,7 @@
             state.nextWorkerOpenAttemptAt = Date.now() + workerOpenRetryMs;
             updateUi();
             if (fromUserGesture) {
-                notify('error', 'O browser bloqueou o separador do Assistente de Saque. Autoriza pop-ups para este mundo e clica novamente no botão AF.');
+                notify('error', 'O browser bloqueou o separador do Assistente de Saque. Autoriza pop-ups para este mundo e clica novamente no botão F.');
             }
             return null;
         }
@@ -1499,9 +1515,12 @@
         return url.toString();
     }
 
-    function prepareRoundForWorkerOpen() {
+    function prepareRoundForWorkerOpen(forceStart = false) {
         const run = ensureRunState();
-        if (run.round.phase === 'waiting' && run.round.pauseUntil <= Date.now()) {
+        if (
+            run.round.phase === 'waiting' &&
+            (forceStart || run.round.pauseUntil <= Date.now())
+        ) {
             run.round.number += 1;
             run.round.pauseUntil = 0;
             run.round.phase = 'start_reloading';
@@ -1878,9 +1897,8 @@
                 if (!outcome?.sent) {
                     task = null;
                     if (outcome?.noTroops) {
-                        const run = markFarmModelExhausted(outcome.model);
-                        stopRoundRequested = !hasUsableFarmModel(run);
-                        retryDelay = 100;
+                        markFarmModelExhausted(outcome.model);
+                        stopRoundRequested = true;
                     } else if (outcome?.rateLimited) {
                         retryDelay = APP.commandRateWindowMs + APP.commandRateSafetyMs;
                     } else {
@@ -1909,9 +1927,8 @@
                         if (!outcome?.sent) {
                             task = null;
                             if (outcome?.noTroops) {
-                                const run = markFarmModelExhausted(outcome.model);
-                                stopRoundRequested = !hasUsableFarmModel(run);
-                                retryDelay = 100;
+                                markFarmModelExhausted(outcome.model);
+                                stopRoundRequested = true;
                             } else if (outcome?.rateLimited) {
                                 retryDelay = APP.commandRateWindowMs + APP.commandRateSafetyMs;
                             } else {
@@ -3111,7 +3128,10 @@
             await delay(60);
         }
         await delay(120);
-        const messages = getNewGameErrors(errorsBefore);
+        const messages = Array.from(new Set([
+            ...getNewGameErrors(errorsBefore),
+            ...getCurrentRelevantGameErrors(),
+        ]));
         const message = messages.join(' · ');
         const captcha = hasCaptchaChallenge(document) || messages.some(isCaptchaMessage);
         if (captcha) pauseForCaptcha('resposta ao envio do modelo');
@@ -3144,6 +3164,20 @@
         return Array.from(new Set(messages));
     }
 
+    function getCurrentRelevantGameErrors() {
+        return Array.from(new Set(
+            getGameErrorElements()
+                .map(element => normalizeGameMessage(element.textContent))
+                .filter(message => (
+                    message && (
+                        isNoTroopsMessage(message) ||
+                        isCommandRateLimitMessage(message) ||
+                        isCaptchaMessage(message)
+                    )
+                ))
+        ));
+    }
+
     function getGameErrorElements() {
         return Array.from(document.querySelectorAll([
             '#error',
@@ -3152,7 +3186,10 @@
             '.error-msg',
             '.ui-state-error',
             '.server-error',
+            '.toast-error',
+            '[role="alert"]',
             '#notifications .error',
+            '#notifications [class*="error"]',
             '.notification.error',
         ].join(',')));
     }
