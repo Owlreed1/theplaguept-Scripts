@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spy/Info - ThePlaguePT
 // @namespace    theplaguept.tw.spy-info
-// @version      1.0.31
+// @version      1.0.32
 // @description  Painéis com resumo diário horario TWStats para jogador e tribo: pontos, aldeias, conquistas, OD e histórico.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -41,7 +41,7 @@
 
     const APP = {
         id: "tpResumo24h",
-        version: "1.0.31",
+        version: "1.0.32",
         title: "Spy/Info",
         displayBaseTitle: "Spy/Info - ThePlaguePT",
         get displayTitle() {
@@ -5201,7 +5201,7 @@
 
     const APP = {
         id: "tpResumo24hTribo",
-        version: "1.0.31",
+        version: "1.0.32",
         title: "Spy/Info",
         displayBaseTitle: "Spy/Info - ThePlaguePT",
         get displayTitle() {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Estimador de Tropas por OD - ThePlaguePT
 // @namespace    theplaguept.tw.estimador-od
-// @version      2.0.2
+// @version      2.0.3
 // @description  Analisa um relatorio de ataque e estima as baixas/forcas restantes do defensor a partir do aumento do OD ofensivo.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -18,7 +18,7 @@
     const params = new URLSearchParams(location.search);
     const screen = params.get("screen") || game_data.screen || "";
 
-    const APP = { id: "tp-od-est", version: "2.0.2" };
+    const APP = { id: "tp-od-est", version: "2.0.3" };
     const APP_DISPLAY_TITLE = `Estimador de tropas por OD - ThePlaguePT v${APP.version}`;
     const nf = new Intl.NumberFormat("pt-PT");
     const world = game_data.world || location.host;

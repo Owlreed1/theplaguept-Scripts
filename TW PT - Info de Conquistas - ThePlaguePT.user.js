@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Info de Conquistas - ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.59
+// @version      1.0.60
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        *://*/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.59",
+        version: "1.0.60",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
