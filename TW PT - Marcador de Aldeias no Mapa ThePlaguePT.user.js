@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.3.9
+// @version      2.3.5
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "Marcador - ThePlaguePT",
-        version: "2.3.9",
+        version: "2.3.5",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -75,8 +75,6 @@
         supportTravelMapToggle: null,
         attackMapToggle: null,
         launcherPositionFrame: 0,
-        mapToolbarRecovery: 0,
-        constructedStyleSheet: null,
     };
 
     load();
@@ -85,9 +83,8 @@
     registerHubShortcut();
     setupWorldTabResume();
 
-    if (isMapScreen()) {
+    if (gd.screen === "map" || /[?&]screen=map(?:&|$)/.test(location.search)) {
         waitForMap();
-        setupMapToolbarRecovery();
     }
 
     function load() {
@@ -523,16 +520,10 @@
     }
 
     function injectStyles() {
-        const existingStyle = document.getElementById(`${APP.id}-styles`);
-        if (existingStyle) {
-            applyConstructedStyles(existingStyle.textContent);
-            return;
-        }
+        if (document.getElementById(`${APP.id}-styles`)) return;
 
         const style = document.createElement("style");
         style.id = `${APP.id}-styles`;
-        const nonceElement = document.querySelector("style[nonce],script[nonce]");
-        if (nonceElement?.nonce) style.nonce = nonceElement.nonce;
         style.textContent = `
 #tp-theplaguept-script-bar {
     position: fixed !important;
@@ -895,20 +886,6 @@
 }
 `;
         (document.head || document.documentElement).appendChild(style);
-        applyConstructedStyles(style.textContent);
-    }
-
-    function applyConstructedStyles(cssText) {
-        if (!("adoptedStyleSheets" in document) || typeof CSSStyleSheet !== "function") return;
-        if (state.constructedStyleSheet && document.adoptedStyleSheets.includes(state.constructedStyleSheet)) return;
-        try {
-            const sheet = new CSSStyleSheet();
-            sheet.replaceSync(String(cssText || ""));
-            document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-            state.constructedStyleSheet = sheet;
-        } catch (_) {
-            // O elemento style com nonce permanece como fallback.
-        }
     }
 
     function ensureTpScriptBar(doc = document) {
@@ -950,10 +927,6 @@
         attachToTpScriptBar(button);
         state.launcher = button;
         setupLauncherPosition();
-    }
-
-    function isMapScreen() {
-        return gd.screen === "map" || /[?&]screen=map(?:&|$)/.test(location.search) || Boolean(window.TWMap?.map);
     }
 
     function getMapToggleHost() {
@@ -1008,27 +981,6 @@
         createAttackMapToggle();
 
         return true;
-    }
-
-    function hasCompleteMapToolbar() {
-        const toolbar = document.getElementById(`${APP.id}-mapToolbar`);
-        return Boolean(
-            toolbar?.isConnected &&
-            document.getElementById(`${APP.id}-mapToggle`) &&
-            document.getElementById(`${APP.id}-bonusMapToggle`) &&
-            document.getElementById(`${APP.id}-supportMapToggle`) &&
-            document.getElementById(`${APP.id}-supportTravelMapToggle`) &&
-            document.getElementById(`${APP.id}-attackMapToggle`)
-        );
-    }
-
-    function setupMapToolbarRecovery() {
-        if (state.mapToolbarRecovery) return;
-
-        state.mapToolbarRecovery = window.setInterval(() => {
-            if (document.hidden || !isMapScreen()) return;
-            if (!hasCompleteMapToolbar()) createMapToolbarButtons();
-        }, 1500);
     }
 
     function createMapToggle() {
@@ -1452,7 +1404,6 @@
 
         if (createMapToolbarButtons()) {
             observeMap();
-            setupMapToolbarRecovery();
             const loaders = [];
             if (state.bonusEnabled && state.bonusTypes.length) loaders.push(loadBonusBarbarians());
             if (state.supportEnabled) loaders.push(loadSupportedVillages());
@@ -1475,8 +1426,7 @@
 
     async function resumeWorldTab() {
         if (state.resumeRunning || document.hidden) return;
-        injectStyles();
-        if (!isMapScreen()) return;
+        if (!(gd.screen === "map" || /[?&]screen=map(?:&|$)/.test(location.search))) return;
         if (!getMapToggleHost()) {
             waitForMap();
             return;
@@ -1485,7 +1435,6 @@
         try {
             if (!document.getElementById(`${APP.id}-launcher`)) createLauncher();
             createMapToolbarButtons();
-            setupMapToolbarRecovery();
             if (!state.observer) observeMap();
 
             const loaders = [];
