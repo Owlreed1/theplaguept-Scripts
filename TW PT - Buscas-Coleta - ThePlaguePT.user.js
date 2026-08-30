@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.2.4
+// @version      1.3.0
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-var SCRIPT_VERSION = '1.2.4';
+    var SCRIPT_VERSION = '1.3.0';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -32,7 +32,9 @@ var SCRIPT_VERSION = '1.2.4';
     var STYLE_ID = 'script-coleta-style';
     var TOOLBAR_ID = 'tp-theplaguept-script-bar';
     var WORKER_TAB_NAME = 'scriptColetaWorker_' + WORLD_SCOPE;
+    var WORKER_URL_PARAM = 'tp_sc_worker';
     var WORKER_TIMEOUT = 12000;
+    var AUTO_OPEN_RETRY = 30 * 1000;
     var RETRY_WITHOUT_WORK = 5 * 60 * 1000;
     var INITIAL_UNLOCK_RETRY = 30 * 60 * 1000;
 
@@ -108,6 +110,7 @@ var SCRIPT_VERSION = '1.2.4';
     var timerGuardarPainel = null;
     var geracaoGrupos = 0;
     var workerWindowRef = null;
+    var proximaTentativaAbrirWorker = 0;
     var cicloEmCurso = false;
     var estadoAtual = 'Parado';
     var geracao = 0;
@@ -155,6 +158,11 @@ var SCRIPT_VERSION = '1.2.4';
         }
 
         window.addEventListener('storage', tratarAlteracaoStorage);
+        window.addEventListener('pagehide', function () {
+            if (eSeparadorTrabalhoGerido()) {
+                pararHeartbeat(true);
+            }
+        });
 
         console.info(
             '[Script Coleta] v' + SCRIPT_VERSION + ' carregado — ' +
@@ -303,6 +311,17 @@ var SCRIPT_VERSION = '1.2.4';
             (dados.mode || url.searchParams.get('mode')) === 'scavenge';
     }
 
+    function eSeparadorTrabalhoGerido() {
+        try {
+            return window.name === WORKER_TAB_NAME ||
+                new URL(window.location.href).searchParams.get(
+                    WORKER_URL_PARAM
+                ) === '1';
+        } catch (erro) {
+            return window.name === WORKER_TAB_NAME;
+        }
+    }
+
     function criarBotao() {
         var anterior = document.getElementById(BUTTON_ID);
         if (anterior) {
@@ -316,13 +335,21 @@ var SCRIPT_VERSION = '1.2.4';
         botao.type = 'button';
         botao.innerHTML =
             '<span class="script-coleta-launcher-icon">SC</span>' +
-            '<span data-script-coleta-dot aria-hidden="true"></span>' +
+            '<span data-script-coleta-power role="switch" aria-checked="false" ' +
+            'title="Ligar ou desligar Buscas/Coleta">&#x23FB;</span>' +
             '<span data-script-coleta-countdown hidden></span>';
         botao.style.setProperty('order', '91', 'important');
 
         botao.addEventListener('click', function (evento) {
             evento.preventDefault();
             evento.stopPropagation();
+            var alvo = evento.target && evento.target.closest
+                ? evento.target.closest('[data-script-coleta-power]')
+                : null;
+            if (alvo) {
+                alternarEstadoPelaBarra();
+                return;
+            }
             abrirOuFocarSeparadorTrabalho();
         });
 
@@ -353,8 +380,9 @@ var SCRIPT_VERSION = '1.2.4';
             '#tp-theplaguept-script-bar>#script-coleta-toggle.sc-ligado{background:linear-gradient(to bottom,#5f9f3d,#3f7c27 55%,#28551a)!important}',
             '#tp-theplaguept-script-bar>#script-coleta-toggle:hover,#tp-theplaguept-script-bar>#script-coleta-toggle:focus-visible{filter:brightness(1.18)!important}',
             '#script-coleta-toggle .script-coleta-launcher-icon{display:block!important;line-height:26px!important}',
-            '#script-coleta-toggle [data-script-coleta-dot]{position:absolute!important;right:2px!important;bottom:2px!important;width:6px!important;height:6px!important;border:1px solid #2b1509!important;border-radius:50%!important;background:#ff6b6b!important;box-shadow:0 0 2px #000!important}',
-            '#script-coleta-toggle.sc-ligado [data-script-coleta-dot]{background:#7cfc00!important}',
+            '#script-coleta-toggle [data-script-coleta-power]{position:absolute!important;right:-7px!important;top:-7px!important;width:15px!important;height:15px!important;display:flex!important;align-items:center!important;justify-content:center!important;border:1px solid #4f120f!important;border-radius:50%!important;background:#a92d27!important;color:#fff!important;font:bold 10px/13px Arial,sans-serif!important;text-shadow:0 1px #000!important;box-shadow:0 1px 3px #0009!important;cursor:pointer!important;pointer-events:auto!important;z-index:4!important}',
+            '#script-coleta-toggle.sc-ligado [data-script-coleta-power]{background:#3f8a29!important}',
+            '#script-coleta-toggle [data-script-coleta-power]:hover{filter:brightness(1.25)!important}',
             '#script-coleta-toggle [data-script-coleta-countdown]{position:absolute!important;display:none!important;top:31px!important;left:50%!important;transform:translateX(-50%)!important;min-width:46px!important;padding:3px 5px!important;border:1px solid #4f120f!important;border-radius:2px!important;background:linear-gradient(to bottom,#f6dfaa,#d2a05a)!important;color:#2b1509!important;font:bold 10px Verdana,Arial,sans-serif!important;line-height:13px!important;text-align:center!important;text-shadow:0 1px #fff!important;box-shadow:0 2px 5px #0008!important;white-space:nowrap!important;pointer-events:none!important;z-index:2147483647!important}',
             '#script-coleta-toggle [data-script-coleta-countdown][hidden]{display:none!important}',
             '#script-coleta-toggle:hover [data-script-coleta-countdown]:not([hidden]),#script-coleta-toggle:focus-visible [data-script-coleta-countdown]:not([hidden]){display:block!important}',
@@ -899,7 +927,14 @@ var SCRIPT_VERSION = '1.2.4';
 
     function alternarEstadoPeloPainel(evento) {
         evento.preventDefault();
-        var ligar = !estaLigado();
+        definirEstadoScript(!estaLigado(), true);
+    }
+
+    function alternarEstadoPelaBarra() {
+        definirEstadoScript(!estaLigado(), true);
+    }
+
+    function definirEstadoScript(ligar, aberturaPorClique) {
         localStorage.setItem(STORAGE_KEY, ligar ? '1' : '0');
         pararAutomacao(!ligar);
 
@@ -907,8 +942,20 @@ var SCRIPT_VERSION = '1.2.4';
             estado.nextRunAt = 0;
             guardarEstado();
             atualizarBotao('A iniciar…');
-            iniciarAutomacao(true);
+            iniciarAutomacao(Boolean(aberturaPorClique));
         } else {
+            if (
+                !eSeparadorTrabalhoGerido() &&
+                workerWindowRef &&
+                !workerWindowRef.closed
+            ) {
+                try {
+                    workerWindowRef.close();
+                } catch (erro) {
+                    // O navegador pode já ter eliminado a referência.
+                }
+                workerWindowRef = null;
+            }
             atualizarBotao('Parado');
         }
         atualizarBotaoPainel();
@@ -992,14 +1039,14 @@ var SCRIPT_VERSION = '1.2.4';
         geracao += 1;
         limparTimerPrincipal();
 
-        if (!estaNaPaginaTrabalho()) {
+        if (!estaNaPaginaTrabalho() || !eSeparadorTrabalhoGerido()) {
             iniciarSupervisor();
             if (workerEstaAtivo()) {
                 atualizarBotao('A trabalhar noutro separador');
             } else if (aberturaPorClique) {
-                abrirWorker();
+                abrirWorker({ focar: true, automatico: false });
             } else {
-                atualizarBotao('Clica para abrir a Busca minuciosa');
+                supervisionarWorker();
             }
             return;
         }
@@ -1033,7 +1080,11 @@ var SCRIPT_VERSION = '1.2.4';
 
     function agendarProximaExecucao() {
         limparTimerPrincipal();
-        if (!estaLigado() || !estaNaPaginaTrabalho()) {
+        if (
+            !estaLigado() ||
+            !estaNaPaginaTrabalho() ||
+            !eSeparadorTrabalhoGerido()
+        ) {
             return;
         }
 
@@ -1082,7 +1133,12 @@ var SCRIPT_VERSION = '1.2.4';
     }
 
     async function executarCiclo() {
-        if (cicloEmCurso || !estaLigado() || !estaNaPaginaTrabalho()) {
+        if (
+            cicloEmCurso ||
+            !estaLigado() ||
+            !estaNaPaginaTrabalho() ||
+            !eSeparadorTrabalhoGerido()
+        ) {
             return;
         }
         if (temProtecaoBot()) {
@@ -1116,7 +1172,7 @@ var SCRIPT_VERSION = '1.2.4';
                         ' aldeia(s) — desbloqueio do nível 1 iniciado';
                     guardarEstado();
                     atualizarBotao(estado.lastSummary);
-                    atualizarPaginaNoFimDaRonda(geracaoAtual);
+                    fecharSeparadorNoFimDaRonda(geracaoAtual);
                     return;
                 }
                 throw new Error(
@@ -1146,7 +1202,7 @@ var SCRIPT_VERSION = '1.2.4';
             estado.nextRunAt = resultado.nextRunAt;
             guardarEstado();
             atualizarBotao(resultado.summary);
-            atualizarPaginaNoFimDaRonda(geracaoAtual);
+            fecharSeparadorNoFimDaRonda(geracaoAtual);
         } catch (erro) {
             if (geracaoAtual !== geracao || !estaLigado()) {
                 return;
@@ -1169,15 +1225,25 @@ var SCRIPT_VERSION = '1.2.4';
         }
     }
 
-    function atualizarPaginaNoFimDaRonda(geracaoAtual) {
+    function fecharSeparadorNoFimDaRonda(geracaoAtual) {
         window.setTimeout(function () {
             if (
                 geracaoAtual === geracao &&
                 estaLigado() &&
                 estaNaPaginaTrabalho() &&
+                eSeparadorTrabalhoGerido() &&
                 !temProtecaoBot()
             ) {
-                window.location.reload();
+                atualizarBotao('Ronda concluída — a fechar separador');
+                pararHeartbeat(true);
+                try {
+                    window.close();
+                } catch (erro) {
+                    console.warn(
+                        '[Script Coleta] O navegador não permitiu fechar o separador.',
+                        erro
+                    );
+                }
             }
         }, 750);
     }
@@ -1218,11 +1284,12 @@ var SCRIPT_VERSION = '1.2.4';
 
             if (!desbloqueadas.length) {
                 var primeira = opcoes.find(function (opcao) {
-                    return opcao.isLocked && !obterFimDesbloqueio(opcao);
+                    return opcao.isLocked;
                 });
                 if (
                     CONFIG.unlockEnabled &&
                     primeira &&
+                    !obterFimDesbloqueio(primeira) &&
                     podeTentarPrimeiroDesbloqueio(aldeia.id, primeira.id, agora)
                 ) {
                     desbloqueiosIniciais.push({
@@ -1272,7 +1339,7 @@ var SCRIPT_VERSION = '1.2.4';
         aldeiasEnviadas.forEach(function (aldeiaId) {
             var chave = String(aldeiaId);
             var plano = planosPorAldeia[chave];
-            if (!plano || !plano.fullCycle) {
+            if (!plano) {
                 return;
             }
 
@@ -1282,16 +1349,11 @@ var SCRIPT_VERSION = '1.2.4';
             ) + 1;
             estado.cyclesByVillage[chave] = novoCiclo;
 
-            if (
-                CONFIG.unlockEnabled &&
-                novoCiclo % CONFIG.unlockEveryCycles === 0
-            ) {
-                var proxima = plano.village.options
-                    .slice()
-                    .sort(function (a, b) { return a.id - b.id; })
-                    .find(function (opcao) {
-                        return opcao.isLocked && !obterFimDesbloqueio(opcao);
-                    });
+            if (CONFIG.unlockEnabled) {
+                var proxima = obterProximoDesbloqueioDevido(
+                    plano.village,
+                    novoCiclo
+                );
                 var tentativaChave = chave + ':' + (proxima ? proxima.id : 0);
                 if (
                     proxima &&
@@ -1388,6 +1450,23 @@ var SCRIPT_VERSION = '1.2.4';
         };
     }
 
+    function obterProximoDesbloqueioDevido(aldeia, ciclosConcluidos) {
+        var proxima = (aldeia.options || [])
+            .slice()
+            .sort(function (a, b) { return a.id - b.id; })
+            .find(function (opcao) {
+                return opcao.isLocked;
+            });
+        if (!proxima || obterFimDesbloqueio(proxima)) {
+            return null;
+        }
+        var ciclosNecessarios = Math.max(1, Number(proxima.id) - 1) *
+            CONFIG.unlockEveryCycles;
+        return Number(ciclosConcluidos) >= ciclosNecessarios
+            ? proxima
+            : null;
+    }
+
     function obterProximosRegressos(dados, aldeiasEnviadas) {
         var regressos = [];
         dados.villages.forEach(function (aldeia) {
@@ -1449,8 +1528,7 @@ var SCRIPT_VERSION = '1.2.4';
 
         return {
             village: aldeia,
-            requests: requests,
-            fullCycle: requests.length === opcoes.length
+            requests: requests
         };
     }
 
@@ -1830,7 +1908,14 @@ var SCRIPT_VERSION = '1.2.4';
         if (Number(aldeiaId) > 0) {
             url.searchParams.set('village', String(Math.floor(Number(aldeiaId))));
         }
-        ['action', 'ajax', 'ajaxaction', 'h', 'page'].forEach(function (chave) {
+        [
+            'action',
+            'ajax',
+            'ajaxaction',
+            'h',
+            'page',
+            WORKER_URL_PARAM
+        ].forEach(function (chave) {
             url.searchParams.delete(chave);
         });
         url.hash = '';
@@ -2180,7 +2265,7 @@ var SCRIPT_VERSION = '1.2.4';
     }
 
     function abrirOuFocarSeparadorTrabalho() {
-        if (estaNaPaginaTrabalho()) {
+        if (estaNaPaginaTrabalho() && eSeparadorTrabalhoGerido()) {
             criarPainel();
             atualizarBotao('Separador de trabalho aberto');
             try {
@@ -2190,35 +2275,59 @@ var SCRIPT_VERSION = '1.2.4';
             }
             return true;
         }
-        return abrirWorker();
+        return abrirWorker({ focar: true, automatico: false });
     }
 
-    function abrirWorker() {
-        if (workerEstaAtivo()) {
+    function abrirWorker(opcoes) {
+        var definicoes = opcoes || {};
+        var focar = definicoes.focar !== false;
+        var automatico = Boolean(definicoes.automatico);
+        if (
+            workerEstaAtivo() ||
+            (workerWindowRef && !workerWindowRef.closed)
+        ) {
             try {
                 var existente = window.open('', WORKER_TAB_NAME);
                 if (existente) {
                     workerWindowRef = existente;
-                    existente.focus();
-                    atualizarBotao('Separador de trabalho focado');
+                    if (focar) {
+                        existente.focus();
+                        atualizarBotao('Separador de trabalho focado');
+                    } else {
+                        atualizarBotao('Separador de trabalho aberto');
+                    }
                     return true;
                 }
             } catch (erroFoco) {
                 // Se não for possível focar, tenta abrir pelo URL normal.
             }
         }
-        var worker = window.open(criarUrlColetaIndividual(obterIdAldeiaAtual()), WORKER_TAB_NAME);
+        var url = new URL(criarUrlColetaIndividual(obterIdAldeiaAtual()));
+        url.searchParams.set(WORKER_URL_PARAM, '1');
+        var worker = window.open(url.href, WORKER_TAB_NAME);
         if (!worker) {
-            atualizarBotao('Popup bloqueado — permite popups e clica novamente');
+            proximaTentativaAbrirWorker = Date.now() + AUTO_OPEN_RETRY;
+            atualizarBotao(
+                automatico
+                    ? 'Abertura automática bloqueada — permite popups ou clica em SC'
+                    : 'Popup bloqueado — permite popups e clica novamente'
+            );
             return false;
         }
         workerWindowRef = worker;
-        atualizarBotao('Coleta aberta noutro separador');
+        proximaTentativaAbrirWorker = Date.now() + AUTO_OPEN_RETRY;
+        atualizarBotao(
+            automatico
+                ? 'Ronda aberta automaticamente'
+                : 'Coleta aberta noutro separador'
+        );
         iniciarSupervisor();
-        try {
-            worker.focus();
-        } catch (erro) {
-            // O navegador escolhe o separador que fica em primeiro plano.
+        if (focar) {
+            try {
+                worker.focus();
+            } catch (erro) {
+                // O navegador escolhe o separador que fica em primeiro plano.
+            }
         }
         return true;
     }
@@ -2240,7 +2349,11 @@ var SCRIPT_VERSION = '1.2.4';
     }
 
     function publicarHeartbeat() {
-        if (!estaLigado() || !estaNaPaginaTrabalho()) {
+        if (
+            !estaLigado() ||
+            !estaNaPaginaTrabalho() ||
+            !eSeparadorTrabalhoGerido()
+        ) {
             pararHeartbeat(true);
             return;
         }
@@ -2286,27 +2399,44 @@ var SCRIPT_VERSION = '1.2.4';
     }
 
     function iniciarSupervisor() {
-        if (estaNaPaginaTrabalho() || timerSupervisor !== null) {
+        if (eSeparadorTrabalhoGerido() || timerSupervisor !== null) {
             return;
         }
-        timerSupervisor = window.setInterval(function () {
-            if (!estaLigado()) {
-                pararSupervisor();
-                return;
-            }
-            if (workerWindowRef && workerWindowRef.closed) {
-                workerWindowRef = null;
-                atualizarBotao('Worker fechado — clica para reabrir');
-                return;
-            }
-            var sinal = lerHeartbeat();
-            if (workerEstaAtivo() && sinal) {
-                var contagem = Number(sinal.nextRunAt) > Date.now()
-                    ? formatarDuracao(Number(sinal.nextRunAt) - Date.now())
-                    : '';
-                atualizarBotao('Worker: ' + (sinal.state || 'ativo'), contagem);
-            }
-        }, 2000);
+        timerSupervisor = window.setInterval(supervisionarWorker, 1000);
+        supervisionarWorker();
+    }
+
+    function supervisionarWorker() {
+        if (eSeparadorTrabalhoGerido()) {
+            return;
+        }
+        if (!estaLigado()) {
+            pararSupervisor();
+            atualizarBotao('Parado');
+            return;
+        }
+        if (workerWindowRef && workerWindowRef.closed) {
+            workerWindowRef = null;
+        }
+
+        var sinal = lerHeartbeat();
+        if (workerEstaAtivo() && sinal) {
+            atualizarBotao('Worker: ' + (sinal.state || 'ativo'));
+            return;
+        }
+
+        var restante = Number(estado.nextRunAt) - Date.now();
+        if (restante > 0) {
+            var contagem = formatarDuracao(restante);
+            atualizarBotao('Próxima ronda em ' + contagem, contagem);
+            return;
+        }
+
+        if (Date.now() < proximaTentativaAbrirWorker) {
+            atualizarBotao('A aguardar abertura do separador de trabalho');
+            return;
+        }
+        abrirWorker({ focar: false, automatico: true });
     }
 
     function pararSupervisor() {
@@ -2314,7 +2444,6 @@ var SCRIPT_VERSION = '1.2.4';
             window.clearInterval(timerSupervisor);
             timerSupervisor = null;
         }
-        workerWindowRef = null;
     }
 
     function tratarAlteracaoStorage(evento) {
@@ -2329,11 +2458,18 @@ var SCRIPT_VERSION = '1.2.4';
         } else if (evento.key === STATE_KEY) {
             estado = carregarEstado();
             atualizarResumoPainel();
+            if (!eSeparadorTrabalhoGerido()) {
+                supervisionarWorker();
+            }
         } else if (evento.key === SETTINGS_KEY) {
             CONFIG = carregarConfiguracao();
             preencherPainel();
             carregarGruposNoPainel();
-            if (estaLigado() && estaNaPaginaTrabalho()) {
+            if (
+                estaLigado() &&
+                estaNaPaginaTrabalho() &&
+                eSeparadorTrabalhoGerido()
+            ) {
                 reiniciarAutomacaoAposEdicao();
             }
         }
@@ -2347,10 +2483,20 @@ var SCRIPT_VERSION = '1.2.4';
         estadoAtual = mensagem || (ligado ? 'Ativo' : 'Parado');
         var titulo = 'Buscas/Coleta: ' +
             (ligado ? 'LIGADO' : 'DESLIGADO') + ' — ' + estadoAtual +
-            '. Clique para abrir ou focar o separador de trabalho.';
+            '. Clique em SC para abrir/focar; clique em ⏻ para ligar/desligar.';
         botao.classList.toggle('sc-ligado', ligado);
         botao.setAttribute('aria-label', titulo);
         botao.setAttribute('data-tp-title', titulo);
+        var energia = botao.querySelector('[data-script-coleta-power]');
+        if (energia) {
+            energia.setAttribute('aria-checked', ligado ? 'true' : 'false');
+            energia.setAttribute(
+                'title',
+                ligado
+                    ? 'Desligar Buscas/Coleta'
+                    : 'Ligar Buscas/Coleta'
+            );
+        }
         var mostrador = botao.querySelector('[data-script-coleta-countdown]');
         if (mostrador) {
             if (contagem) {
