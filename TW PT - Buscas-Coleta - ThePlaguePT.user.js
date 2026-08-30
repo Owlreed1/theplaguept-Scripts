@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.3.3
+// @version      1.3.4
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-    var SCRIPT_VERSION = '1.3.3';
+    var SCRIPT_VERSION = '1.3.4';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -37,6 +37,14 @@
     var AUTO_OPEN_RETRY = 30 * 1000;
     var RETRY_WITHOUT_WORK = 5 * 60 * 1000;
     var INITIAL_UNLOCK_RETRY = 30 * 60 * 1000;
+    var UNLOCK_PAGE_TIMEOUT = 30000;
+    var UNLOCK_CONFIRM_TIMEOUT = 12000;
+    var UNLOCK_OPTION_NAMES = Object.freeze({
+        1: ['busca fraca', 'simple scavenging', 'skromne poszukiwania'],
+        2: ['busca humilde', 'humble haul', 'skromny lup'],
+        3: ['busca inteligente', 'smart scavenging', 'sprytne poszukiwania'],
+        4: ['busca extrema', 'great haul', 'wielki lup']
+    });
 
     var UNIT_CARRY = Object.freeze({
         spear: 25,
@@ -1631,20 +1639,21 @@
                 break;
             }
             var tentativa = tentativas[indice];
-            if (tentativa.initial) {
-                estado.initialUnlockAttempts[
-                    String(tentativa.villageId) + ':' + tentativa.optionId
-                ] = Date.now();
-            }
             try {
-                await postTribalWars(
-                    'scavenge_api',
-                    { ajaxaction: 'unlock_option' },
-                    {
-                        village_id: tentativa.villageId,
-                        option_id: tentativa.optionId
-                    }
+                atualizarBotao(
+                    'A desbloquear nível ' + tentativa.optionId + ' — aldeia ' +
+                    (indice + 1) + '/' + tentativas.length
                 );
+                await desbloquearNivelPelaPagina(
+                    tentativa.villageId,
+                    tentativa.optionId,
+                    geracaoAtual
+                );
+                if (tentativa.initial) {
+                    estado.initialUnlockAttempts[
+                        String(tentativa.villageId) + ':' + tentativa.optionId
+                    ] = Date.now();
+                }
                 iniciados += 1;
             } catch (erro) {
                 console.warn(
@@ -1659,6 +1668,344 @@
         }
         guardarEstado();
         return iniciados;
+    }
+
+    async function desbloquearNivelPelaPagina(
+        aldeiaId,
+        opcaoId,
+        geracaoAtual
+    ) {
+        validarExecucaoDesbloqueio(geracaoAtual);
+        var moldura = document.createElement('iframe');
+        moldura.setAttribute('aria-hidden', 'true');
+        moldura.setAttribute('tabindex', '-1');
+        moldura.style.cssText = [
+            'position:fixed',
+            'left:-12000px',
+            'top:0',
+            'width:1280px',
+            'height:900px',
+            'border:0',
+            'opacity:0',
+            'pointer-events:none',
+            'z-index:-1'
+        ].join(';');
+
+        try {
+            var carregamento = esperarCarregamentoMoldura(
+                moldura,
+                UNLOCK_PAGE_TIMEOUT
+            );
+            moldura.src = criarUrlColetaIndividual(aldeiaId);
+            (document.body || document.documentElement).appendChild(moldura);
+            await carregamento;
+            validarExecucaoDesbloqueio(geracaoAtual);
+
+            var documento = obterDocumentoMoldura(moldura);
+            if (documentoTemProtecaoBot(documento)) {
+                throw new Error(
+                    'O jogo pediu uma verificação ao abrir a aldeia ' + aldeiaId + '.'
+                );
+            }
+
+            var botaoCartao = await esperarCondicaoDesbloqueio(function () {
+                return localizarBotaoDesbloquearCartao(documento, opcaoId);
+            }, UNLOCK_CONFIRM_TIMEOUT, geracaoAtual);
+            if (!botaoCartao) {
+                throw new Error(
+                    'Não foi encontrado o primeiro botão Desbloquear do nível ' +
+                    opcaoId + '.'
+                );
+            }
+
+            acionarElemento(botaoCartao);
+            var botaoConfirmar = await esperarCondicaoDesbloqueio(function () {
+                return localizarBotaoConfirmarDesbloqueio(
+                    moldura,
+                    botaoCartao,
+                    opcaoId
+                );
+            }, UNLOCK_CONFIRM_TIMEOUT, geracaoAtual);
+            if (!botaoConfirmar) {
+                throw new Error(
+                    'A janela de confirmação do nível ' + opcaoId + ' não abriu.'
+                );
+            }
+
+            acionarElemento(botaoConfirmar);
+            await esperarConfirmacaoDesbloqueio(
+                botaoConfirmar,
+                geracaoAtual
+            );
+        } finally {
+            if (moldura.parentNode) {
+                moldura.parentNode.removeChild(moldura);
+            }
+        }
+    }
+
+    function esperarCarregamentoMoldura(moldura, limiteMs) {
+        return new Promise(function (resolve, reject) {
+            var terminado = false;
+            var timer = window.setTimeout(function () {
+                if (terminado) {
+                    return;
+                }
+                terminado = true;
+                reject(new Error('A página da aldeia demorou demasiado a abrir.'));
+            }, limiteMs);
+
+            moldura.addEventListener('load', function () {
+                if (terminado) {
+                    return;
+                }
+                terminado = true;
+                window.clearTimeout(timer);
+                try {
+                    obterDocumentoMoldura(moldura);
+                    resolve();
+                } catch (erro) {
+                    reject(new Error(
+                        'Não foi possível aceder à página da aldeia em segundo plano.'
+                    ));
+                }
+            }, { once: true });
+            moldura.addEventListener('error', function () {
+                if (terminado) {
+                    return;
+                }
+                terminado = true;
+                window.clearTimeout(timer);
+                reject(new Error('Não foi possível abrir a página da aldeia.'));
+            }, { once: true });
+        });
+    }
+
+    function obterDocumentoMoldura(moldura) {
+        var documento = moldura.contentDocument ||
+            (moldura.contentWindow && moldura.contentWindow.document);
+        if (!documento || !documento.documentElement) {
+            throw new Error('A página da aldeia ainda não está pronta.');
+        }
+        return documento;
+    }
+
+    function localizarBotaoDesbloquearCartao(documento, opcaoId) {
+        var controlos = obterControlosDesbloquear(documento).filter(function (item) {
+            return !estaDentroDeDialogo(item) && elementoEstaDisponivel(item);
+        });
+        if (!controlos.length) {
+            return null;
+        }
+
+        var nomes = UNLOCK_OPTION_NAMES[Number(opcaoId)] || [];
+        var peloNome = controlos.find(function (controlo) {
+            var ancestral = controlo;
+            for (var nivel = 0; ancestral && nivel < 8; nivel += 1) {
+                var texto = normalizarTextoInterface(ancestral.textContent || '');
+                if (nomes.some(function (nome) {
+                    return texto.indexOf(normalizarTextoInterface(nome)) !== -1;
+                })) {
+                    return true;
+                }
+                ancestral = ancestral.parentElement;
+            }
+            return false;
+        });
+        if (peloNome) {
+            return peloNome;
+        }
+
+        var peloAtributo = controlos.find(function (controlo) {
+            var ancestral = controlo;
+            for (var nivel = 0; ancestral && nivel < 8; nivel += 1) {
+                var atributos = [
+                    ancestral.getAttribute('data-option-id'),
+                    ancestral.getAttribute('data-scavenge-option-id'),
+                    ancestral.getAttribute('data-id')
+                ];
+                if (atributos.some(function (valor) {
+                    return Number(valor) === Number(opcaoId);
+                })) {
+                    return true;
+                }
+                ancestral = ancestral.parentElement;
+            }
+            return false;
+        });
+        if (peloAtributo) {
+            return peloAtributo;
+        }
+
+        var cartoes = Array.from(documento.querySelectorAll(
+            '.scavenge-option, [class*="scavenge-option"]'
+        )).filter(function (cartao) {
+            return obterControlosDesbloquear(cartao).length > 0;
+        });
+        var cartao = cartoes[Number(opcaoId) - 1];
+        if (cartao) {
+            return obterControlosDesbloquear(cartao).find(elementoEstaDisponivel) || null;
+        }
+
+        return controlos.length === 1 ? controlos[0] : null;
+    }
+
+    function localizarBotaoConfirmarDesbloqueio(
+        moldura,
+        botaoCartao,
+        opcaoId
+    ) {
+        var documentos = [obterDocumentoMoldura(moldura)];
+        if (documentos[0] !== document) {
+            documentos.push(document);
+        }
+        var nomes = UNLOCK_OPTION_NAMES[Number(opcaoId)] || [];
+        var candidatos = [];
+
+        documentos.forEach(function (documento) {
+            obterControlosDesbloquear(documento).forEach(function (controlo) {
+                if (
+                    controlo === botaoCartao ||
+                    !elementoEstaDisponivel(controlo) ||
+                    !estaDentroDeDialogo(controlo)
+                ) {
+                    return;
+                }
+                candidatos.push(controlo);
+            });
+        });
+
+        return candidatos.find(function (controlo) {
+            var dialogo = obterDialogoAncestral(controlo);
+            var texto = normalizarTextoInterface(
+                dialogo ? dialogo.textContent || '' : ''
+            );
+            return nomes.some(function (nome) {
+                return texto.indexOf(normalizarTextoInterface(nome)) !== -1;
+            });
+        }) || candidatos[0] || null;
+    }
+
+    function obterControlosDesbloquear(raiz) {
+        if (!raiz || !raiz.querySelectorAll) {
+            return [];
+        }
+        return Array.from(raiz.querySelectorAll(
+            'a, button, input[type="button"], input[type="submit"]'
+        )).filter(function (elemento) {
+            var texto = normalizarTextoInterface(
+                elemento.value || elemento.textContent ||
+                elemento.getAttribute('title') || ''
+            );
+            return texto.indexOf('desbloquear') !== -1 ||
+                texto.indexOf('unlock') !== -1;
+        });
+    }
+
+    function obterDialogoAncestral(elemento) {
+        if (!elemento || !elemento.closest) {
+            return null;
+        }
+        return elemento.closest([
+            '[role="dialog"]',
+            '.ui-dialog',
+            '.popup_box',
+            '.popup_box_container',
+            '.dialog-popup',
+            '[id^="popup_box_"]',
+            '[class*="modal"]'
+        ].join(','));
+    }
+
+    function estaDentroDeDialogo(elemento) {
+        return Boolean(obterDialogoAncestral(elemento));
+    }
+
+    function elementoEstaDisponivel(elemento) {
+        if (!elemento || !elemento.isConnected) {
+            return false;
+        }
+        if (elemento.disabled || elemento.getAttribute('aria-disabled') === 'true') {
+            return false;
+        }
+        var janela = elemento.ownerDocument && elemento.ownerDocument.defaultView;
+        var estilo = janela && janela.getComputedStyle
+            ? janela.getComputedStyle(elemento)
+            : null;
+        if (
+            estilo &&
+            (estilo.display === 'none' || estilo.visibility === 'hidden')
+        ) {
+            return false;
+        }
+        var caixa = elemento.getBoundingClientRect();
+        return caixa.width > 0 && caixa.height > 0;
+    }
+
+    function normalizarTextoInterface(valor) {
+        var texto = String(valor || '').toLowerCase();
+        if (texto.normalize) {
+            texto = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        }
+        return texto.replace(/\s+/g, ' ').trim();
+    }
+
+    function acionarElemento(elemento) {
+        var janela = elemento.ownerDocument && elemento.ownerDocument.defaultView;
+        if (janela && typeof janela.MouseEvent === 'function') {
+            elemento.dispatchEvent(new janela.MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: janela
+            }));
+            return;
+        }
+        elemento.click();
+    }
+
+    function esperarCondicaoDesbloqueio(teste, limiteMs, geracaoAtual) {
+        var inicio = Date.now();
+        return new Promise(function (resolve, reject) {
+            function verificar() {
+                try {
+                    validarExecucaoDesbloqueio(geracaoAtual);
+                    var resultado = teste();
+                    if (resultado) {
+                        resolve(resultado);
+                        return;
+                    }
+                    if (Date.now() - inicio >= limiteMs) {
+                        resolve(null);
+                        return;
+                    }
+                    window.setTimeout(verificar, 150);
+                } catch (erro) {
+                    reject(erro);
+                }
+            }
+            verificar();
+        });
+    }
+
+    async function esperarConfirmacaoDesbloqueio(botao, geracaoAtual) {
+        var confirmado = await esperarCondicaoDesbloqueio(function () {
+            if (!botao.isConnected || !elementoEstaDisponivel(botao)) {
+                return true;
+            }
+            return false;
+        }, UNLOCK_CONFIRM_TIMEOUT, geracaoAtual);
+        if (!confirmado) {
+            throw new Error(
+                'O jogo não confirmou o desbloqueio dentro do tempo esperado.'
+            );
+        }
+        await esperar(600);
+    }
+
+    function validarExecucaoDesbloqueio(geracaoAtual) {
+        if (geracaoAtual !== geracao || !estaLigado()) {
+            throw new Error('O desbloqueio foi cancelado porque o script foi desligado.');
+        }
     }
 
     async function tentarDesbloquearPrimeiroNivelAldeias(
@@ -1698,17 +2045,17 @@
                 ignoradas += 1;
                 continue;
             }
-            estado.initialUnlockAttempts[String(aldeiaId) + ':1'] = Date.now();
-            guardarEstado();
             atualizarBotao(
                 'A recuperar nível 1 — aldeia ' + (indice + 1) + '/' + ids.length
             );
             try {
-                await postTribalWars(
-                    'scavenge_api',
-                    { ajaxaction: 'unlock_option' },
-                    { village_id: aldeiaId, option_id: 1 }
+                await desbloquearNivelPelaPagina(
+                    aldeiaId,
+                    1,
+                    geracaoAtual
                 );
+                estado.initialUnlockAttempts[String(aldeiaId) + ':1'] = Date.now();
+                guardarEstado();
                 iniciados += 1;
             } catch (erro) {
                 falhas.push(obterMensagemErro(erro));
