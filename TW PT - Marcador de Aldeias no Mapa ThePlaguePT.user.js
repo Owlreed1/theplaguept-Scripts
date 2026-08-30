@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.3.8
+// @version      2.3.9
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -23,7 +23,7 @@
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
         displayTitle: "Marcador - ThePlaguePT",
-        version: "2.3.8",
+        version: "2.3.9",
         defaultColor: "#b8322a",
         zIndex: 60030,
         launcherIcon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1a5 5 0 0 0-5 5c0 3.7 5 9 5 9s5-5.3 5-9a5 5 0 0 0-5-5z' fill='%23f6d28b' stroke='%2340140d'/%3E%3Ccircle cx='8' cy='6' r='2' fill='%23a32620'/%3E%3C/svg%3E",
@@ -76,6 +76,7 @@
         attackMapToggle: null,
         launcherPositionFrame: 0,
         mapToolbarRecovery: 0,
+        constructedStyleSheet: null,
     };
 
     load();
@@ -522,10 +523,16 @@
     }
 
     function injectStyles() {
-        if (document.getElementById(`${APP.id}-styles`)) return;
+        const existingStyle = document.getElementById(`${APP.id}-styles`);
+        if (existingStyle) {
+            applyConstructedStyles(existingStyle.textContent);
+            return;
+        }
 
         const style = document.createElement("style");
         style.id = `${APP.id}-styles`;
+        const nonceElement = document.querySelector("style[nonce],script[nonce]");
+        if (nonceElement?.nonce) style.nonce = nonceElement.nonce;
         style.textContent = `
 #tp-theplaguept-script-bar {
     position: fixed !important;
@@ -888,6 +895,20 @@
 }
 `;
         (document.head || document.documentElement).appendChild(style);
+        applyConstructedStyles(style.textContent);
+    }
+
+    function applyConstructedStyles(cssText) {
+        if (!("adoptedStyleSheets" in document) || typeof CSSStyleSheet !== "function") return;
+        if (state.constructedStyleSheet && document.adoptedStyleSheets.includes(state.constructedStyleSheet)) return;
+        try {
+            const sheet = new CSSStyleSheet();
+            sheet.replaceSync(String(cssText || ""));
+            document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+            state.constructedStyleSheet = sheet;
+        } catch (_) {
+            // O elemento style com nonce permanece como fallback.
+        }
     }
 
     function ensureTpScriptBar(doc = document) {
@@ -1204,6 +1225,7 @@
     }
 
     function openPanel() {
+        injectStyles();
         if (state.panel) closePanel();
         const coordinates = [...state.coords.values()].map(({ x, y }) => `${x}|${y}`).join("\n");
         const body = `
@@ -1453,6 +1475,7 @@
 
     async function resumeWorldTab() {
         if (state.resumeRunning || document.hidden) return;
+        injectStyles();
         if (!isMapScreen()) return;
         if (!getMapToggleHost()) {
             waitForMap();
