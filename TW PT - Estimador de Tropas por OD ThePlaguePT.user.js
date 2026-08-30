@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Estimador de Tropas por OD - ThePlaguePT
 // @namespace    theplaguept.tw.estimador-od
-// @version      2.0.3
+// @version      2.0.4
 // @description  Analisa um relatorio de ataque e estima as baixas/forcas restantes do defensor a partir do aumento do OD ofensivo.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -18,7 +18,7 @@
     const params = new URLSearchParams(location.search);
     const screen = params.get("screen") || game_data.screen || "";
 
-    const APP = { id: "tp-od-est", version: "2.0.3" };
+    const APP = { id: "tp-od-est", version: "2.0.4" };
     const APP_DISPLAY_TITLE = `Estimador de tropas por OD - ThePlaguePT v${APP.version}`;
     const nf = new Intl.NumberFormat("pt-PT");
     const world = game_data.world || location.host;
@@ -334,7 +334,7 @@
         el.className = `${APP.id}-panel`;
         el.innerHTML = `
             <div class="${APP.id}-head">
-                <div><h2>Estimador de tropas por OD</h2><p>Relatório ${escapeHtml(reportId)} · ThePlaguePT</p></div>
+                <div><h2>${escapeHtml(APP_DISPLAY_TITLE)}</h2><p>Relatório ${escapeHtml(reportId)} · ThePlaguePT</p></div>
                 <button type="button" class="${APP.id}-toggle" title="Recolher painel">−</button>
             </div>
             <div class="${APP.id}-body">

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Defesa ThePlaguePT
 // @namespace    theplaguept.tw.defesa
-// @version      0.1.154
+// @version      0.1.155
 // @description  Pack defensivo pessoal para Tribal Wars
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -23,7 +23,7 @@
     const APP = {
         name: 'TW PT - Defesa ThePlaguePT',
         prefix: 'tpDef',
-        version: '0.1.154',
+        version: '0.1.155',
         displayBaseTitle: 'Defesa - ThePlaguePT',
         get displayTitle() {
             return `${this.displayBaseTitle} v${this.version}`;
@@ -2182,7 +2182,7 @@
         const html = `
             <div class="tpdef-config-wrap">
                 <div class="tpdef-config-header">
-                    <div class="tpdef-config-title">${escapeHtml(APP.name)} - ThePlaguePT</div>
+                    <div class="tpdef-config-title">${escapeHtml(APP.name)} v${escapeHtml(APP.version)}</div>
                     <div class="tpdef-config-subtitle">Ferramentas de defesa, modelos de fulls e apoio para Tribal Wars!</div>
                 </div>
 

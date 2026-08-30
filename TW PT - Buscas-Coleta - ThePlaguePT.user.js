@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.3.2
+// @version      1.3.3
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-    var SCRIPT_VERSION = '1.3.2';
+    var SCRIPT_VERSION = '1.3.3';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -496,7 +496,7 @@
 
         return [
             '<header class="sc-settings-title">',
-            '<span>Buscas/Coleta — Definições</span>',
+            '<span>Buscas/Coleta — Definições <small>v', SCRIPT_VERSION, '</small></span>',
             '<span class="sc-settings-actions">',
             '<small data-sc-saved>Guardado automaticamente</small>',
             '<button id="', PANEL_TOGGLE_ID, '" class="sc-settings-toggle" type="button">Ligar</button>',

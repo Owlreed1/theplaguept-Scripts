@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.18
+// @version      1.3.19
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.18',
+        version: '1.3.19',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -678,7 +678,7 @@
             panel.setAttribute('aria-label', 'Definições dos modelos do AutoFarm');
             panel.innerHTML = `
                 <header class="af-settings-title">
-                    <span>Auto Farm — Definições</span>
+                    <span>Auto Farm — Definições <small>v${APP.version}</small></span>
                     <span class="af-settings-actions">
                         <small data-role="saved">Guardado automaticamente</small>
                         <span class="af-settings-timer" data-role="settings-timer">A iniciar…</span>

@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         TW PT - Etiquetador de Ataques ThePlaguePT
-// @version      1.0.50
+// @version      1.0.51
 // @description  Detecta, renomeia e etiqueta automaticamente ataques de entrada no Tribal Wars.
 // @author       ThePlaguePT, baseado no script original de FunnyPocketBook
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     const ALERTA_NOBRE_KEY = "tag_incomings_pt_alerta_nobre_v1";
     const ALERTA_NOBRE_STATE_VERSION = 2;
     const ESTADO_CONTADOR_ATAQUES_VERSION = 3;
-    const VERSAO_SCRIPT = "1.0.50";
+    const VERSAO_SCRIPT = "1.0.51";
     const NOME_LANCADOR = `Etiquetador - TheplaguePT v${VERSAO_SCRIPT}`;
 
     const CONFIG_PADRAO = {
@@ -3562,7 +3562,7 @@
             <div class="ti-config">
                 <button class="ti-close" type="button" data-ti-action="fechar" title="Fechar" aria-label="Fechar">&times;</button>
                 <div class="ti-header">
-                    <strong>TW PT - Etiquetador de Ataques ThePlaguePT</strong>
+                    <strong>TW PT - Etiquetador de Ataques ThePlaguePT v${VERSAO_SCRIPT}</strong>
                     <div class="ti-status">${config.ativo ? "Monitor ativo" : "Monitor inativo"} - v${VERSAO_SCRIPT}</div>
                 </div>
                 <div class="ti-content">

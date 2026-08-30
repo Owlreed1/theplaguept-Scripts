@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Resumo de Tropas - ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT/TribalWars-Scripts
-// @version      1.7.4
+// @version      1.7.5
 // @description  Resume as tropas do grupo atual, classifica os exercitos e exporta um cartao PNG.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -17,7 +17,7 @@
     const APP = {
         id: 'twp-troop-summary',
         title: 'Resumo de Tropas',
-        version: '1.7.4',
+        version: '1.7.5',
         storageKey: 'twp_troop_summary_settings_v1'
     };
 
@@ -518,7 +518,7 @@
     function openModal() {
         let modal = document.getElementById(APP.id);
         if (!modal) {
-            const markup = `<div id="${APP.id}" class="open"><div class="${APP.id}-shell"><div class="${APP.id}-window"><button class="${APP.id}-close" title="Fechar">×</button><div class="${APP.id}-head"><strong>Resumo de Tropas - ThePlaguePT</strong><span>Leitura global das unidades e do estado dos movimentos.</span></div><div id="${APP.id}-body" class="${APP.id}-body"></div></div></div></div>`;
+            const markup = `<div id="${APP.id}" class="open"><div class="${APP.id}-shell"><div class="${APP.id}-window"><button class="${APP.id}-close" title="Fechar">×</button><div class="${APP.id}-head"><strong>Resumo de Tropas - ThePlaguePT v${APP.version}</strong><span>Leitura global das unidades e do estado dos movimentos.</span></div><div id="${APP.id}-body" class="${APP.id}-body"></div></div></div></div>`;
             if (window.Dialog?.show) {
                 window.Dialog.show(`${APP.id}-dialog`, markup);
                 modal = document.getElementById(APP.id);

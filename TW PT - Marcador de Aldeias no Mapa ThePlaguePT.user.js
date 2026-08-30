@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.5.11
+// @version      2.5.12
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -22,7 +22,7 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        version: "2.5.11",
+        version: "2.5.12",
         displayBaseTitle: "Marcador - ThePlaguePT",
         get displayTitle() {
             return `${this.displayBaseTitle} v${this.version}`;
@@ -1431,7 +1431,7 @@
         const coordinates = [...state.coords.values()].map(({ x, y }) => `${x}|${y}`).join("\n");
         const body = `
             <div class="${APP.id}-frame">
-                <header class="${APP.id}-head"><strong>TW PT - Marcador de Aldeias ThePlaguePT</strong><span>Marca, filtra e organiza coordenadas do mundo ${escapeHtml(world)} por proximidade e zonas.</span></header>
+                <header class="${APP.id}-head"><strong>TW PT - Marcador de Aldeias ThePlaguePT v${APP.version}</strong><span>Marca, filtra e organiza coordenadas do mundo ${escapeHtml(world)} por proximidade e zonas.</span></header>
                 <div class="${APP.id}-content">
                     <section class="${APP.id}-section ${APP.id}-coordsSection">
                         <div><h3>Coordenadas</h3><p>Cola coordenadas em qualquer texto. Repetidas são removidas automaticamente.</p></div>
