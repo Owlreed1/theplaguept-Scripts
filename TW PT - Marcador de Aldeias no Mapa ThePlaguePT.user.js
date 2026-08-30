@@ -520,10 +520,16 @@
     }
 
     function injectStyles() {
-        if (document.getElementById(`${APP.id}-styles`)) return;
+        const existing = document.getElementById(`${APP.id}-styles`);
+        if (existing) {
+            applyPanelStylesheet(existing.textContent);
+            return;
+        }
 
         const style = document.createElement("style");
         style.id = `${APP.id}-styles`;
+        const nonceSource = document.querySelector("style[nonce],script[nonce]");
+        if (nonceSource?.nonce) style.nonce = nonceSource.nonce;
         style.textContent = `
 #tp-theplaguept-script-bar {
     position: fixed !important;
@@ -884,8 +890,226 @@
     transform: translate(-50%, -50%) !important;
     box-shadow: 0 0 0 1px #211, 0 1px 3px rgba(0,0,0,.6) !important;
 }
+
+/* Painel clássico do Marcador — independente da barra de atalhos. */
+.${APP.id}-native {
+    width: min(1280px, calc(100vw - 52px)) !important;
+    max-width: none !important;
+    color: #5b270b !important;
+    font: 12px Verdana, Arial, sans-serif !important;
+}
+
+.${APP.id}-frame {
+    border: 2px solid #8f1c16 !important;
+    border-radius: 3px !important;
+    background: #f6e6b9 !important;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.55) !important;
+    overflow: hidden !important;
+}
+
+.${APP.id}-head {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+    padding: 10px 14px 9px !important;
+    border-bottom: 1px solid #d4a052 !important;
+    background: linear-gradient(to bottom, #faedc5, #efd49a) !important;
+}
+
+.${APP.id}-head strong {
+    color: #a5231c !important;
+    font-size: 17px !important;
+}
+
+.${APP.id}-head span { color: #6c330f !important; }
+
+.${APP.id}-content {
+    max-height: calc(100vh - 150px) !important;
+    overflow-y: auto !important;
+    padding: 6px 12px 12px !important;
+    scrollbar-color: #9a784a #f5e7bd !important;
+}
+
+.${APP.id}-section {
+    display: grid !important;
+    grid-template-columns: 285px minmax(0, 1fr) !important;
+    gap: 12px !important;
+    padding: 9px 10px !important;
+    border-bottom: 1px solid #dfbd79 !important;
+    border-left: 4px solid #be3028 !important;
+    background: rgba(255,247,216,.18) !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-toolsSection { border-left-color: #9135d2 !important; }
+.${APP.id}-zonesSection { border-left-color: #00a78e !important; }
+.${APP.id}-supportSection { border-left-color: #00a9d6 !important; }
+.${APP.id}-attackSection { border-left-color: #ed251d !important; }
+.${APP.id}-bonusSection { border-left-color: #18a33a !important; }
+.${APP.id}-actionsSection { border-left-color: #8a5a16 !important; border-bottom: 0 !important; }
+
+.${APP.id}-section h3 {
+    margin: 0 0 4px !important;
+    color: #a5231c !important;
+    font: bold 14px Georgia, "Times New Roman", serif !important;
+    text-transform: uppercase !important;
+}
+
+.${APP.id}-section p { margin: 0 !important; line-height: 1.25 !important; }
+
+.${APP.id}-coordsInput {
+    width: 100% !important;
+    min-height: 190px !important;
+    resize: vertical !important;
+    padding: 6px 8px !important;
+    border: 1px solid #7d5a2b !important;
+    border-radius: 2px !important;
+    background: #fffdf3 !important;
+    color: #111 !important;
+    font: 13px Consolas, "Courier New", monospace !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-tools {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+}
+
+.${APP.id}-tool {
+    padding: 7px !important;
+    border: 1px solid #b68c51 !important;
+    background: rgba(232,210,162,.52) !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-toolTitle {
+    display: block !important;
+    margin-bottom: 5px !important;
+    color: #5d260b !important;
+    font-weight: bold !important;
+}
+
+.${APP.id}-toolLine,
+.${APP.id}-optionsRow,
+.${APP.id}-enableRow {
+    display: flex !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 7px !important;
+}
+
+.${APP.id}-enableRow {
+    margin: -7px -7px 7px !important;
+    padding: 6px 8px !important;
+    border-bottom: 1px solid #b68c51 !important;
+    background: #dec58d !important;
+}
+
+.${APP.id}-enableLabel { color: #8e211a !important; font-weight: bold !important; }
+
+.${APP.id}-tool input[type="number"] { width: 64px !important; }
+.${APP.id}-tool input[type="color"] { width: 48px !important; height: 27px !important; padding: 2px !important; }
+
+.${APP.id}-tool input[type="number"],
+.${APP.id}-tool select,
+.${APP.id}-toolLine select {
+    min-height: 27px !important;
+    border: 1px solid #b1783f !important;
+    background: #fff8df !important;
+    color: #321708 !important;
+}
+
+.${APP.id}-content button {
+    min-height: 28px !important;
+    padding: 3px 10px !important;
+    border: 1px solid #54200f !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #9d5631, #6e2e18) !important;
+    box-shadow: inset 0 1px rgba(255,255,255,.22) !important;
+    color: #fff !important;
+    font-weight: bold !important;
+    cursor: pointer !important;
+}
+
+.${APP.id}-content button:hover { filter: brightness(1.12) !important; }
+.${APP.id}-content button:disabled { opacity: .55 !important; cursor: wait !important; }
+
+.${APP.id}-zonesSection:not(.tp-visible) { display: none !important; }
+.${APP.id}-zonesOutput {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+}
+
+.${APP.id}-zoneCard { border: 2px solid var(--tp-zone-color, #b8322a) !important; background: #fff4cf !important; }
+.${APP.id}-zoneHead {
+    display: flex !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    padding: 4px 7px !important;
+    background: var(--tp-zone-color, #b8322a) !important;
+    color: #fff !important;
+    font-weight: bold !important;
+}
+.${APP.id}-zoneCard textarea {
+    width: 100% !important;
+    min-height: 58px !important;
+    padding: 5px !important;
+    border: 0 !important;
+    background: #fff7dc !important;
+    color: #251308 !important;
+    font: 12px Consolas, monospace !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-bonusOptions {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px 14px !important;
+    margin-bottom: 7px !important;
+}
+
+.${APP.id}-actionsSection { align-items: center !important; }
+.tp-actions { display: flex !important; justify-content: flex-end !important; gap: 9px !important; }
+.${APP.id}-content .tp-secondary { background: linear-gradient(to bottom, #fff5d8, #e8cea0) !important; color: #4b210d !important; }
+.${APP.id}-content .tp-save { min-width: 145px !important; }
+
+#${APP.id}-panel {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: ${APP.zIndex + 20} !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 18px !important;
+    background: rgba(0,0,0,.48) !important;
+}
+#${APP.id}-panel .tp-card { width: min(1280px, calc(100vw - 42px)) !important; }
+#${APP.id}-panel .tp-head { display: flex !important; justify-content: space-between !important; padding: 6px 9px !important; background: #7d351d !important; color: #fff !important; font-weight: bold !important; }
+#${APP.id}-panel .tp-close { min-width: 27px !important; padding: 0 !important; }
+
+@media (max-width: 900px) {
+    .${APP.id}-section { grid-template-columns: 1fr !important; }
+    .${APP.id}-tools, .${APP.id}-zonesOutput { grid-template-columns: 1fr !important; }
+    .${APP.id}-bonusOptions { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
 `;
         (document.head || document.documentElement).appendChild(style);
+        applyPanelStylesheet(style.textContent);
+    }
+
+    function applyPanelStylesheet(cssText) {
+        if (!("adoptedStyleSheets" in document) || typeof CSSStyleSheet !== "function") return;
+        if (document.adoptedStyleSheets.some((sheet) => sheet.__tpMapMarkerStyles)) return;
+        try {
+            const sheet = new CSSStyleSheet();
+            sheet.replaceSync(String(cssText || ""));
+            Object.defineProperty(sheet, "__tpMapMarkerStyles", { value: true });
+            document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+        } catch (_) {
+            // O elemento style com nonce fica como alternativa em browsers antigos.
+        }
     }
 
     function ensureTpScriptBar(doc = document) {
