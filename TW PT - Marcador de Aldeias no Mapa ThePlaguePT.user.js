@@ -63,6 +63,7 @@
         pendingMiniRefresh: false,
         dragActive: false,
         dragFrame: 0,
+        liveSyncFrame: 0,
         lastMiniSync: 0,
         resumeTimer: 0,
         resumeRunning: false,
@@ -818,7 +819,7 @@
     transform: translate(-50%, -100%) !important;
     pointer-events: none !important;
     display: inline-flex !important;
-    align-items: center !important;
+    align-items: flex-end !important;
     gap: 3px !important;
 }
 
@@ -829,12 +830,29 @@
 }
 
 .${APP.id}-pinIcon {
-    width: 13px !important;
-    height: 13px !important;
+    position: relative !important;
+    width: 16px !important;
+    height: 16px !important;
     display: inline-block !important;
+    flex: 0 0 16px !important;
     border: 2px solid #fff !important;
+    border-radius: 50% 50% 50% 0 !important;
+    box-shadow: 0 0 0 1px #2b120b, 0 2px 4px rgba(0,0,0,.7) !important;
+    transform: rotate(-45deg) !important;
+    transform-origin: 50% 50% !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-pinIcon::after {
+    content: "" !important;
+    position: absolute !important;
+    left: 4px !important;
+    top: 4px !important;
+    width: 5px !important;
+    height: 5px !important;
     border-radius: 50% !important;
-    box-shadow: 0 0 0 1px #2b120b, 0 1px 4px rgba(0,0,0,.7) !important;
+    background: #fff !important;
+    box-shadow: 0 0 0 1px rgba(35,15,8,.55) !important;
 }
 
 .${APP.id}-pinLabel {
@@ -883,17 +901,18 @@
 
 .${APP.id}-miniDot {
     position: absolute !important;
-    width: 7px !important;
-    height: 7px !important;
+    width: 9px !important;
+    height: 9px !important;
     border: 1px solid #fff !important;
-    border-radius: 50% !important;
-    transform: translate(-50%, -50%) !important;
+    border-radius: 50% 50% 50% 0 !important;
+    transform: translate(-50%, -86%) rotate(-45deg) !important;
     box-shadow: 0 0 0 1px #211, 0 1px 3px rgba(0,0,0,.6) !important;
+    box-sizing: border-box !important;
 }
 
 /* Painel clássico do Marcador — independente da barra de atalhos. */
 .${APP.id}-native {
-    width: min(1280px, calc(100vw - 52px)) !important;
+    width: 100% !important;
     max-width: none !important;
     color: #5b270b !important;
     font: 12px Verdana, Arial, sans-serif !important;
@@ -925,6 +944,7 @@
 
 .${APP.id}-content {
     max-height: calc(100vh - 150px) !important;
+    overflow-x: hidden !important;
     overflow-y: auto !important;
     padding: 6px 12px 12px !important;
     scrollbar-color: #9a784a #f5e7bd !important;
@@ -939,7 +959,10 @@
     border-left: 4px solid #be3028 !important;
     background: rgba(255,247,216,.18) !important;
     box-sizing: border-box !important;
+    min-width: 0 !important;
 }
+
+.${APP.id}-section > * { min-width: 0 !important; }
 
 .${APP.id}-toolsSection { border-left-color: #9135d2 !important; }
 .${APP.id}-zonesSection { border-left-color: #00a78e !important; }
@@ -1088,6 +1111,16 @@
 #${APP.id}-panel .tp-card { width: min(1280px, calc(100vw - 42px)) !important; }
 #${APP.id}-panel .tp-head { display: flex !important; justify-content: space-between !important; padding: 6px 9px !important; background: #7d351d !important; color: #fff !important; font-weight: bold !important; }
 #${APP.id}-panel .tp-close { min-width: 27px !important; padding: 0 !important; }
+
+#popup_box_${APP.id}Dialog,
+#popup_box_${APP.id}Dialog .popup_box_container,
+#popup_box_${APP.id}Dialog .popup_box_content {
+    width: min(1320px, calc(100vw - 34px)) !important;
+    max-width: min(1320px, calc(100vw - 34px)) !important;
+    box-sizing: border-box !important;
+}
+
+#popup_box_${APP.id}Dialog .popup_box_content { overflow-x: hidden !important; }
 
 @media (max-width: 900px) {
     .${APP.id}-section { grid-template-columns: 1fr !important; }
@@ -1456,6 +1489,7 @@
         }
         if (!panel) return;
         state.panel = panel;
+        sizeNativeDialog(panel);
         const textarea = panel.querySelector("textarea");
         const updateCount = () => panel.querySelector(".tp-count").textContent = `${parseCoordinates(textarea.value).size} aldeia(s)`;
         textarea.addEventListener("input", () => {
@@ -1611,6 +1645,20 @@
         textarea.focus();
     }
 
+    function sizeNativeDialog(panel) {
+        const width = `${Math.min(1320, Math.max(760, window.innerWidth - 34))}px`;
+        const dialogBox = document.getElementById(`popup_box_${APP.id}Dialog`) || panel.closest(".popup_box");
+        if (!dialogBox) return;
+        dialogBox.style.setProperty("width", width, "important");
+        dialogBox.style.setProperty("max-width", width, "important");
+        dialogBox.querySelectorAll(".popup_box_container,.popup_box_content").forEach((element) => {
+            element.style.setProperty("width", "100%", "important");
+            element.style.setProperty("max-width", "100%", "important");
+            element.style.setProperty("box-sizing", "border-box", "important");
+            element.style.setProperty("overflow-x", "hidden", "important");
+        });
+    }
+
     function closePanel() {
         if (window.Dialog && typeof window.Dialog.close === "function" && document.getElementById(`${APP.id}-native`)) {
             window.Dialog.close(`${APP.id}Dialog`);
@@ -1690,6 +1738,7 @@
                 !mutation.target.classList?.contains(`${APP.id}-minimapOverlay`)
             );
             if (hasGameChange) {
+                scheduleLiveMarkerSync(Boolean(minimapChanged));
                 if (state.dragActive) state.pendingMiniRefresh ||= Boolean(minimapChanged);
                 else scheduleRefresh(Boolean(minimapChanged));
             }
@@ -1709,6 +1758,15 @@
         });
     }
 
+    function scheduleLiveMarkerSync(includeMiniMap = true) {
+        if (state.liveSyncFrame) return;
+        state.liveSyncFrame = requestAnimationFrame(() => {
+            state.liveSyncFrame = 0;
+            syncMainMarkerPositions();
+            if (includeMiniMap) syncMiniMapMarkerPositions();
+        });
+    }
+
     function startMarkerDrag(event) {
         const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
         if (!target) return;
@@ -1721,7 +1779,7 @@
         const sync = (timestamp) => {
             if (!state.dragActive) return;
             syncMainMarkerPositions();
-            if (timestamp - state.lastMiniSync >= 32) {
+            if (timestamp - state.lastMiniSync >= 16) {
                 state.lastMiniSync = timestamp;
                 syncMiniMapMarkerPositions();
             }
