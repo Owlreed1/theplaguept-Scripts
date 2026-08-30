@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.5.12
+// @version      2.5.13
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -22,7 +22,7 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        version: "2.5.12",
+        version: "2.5.13",
         displayBaseTitle: "Marcador - ThePlaguePT",
         get displayTitle() {
             return `${this.displayBaseTitle} v${this.version}`;
@@ -852,7 +852,7 @@
 
 .${APP.id}-mapPin {
     position: absolute !important;
-    z-index: ${APP.zIndex + 1} !important;
+    z-index: 24 !important;
     transform: translate(-50%, -100%) translateY(-3px) !important;
     pointer-events: none !important;
     display: inline-flex !important;
@@ -918,7 +918,7 @@
 .${APP.id}-badge,
 .${APP.id}-zoneBadge {
     position: absolute !important;
-    z-index: ${APP.zIndex + 1} !important;
+    z-index: 24 !important;
     transform: translate(-50%, -100%) !important;
     padding: 1px 4px !important;
     border-radius: 3px !important;
@@ -937,7 +937,7 @@
 .${APP.id}-mainOverlay {
     position: absolute !important;
     inset: 0 !important;
-    z-index: ${APP.zIndex + 1} !important;
+    z-index: 20 !important;
     pointer-events: none !important;
 }
 
@@ -1210,6 +1210,7 @@
 }
 
 #popup_box_${APP.id}Dialog .popup_box_content { overflow-x: hidden !important; }
+#popup_box_${APP.id}Dialog { z-index: ${APP.zIndex + 100} !important; }
 
 @media (max-width: 900px) {
     .${APP.id}-section { grid-template-columns: 1fr !important; }
