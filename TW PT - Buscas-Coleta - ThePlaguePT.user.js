@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.3.0
+// @version      1.3.1
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -20,7 +20,7 @@
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-    var SCRIPT_VERSION = '1.3.0';
+    var SCRIPT_VERSION = '1.3.1';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -1255,6 +1255,7 @@
         var candidatosEspera = [];
         var estimativasEnvio = [];
         var desbloqueiosIniciais = [];
+        var desbloqueiosAntesEnvio = [];
         var semTropas = 0;
         var ocupadas = 0;
         var semPraca = 0;
@@ -1320,10 +1321,37 @@
 
             planosPorAldeia[String(aldeia.id)] = plano;
             Array.prototype.push.apply(pedidos, plano.requests);
+
+            if (CONFIG.unlockEnabled) {
+                var ciclosConcluidos = Math.max(
+                    0,
+                    Number(estado.cyclesByVillage[String(aldeia.id)]) || 0
+                );
+                var proximoNivel = obterProximoDesbloqueioDevido(
+                    aldeia,
+                    ciclosConcluidos
+                );
+                if (proximoNivel) {
+                    desbloqueiosAntesEnvio.push({
+                        villageId: aldeia.id,
+                        optionId: proximoNivel.id,
+                        initial: false
+                    });
+                }
+            }
         });
 
+        var desbloqueiosPlaneados = desbloqueiosIniciais.concat(
+            desbloqueiosAntesEnvio
+        );
+        if (desbloqueiosPlaneados.length) {
+            atualizarBotao(
+                'A tentar ' + desbloqueiosPlaneados.length +
+                ' desbloqueio(s) antes da coleta…'
+            );
+        }
         var desbloqueiosFeitos = await executarDesbloqueios(
-            desbloqueiosIniciais,
+            desbloqueiosPlaneados,
             geracaoAtual
         );
         var aldeiasEnviadas = new Set();
@@ -1335,7 +1363,6 @@
             aldeiasEnviadas = await enviarPedidosEmLotes(pedidos, geracaoAtual);
         }
 
-        var desbloqueiosDeCiclo = [];
         aldeiasEnviadas.forEach(function (aldeiaId) {
             var chave = String(aldeiaId);
             var plano = planosPorAldeia[chave];
@@ -1348,31 +1375,7 @@
                 Number(estado.cyclesByVillage[chave]) || 0
             ) + 1;
             estado.cyclesByVillage[chave] = novoCiclo;
-
-            if (CONFIG.unlockEnabled) {
-                var proxima = obterProximoDesbloqueioDevido(
-                    plano.village,
-                    novoCiclo
-                );
-                var tentativaChave = chave + ':' + (proxima ? proxima.id : 0);
-                if (
-                    proxima &&
-                    Number(estado.unlockAttempts[tentativaChave]) !== novoCiclo
-                ) {
-                    estado.unlockAttempts[tentativaChave] = novoCiclo;
-                    desbloqueiosDeCiclo.push({
-                        villageId: aldeiaId,
-                        optionId: proxima.id,
-                        initial: false
-                    });
-                }
-            }
         });
-
-        desbloqueiosFeitos += await executarDesbloqueios(
-            desbloqueiosDeCiclo,
-            geracaoAtual
-        );
 
         Object.keys(planosPorAldeia).forEach(function (chave) {
             if (!aldeiasEnviadas.has(Number(chave))) {
