@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.27
+// @version      1.3.28
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -27,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.27',
+        version: '1.3.28',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -2616,6 +2616,10 @@
             navigateToFarmVillage(expected, run);
             return;
         }
+        if (!isFirstFarmPage()) {
+            navigateToFarmVillage(expected || current, run);
+            return;
+        }
         if (state.villagePreparing) return;
 
         state.villagePreparing = true;
@@ -2793,6 +2797,10 @@
         return getFarmPageDescriptor(new URL(window.location.href)).key;
     }
 
+    function isFirstFarmPage(urlValue = window.location.href) {
+        return getFarmPageDescriptor(new URL(urlValue, window.location.href)).number === 0;
+    }
+
     function completeCurrentVillage(runValue) {
         const run = runValue || ensureRunState();
         const current = getVillageId() || run.round.currentVillageId;
@@ -2821,10 +2829,8 @@
         run.round.phase = 'changing_village';
         writeRunState(run);
 
-        const url = new URL(buildFarmUrl());
-        url.searchParams.set('village', id);
-        url.searchParams.set('group', String(state.settings?.farm?.groupId || '0'));
-        const alreadyThere = getVillageId() === id && getCurrentFarmPageKey() === 'page:0';
+        const url = buildFirstFarmPageUrl(id);
+        const alreadyThere = getVillageId() === id && isFirstFarmPage();
         if (alreadyThere) {
             window.setTimeout(() => {
                 if (automationCanRun() && state.ownsWorker) beginVillageAfterNavigation(ensureRunState());
@@ -2832,6 +2838,16 @@
             return;
         }
         navigateRoundUrl(url.href);
+    }
+
+    function buildFirstFarmPageUrl(villageId = getVillageId(), baseUrl = buildFarmUrl()) {
+        const url = new URL(baseUrl, window.location.href);
+        ['Farm_page', 'farm_page', 'page'].forEach(name => url.searchParams.delete(name));
+        url.searchParams.set('screen', 'am_farm');
+        url.searchParams.set('group', String(state.settings?.farm?.groupId || '0'));
+        const id = String(villageId || '');
+        if (/^\d+$/.test(id)) url.searchParams.set('village', id);
+        return url;
     }
 
     function navigateRoundUrl(url) {
@@ -2905,8 +2921,11 @@
         clearRoundTimer();
         state.farmRunning = false;
         hideRoundCountdown();
+        const firstPageUrl = buildFirstFarmPageUrl();
         window.setTimeout(() => {
-            if (automationCanRun() && state.ownsWorker) window.location.reload();
+            if (automationCanRun() && state.ownsWorker) {
+                window.location.assign(firstPageUrl.href);
+            }
         }, 60);
     }
 
