@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.80
+// @version      1.3.81
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.80';
+    const SCRIPT_VERSION = '1.3.81';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
     const SCRIPT_DISPLAY_TITLE = `Alertas Discord - ThePlaguePT v${SCRIPT_VERSION}`;
 
@@ -2860,37 +2860,8 @@
         return url.toString();
     }
 
-    function getPlaceScavengeUrl(villageId) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('screen', 'place');
-        url.searchParams.set('mode', 'scavenge');
-
-        if (villageId) {
-            url.searchParams.set('village', String(villageId));
-        }
-
-        [
-            'action',
-            'ajax',
-            'ajaxaction',
-            'h',
-            'page'
-        ].forEach(key => url.searchParams.delete(key));
-
-        return url.toString();
-    }
-
     async function fetchPlaceUnitsDocument(villageId) {
         return fetchCleanDocument(getPlaceUnitsUrl(villageId));
-    }
-
-    async function fetchPlaceScavengeText(villageId) {
-        const url = getPlaceScavengeUrl(villageId);
-        const text = await fetchCleanText(url);
-
-        assertFetchedPageBelongsToCurrentPlayer(text, url);
-
-        return text;
     }
 
     function getVillagesOverviewUrl(mode) {
@@ -3469,14 +3440,6 @@
         return filterTroopTotals(source || {}, TROOP_DEFENSE_UNITS);
     }
 
-    function combineDefenseTroopTotals(...sources) {
-        const totals = createTroopTotals();
-
-        sources.forEach(source => addTroopTotals(totals, getDefenseTroopTotals(source || {})));
-
-        return getDefenseTroopTotals(totals);
-    }
-
     function mergeDefenseTroopTotalsByMax(first, second) {
         const totals = getDefenseTroopTotals(first || {});
         const otherTotals = getDefenseTroopTotals(second || {});
@@ -3513,17 +3476,10 @@
         summary.receivedSupportStationedDefenseTotals = getDefenseTroopTotals(summary.receivedSupportStationedTotals || {});
         summary.receivedSupportDefenseTotals = getDefenseTroopTotals(summary.receivedSupportStationedTotals || {});
         summary.scavengingDefenseTotals = getDefenseTroopTotals(summary.scavengingTotals || {});
-        summary.farmDefenseTotals = getDefenseTroopTotals(summary.farmTotals || {});
-        summary.transitDefenseTotals = getDefenseTroopTotals(summary.transitTotals || {});
-        summary.farmAndTransitDefenseTotals = combineDefenseTroopTotals(
-            summary.farmDefenseTotals,
-            summary.transitDefenseTotals
-        );
         summary.availableDefenseTotals = subtractDefenseTroopTotals(
             summary.totalDefenseTotals,
             summary.supportDefenseTotals,
-            summary.scavengingDefenseTotals,
-            summary.farmAndTransitDefenseTotals
+            summary.scavengingDefenseTotals
         );
 
         return summary;
@@ -3860,139 +3816,6 @@
         return totals;
     }
 
-    function findBalancedBlockEnd(text, start, opening, closing) {
-        let depth = 0;
-        let quote = '';
-        let escaped = false;
-
-        for (let index = start; index < text.length; index++) {
-            const char = text[index];
-
-            if (quote) {
-                if (escaped) {
-                    escaped = false;
-                } else if (char === '\\') {
-                    escaped = true;
-                } else if (char === quote) {
-                    quote = '';
-                }
-                continue;
-            }
-
-            if (char === '"' || char === "'") {
-                quote = char;
-            } else if (char === opening) {
-                depth += 1;
-            } else if (char === closing) {
-                depth -= 1;
-                if (depth === 0) return index;
-            }
-        }
-
-        return -1;
-    }
-
-    function extractJsonValuesFromText(text) {
-        const values = [];
-        const source = String(text || '');
-        const maxAttempts = 2500;
-        let attempts = 0;
-
-        for (let index = 0; index < source.length && attempts < maxAttempts; index++) {
-            const opening = source.charAt(index);
-            if (opening !== '{' && opening !== '[') continue;
-
-            const closing = opening === '{' ? '}' : ']';
-            const end = findBalancedBlockEnd(source, index, opening, closing);
-            if (end < 0) continue;
-
-            const candidate = source.slice(index, end + 1).trim();
-            if (candidate.length < 2 || candidate.length > 8 * 1024 * 1024) continue;
-
-            if (opening === '{') {
-                const firstContent = candidate.slice(1).match(/\S/);
-                if (firstContent && firstContent[0] !== '"' && firstContent[0] !== '}') continue;
-            }
-
-            attempts += 1;
-
-            try {
-                values.push(JSON.parse(candidate));
-                index = end;
-            } catch (_) {}
-        }
-
-        return values;
-    }
-
-    function getGameUnitCountTotals(source) {
-        const totals = createTroopTotals();
-
-        Object.keys(TROOP_UNIT_LABELS).forEach(unitKey => {
-            const value = Number(
-                source && (
-                    source[unitKey] !== undefined
-                        ? source[unitKey]
-                        : source[`unit_${unitKey}`]
-                ) || 0
-            );
-
-            if (value > 0) totals[unitKey] = value;
-        });
-
-        return totals;
-    }
-
-    function addScavengingSquadTotals(squad, totals, countedSquads) {
-        if (!squad || typeof squad !== 'object') return;
-        if (countedSquads.has(squad)) return;
-
-        const unitCounts = squad.unit_counts || squad.units || squad.troops;
-        const squadTotals = getGameUnitCountTotals(unitCounts);
-
-        if (!hasTroopValues(squadTotals)) return;
-
-        countedSquads.add(squad);
-        addTroopTotals(totals, squadTotals);
-    }
-
-    function collectScavengingSquadTotals(value, totals, seenValues, countedSquads, depth = 0) {
-        if (!value || typeof value !== 'object' || depth > 10) return;
-        if (seenValues.has(value)) return;
-
-        seenValues.add(value);
-
-        if (value.scavenging_squad) {
-            addScavengingSquadTotals(value.scavenging_squad, totals, countedSquads);
-        }
-
-        if (value.squad) {
-            addScavengingSquadTotals(value.squad, totals, countedSquads);
-        }
-
-        addScavengingSquadTotals(value, totals, countedSquads);
-
-        Object.keys(value).forEach(key => {
-            if (key === 'unit_counts_home' || key === 'candidate_squad') return;
-            collectScavengingSquadTotals(value[key], totals, seenValues, countedSquads, depth + 1);
-        });
-    }
-
-    function parseScavengingTroopTotalsFromHtml(text) {
-        const totals = createTroopTotals();
-        const source = String(text || '');
-
-        if (!/Scavenge(?:Mass)?Screen|scavenging_squad|unit_counts_home/.test(source)) {
-            return totals;
-        }
-
-        extractJsonValuesFromText(source).forEach(value => {
-            collectScavengingSquadTotals(value, totals, new WeakSet(), new WeakSet());
-        });
-
-        return totals;
-    }
-
     function parseSupportTroopTotals(doc) {
         const totals = createTroopTotals();
 
@@ -4013,7 +3836,7 @@
     }
 
     function isFarmAssistantTroopRow(rowText) {
-        return /am[_-]?farm|farm[_-]?icon|\/farm\.png|command[_-]?farm|assistente\s+de\s+(farm|saque)|farm\s+assistant|farmar|saque|pilhagem|loot|aldeia\s+barbara|aldeia\s+abandonada|barbarian\s+village|abandoned\s+village|barbarendorf|barbarian/.test(rowText);
+        return /am[_-]?farm|farm[_-]?icon|assistente\s+de\s+farm|farm\s+assistant|saque|pilhagem/.test(rowText);
     }
 
     function parseFarmAssistantTroopTotals(doc) {
@@ -4817,8 +4640,6 @@
         const supportTransitTotals = createTroopTotals();
         const receivedSupportStationedTotals = createTroopTotals();
         const scavengingTotals = createTroopTotals();
-        const farmTotals = createTroopTotals();
-        const transitTotals = createTroopTotals();
         const rows = getDirectTableRows(bestTable)
             .filter(row => !row.querySelector('th'));
 
@@ -4864,11 +4685,6 @@
 
             if (!hasTroopValues(rowTotals)) return;
 
-            if (isFarmAssistantTroopRow(rowText)) {
-                addTroopTotals(farmTotals, getDefenseTroopTotals(rowTotals));
-                return;
-            }
-
             if (isSupportTroopOverviewRow(rowText)) {
                 const defenseRowTotals = getDefenseTroopTotals(rowTotals);
 
@@ -4884,11 +4700,6 @@
 
             if (isScavengingTroopOverviewRow(rowText)) {
                 addTroopTotals(scavengingTotals, getDefenseTroopTotals(rowTotals));
-                return;
-            }
-
-            if (isTransitTroopSectionText(rowText)) {
-                addTroopTotals(transitTotals, getDefenseTroopTotals(rowTotals));
                 return;
             }
 
@@ -5011,8 +4822,6 @@
             supportTransitTotals,
             receivedSupportStationedTotals,
             scavengingTotals,
-            farmTotals,
-            transitTotals,
             villages,
             attackFullCounter: calculateAttackFullCounterByVillage(villages),
             villageCount: getPlayerVillageCount() || parsedVillageCount || rows.length,
@@ -5092,8 +4901,6 @@
         const overviewSupportTransitTotals = getDefenseTroopTotals(summary.supportTransitTotals);
         const overviewReceivedSupportStationedTotals = getDefenseTroopTotals(summary.receivedSupportStationedTotals);
         const overviewScavengingTotals = getDefenseTroopTotals(summary.scavengingTotals);
-        const overviewFarmTotals = getDefenseTroopTotals(summary.farmTotals);
-        const overviewTransitTotals = getDefenseTroopTotals(summary.transitTotals);
         const hasOverviewDefenseTotals = hasTroopValues(overviewDefenseTotals);
         const expectedVillageCount = getTroopScanExpectedVillageCount(summary, originalVillages.length);
 
@@ -5109,8 +4916,6 @@
             summary.supportTransitTotals = overviewSupportTransitTotals;
             summary.receivedSupportStationedTotals = overviewReceivedSupportStationedTotals;
             summary.scavengingTotals = overviewScavengingTotals;
-            summary.farmTotals = overviewFarmTotals;
-            summary.transitTotals = overviewTransitTotals;
             summary.placeVillageCount = 0;
             summary.scavengingVillageCount = 0;
             summary.attackFullCounter = calculateAttackFullCounterByVillage(originalVillages);
@@ -5126,8 +4931,6 @@
         const rebuiltSupportTransitTotals = createTroopTotals();
         const rebuiltReceivedSupportStationedTotals = createTroopTotals();
         const rebuiltScavengingTotals = createTroopTotals();
-        const rebuiltFarmTotals = createTroopTotals();
-        const rebuiltTransitDefenseTotals = createTroopTotals();
         const rebuiltHomeAllTotals = createTroopTotals();
         const rebuiltScavengingAllTotals = createTroopTotals();
         const rebuiltTransitAllTotals = createTroopTotals();
@@ -5148,21 +4951,9 @@
 
                 const homeTotals = parseHomeDefenseTroopTotals(doc);
                 const homeDefenseTotals = getDefenseTroopTotals(homeTotals);
-                let scavengingTotals = parseScavengingTroopTotals(doc);
+                const scavengingTotals = parseScavengingTroopTotals(doc);
                 const farmTotals = parseFarmAssistantTroopTotals(doc);
-
-                try {
-                    const scavengePageTotals = parseScavengingTroopTotalsFromHtml(
-                        await fetchPlaceScavengeText(village.id)
-                    );
-
-                    scavengingTotals = mergeTroopTotalsByMax(scavengingTotals, scavengePageTotals);
-                } catch (error) {
-                    console.warn('[TW] Erro ao carregar coleta da aldeia:', village.id, error);
-                }
-
                 const scavengingDefenseTotals = getDefenseTroopTotals(scavengingTotals);
-                const farmDefenseTotals = getDefenseTroopTotals(farmTotals);
                 const supportBreakdown = parseSupportTroopBreakdown(doc);
                 const receivedSupportStationedDefenseTotals = getDefenseTroopTotals(supportBreakdown.stationedTotals);
                 const supportTransitDefenseTotals = getDefenseTroopTotals(supportBreakdown.transitTotals);
@@ -5170,7 +4961,6 @@
                 addTroopTotals(supportTotals, supportTransitDefenseTotals);
                 const supportDefenseTotals = getDefenseTroopTotals(supportTotals);
                 const transitTotals = parseTransitTroopTotals(doc);
-                const transitDefenseTotals = getDefenseTroopTotals(transitTotals);
                 const placeTotals = createTroopTotals();
                 const defenseTotals = createTroopTotals();
                 const overviewAttackTotals = Object.assign(
@@ -5193,8 +4983,6 @@
                 addTroopTotals(rebuiltReceivedSupportStationedTotals, receivedSupportStationedDefenseTotals);
                 addTroopTotals(rebuiltSupportTransitTotals, supportTransitDefenseTotals);
                 addTroopTotals(rebuiltScavengingTotals, scavengingDefenseTotals);
-                addTroopTotals(rebuiltFarmTotals, farmDefenseTotals);
-                addTroopTotals(rebuiltTransitDefenseTotals, transitDefenseTotals);
 
                 const attackTotals = hasTroopValues(overviewAttackTotals)
                     ? overviewAttackTotals
@@ -5265,16 +5053,6 @@
             summary.scavengingTotals = hasTroopValues(rebuiltScavengingTotals)
                 ? getDefenseTroopTotals(rebuiltScavengingTotals)
                 : overviewScavengingTotals;
-            summary.farmTotals = hasTroopValues(rebuiltFarmTotals)
-                ? getDefenseTroopTotals(rebuiltFarmTotals)
-                : overviewFarmTotals;
-            summary.transitTotals = hasTroopValues(rebuiltTransitDefenseTotals)
-                ? getDefenseTroopTotals(rebuiltTransitDefenseTotals)
-                : (
-                    hasTroopValues(rebuiltFarmTotals)
-                        ? createTroopTotals()
-                        : overviewTransitTotals
-                );
             summary.homeAllTotals = rebuiltHomeAllTotals;
             summary.scavengingAllTotals = rebuiltScavengingAllTotals;
             summary.transitAllTotals = rebuiltTransitAllTotals;
@@ -5291,8 +5069,6 @@
             summary.supportTransitTotals = overviewSupportTransitTotals;
             summary.receivedSupportStationedTotals = overviewReceivedSupportStationedTotals;
             summary.scavengingTotals = overviewScavengingTotals;
-            summary.farmTotals = overviewFarmTotals;
-            summary.transitTotals = overviewTransitTotals;
             summary.villages = originalVillages;
             summary.placeScanIncomplete = true;
             console.warn('[TW] Leitura da Praca de Reunioes ignorada por estar incompleta:', rebuiltVillages.length, '/', expectedVillageCount);
@@ -5472,15 +5248,8 @@
             summary.receivedSupportStationedDefenseTotals || summary.receivedSupportStationedTotals || {}
         );
         const scavengingDefense = getDefenseTroopTotals(summary.scavengingDefenseTotals || summary.scavengingTotals || {});
-        const farmDefense = getDefenseTroopTotals(
-            summary.farmAndTransitDefenseTotals ||
-            combineDefenseTroopTotals(
-                summary.farmDefenseTotals || summary.farmTotals || {},
-                summary.transitDefenseTotals || summary.transitTotals || {}
-            )
-        );
         const availableDefense = getDefenseTroopTotals(
-            summary.availableDefenseTotals || subtractDefenseTroopTotals(totalDefense, supportDefense, scavengingDefense, farmDefense)
+            summary.availableDefenseTotals || subtractDefenseTroopTotals(totalDefense, supportDefense, scavengingDefense)
         );
 
         return {
@@ -5506,9 +5275,6 @@
                 '',
                 '🌾 **Em Coleta**',
                 formatDefenseTroopLines(scavengingDefense),
-                '',
-                '🚜 **Em Farm**',
-                formatDefenseTroopLines(farmDefense),
                 '',
                 '✅ **Disponível**',
                 formatDefenseTroopLines(availableDefense, {
@@ -5731,8 +5497,6 @@
             apoiosAApoiar: getDefenseTroopTotals(summary.supportStationedDefenseTotals || summary.supportStationedTotals || {}),
             apoiosACaminho: getDefenseTroopTotals(summary.supportTransitDefenseTotals || summary.supportTransitTotals || {}),
             coleta: getDefenseTroopTotals(summary.scavengingDefenseTotals || summary.scavengingTotals || {}),
-            farm: getDefenseTroopTotals(summary.farmAndTransitDefenseTotals || summary.farmDefenseTotals || summary.farmTotals || {}),
-            transitoNaoApoio: getDefenseTroopTotals(summary.transitDefenseTotals || summary.transitTotals || {}),
             disponivel: getDefenseTroopTotals(summary.availableDefenseTotals || {})
         });
 
