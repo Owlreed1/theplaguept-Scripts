@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.75
+// @version      1.3.77
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.75';
+    const SCRIPT_VERSION = '1.3.77';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
     const SCRIPT_DISPLAY_TITLE = `Alertas Discord - ThePlaguePT v${SCRIPT_VERSION}`;
 
@@ -45,24 +45,48 @@
     const IDENTIFY_TOLERANCE_SECONDS = 300;
     const TAB_SESSION_KEY = 'tw_discord_attack_alerts_tab_id_v3';
 
+    function normalizeStorageScopePart(value, fallback) {
+        const text = String(value || fallback || 'unknown')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9._-]+/g, '_')
+            .replace(/^_+|_+$/g, '');
+
+        return text || fallback || 'unknown';
+    }
+
+    function getStorageScope() {
+        const data = getGameData() || {};
+        const player = data.player || {};
+        const host = normalizeStorageScopePart(window.location.hostname, 'host');
+        const world = normalizeStorageScopePart(data.world || window.location.hostname.split('.')[0], 'world');
+        const playerId = normalizeStorageScopePart(player.id || player.name, 'player');
+
+        return [host, world, playerId].join(':');
+    }
+
     const STORAGE_PREFIX = 'tw_pt_discord_attack_alerts_pro_v1';
-    const MASTER_KEY = `${STORAGE_PREFIX}_master_tab`;
-    const SENT_KEY = `${STORAGE_PREFIX}_sent_attack_ids`;
-    const BOOTSTRAPPED_KEY = `${STORAGE_PREFIX}_bootstrapped`;
-    const FALLBACK_COUNT_KEY = `${STORAGE_PREFIX}_fallback_counts`;
-    const NOBLE_PENDING_KEY = `${STORAGE_PREFIX}_pending_noble_trains`;
-    const NOBLE_SENT_KEY = `${STORAGE_PREFIX}_sent_noble_ids`;
-    const SUMMARY_STATE_KEY = `${STORAGE_PREFIX}_attack_summary_state`;
-    const SUMMARY_LAST_SENT_KEY = `${STORAGE_PREFIX}_attack_summary_last_sent`;
-    const SUMMARY_DAILY_SENT_KEY = `${STORAGE_PREFIX}_attack_summary_daily_sent`;
-    const TROOPS_LAST_SENT_KEY = `${STORAGE_PREFIX}_troops_summary_last_sent`;
-    const TROOPS_DAILY_SENT_KEY = `${STORAGE_PREFIX}_troops_summary_daily_sent`;
-    const ATTACK_FULLS_LAST_SENT_KEY = `${STORAGE_PREFIX}_attack_fulls_last_sent`;
-    const ATTACK_FULLS_DAILY_SENT_KEY = `${STORAGE_PREFIX}_attack_fulls_daily_sent`;
-    const NOBLE_COUNTER_LAST_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_last_sent`;
-    const NOBLE_COUNTER_DAILY_SENT_KEY = `${STORAGE_PREFIX}_noble_counter_daily_sent`;
-    const VERIFICATION_ALERT_KEY = `${STORAGE_PREFIX}_verification_alert_last_sent`;
-    const GENERIC_INCOMING_STATE_KEY = `${STORAGE_PREFIX}_generic_incoming_state`;
+    const STORAGE_SCOPE = getStorageScope();
+    const LEGACY_SETTINGS_KEY = `${STORAGE_PREFIX}_settings`;
+    const scopedStorageKey = name => `${STORAGE_PREFIX}:${STORAGE_SCOPE}:${name}`;
+    const MASTER_KEY = scopedStorageKey('master_tab');
+    const SENT_KEY = scopedStorageKey('sent_attack_ids');
+    const BOOTSTRAPPED_KEY = scopedStorageKey('bootstrapped');
+    const FALLBACK_COUNT_KEY = scopedStorageKey('fallback_counts');
+    const NOBLE_PENDING_KEY = scopedStorageKey('pending_noble_trains');
+    const NOBLE_SENT_KEY = scopedStorageKey('sent_noble_ids');
+    const SUMMARY_STATE_KEY = scopedStorageKey('attack_summary_state');
+    const SUMMARY_LAST_SENT_KEY = scopedStorageKey('attack_summary_last_sent');
+    const SUMMARY_DAILY_SENT_KEY = scopedStorageKey('attack_summary_daily_sent');
+    const TROOPS_LAST_SENT_KEY = scopedStorageKey('troops_summary_last_sent');
+    const TROOPS_DAILY_SENT_KEY = scopedStorageKey('troops_summary_daily_sent');
+    const ATTACK_FULLS_LAST_SENT_KEY = scopedStorageKey('attack_fulls_last_sent');
+    const ATTACK_FULLS_DAILY_SENT_KEY = scopedStorageKey('attack_fulls_daily_sent');
+    const NOBLE_COUNTER_LAST_SENT_KEY = scopedStorageKey('noble_counter_last_sent');
+    const NOBLE_COUNTER_DAILY_SENT_KEY = scopedStorageKey('noble_counter_daily_sent');
+    const VERIFICATION_ALERT_KEY = scopedStorageKey('verification_alert_last_sent');
+    const GENERIC_INCOMING_STATE_KEY = scopedStorageKey('generic_incoming_state');
     const SCRIPT_UPDATE_LAST_CHECK_KEY = `${STORAGE_PREFIX}_script_update_last_check`;
     const SCRIPT_UPDATE_NOTICE_KEY = `${STORAGE_PREFIX}_script_update_notice`;
 
@@ -109,7 +133,7 @@
     const ATTACK_HALF_AXE = 2500;
     const ATTACK_HALF_LIGHT = 1000;
     const TROOP_CELL_MAX_VALUE = 5000000;
-    const SETTINGS_KEY = `${STORAGE_PREFIX}_settings`;
+    const SETTINGS_KEY = scopedStorageKey('settings');
 
     const DEFAULT_SETTINGS = {
         webhook: DEFAULT_ATTACKS_WEBHOOK,
@@ -157,6 +181,25 @@
     }
 
     const TAB_ID = storedTabId;
+    const RUNTIME_KEY = '__twDiscordAlertsThePlaguePT';
+    const runtimeWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    const activeRuntime = runtimeWindow[RUNTIME_KEY];
+
+    if (
+        activeRuntime &&
+        activeRuntime.version === SCRIPT_VERSION &&
+        activeRuntime.storageScope === STORAGE_SCOPE
+    ) {
+        console.warn(`[TW Discord Alerts] Instancia duplicada ignorada (${SCRIPT_VERSION}, ${STORAGE_SCOPE}).`);
+        return;
+    }
+
+    runtimeWindow[RUNTIME_KEY] = {
+        version: SCRIPT_VERSION,
+        storageScope: STORAGE_SCOPE,
+        tabId: TAB_ID,
+        startedAt: Date.now()
+    };
 
     let checking = false;
     let sending = false;
@@ -187,7 +230,15 @@
     }
 
     function getSettings() {
-        return Object.assign({}, DEFAULT_SETTINGS, readJson(SETTINGS_KEY, {}));
+        const legacySettings = readJson(LEGACY_SETTINGS_KEY, {});
+        const scopedSettings = readJson(SETTINGS_KEY, null);
+
+        return Object.assign(
+            {},
+            DEFAULT_SETTINGS,
+            legacySettings && typeof legacySettings === 'object' ? legacySettings : {},
+            scopedSettings && typeof scopedSettings === 'object' ? scopedSettings : {}
+        );
     }
 
     function saveSettings(settings) {
@@ -401,8 +452,101 @@
         return response.text();
     }
 
+    function extractJsonObjectAfterMarker(text, marker) {
+        const markerIndex = String(text || '').indexOf(marker);
+        if (markerIndex < 0) return null;
+
+        const start = text.indexOf('{', markerIndex);
+        if (start < 0) return null;
+
+        let depth = 0;
+        let quote = '';
+        let escaped = false;
+
+        for (let index = start; index < text.length; index++) {
+            const char = text[index];
+
+            if (quote) {
+                if (escaped) {
+                    escaped = false;
+                } else if (char === '\\') {
+                    escaped = true;
+                } else if (char === quote) {
+                    quote = '';
+                }
+                continue;
+            }
+
+            if (char === '"' || char === "'") {
+                quote = char;
+                continue;
+            }
+
+            if (char === '{') {
+                depth += 1;
+            } else if (char === '}') {
+                depth -= 1;
+                if (depth === 0) return text.slice(start, index + 1);
+            }
+        }
+
+        return null;
+    }
+
+    function extractGameDataFromHtml(text) {
+        const markers = [
+            'TribalWars.updateGameData(',
+            'window.game_data =',
+            'var game_data =',
+            'game_data ='
+        ];
+
+        for (const marker of markers) {
+            const jsonText = extractJsonObjectAfterMarker(text, marker);
+            if (!jsonText) continue;
+
+            try {
+                const data = JSON.parse(jsonText);
+                if (data && typeof data === 'object') return data;
+            } catch (_) {}
+        }
+
+        return null;
+    }
+
+    function normalizeIdentityValue(value) {
+        return String(value || '').trim();
+    }
+
+    function assertFetchedPageBelongsToCurrentPlayer(text, urlValue) {
+        const currentData = getGameData() || {};
+        const currentPlayer = currentData.player || {};
+        const fetchedData = extractGameDataFromHtml(text) || {};
+        const fetchedPlayer = fetchedData.player || {};
+
+        if (!currentPlayer.id || !fetchedPlayer.id) return;
+
+        const currentPlayerId = normalizeIdentityValue(currentPlayer.id);
+        const fetchedPlayerId = normalizeIdentityValue(fetchedPlayer.id);
+        const currentWorld = normalizeIdentityValue(currentData.world || window.location.hostname.split('.')[0]);
+        const fetchedWorld = normalizeIdentityValue(fetchedData.world || currentWorld);
+
+        if (currentPlayerId !== fetchedPlayerId || currentWorld !== fetchedWorld) {
+            throw new Error(
+                `Leitura cancelada: a pagina pedida pertence a outro jogador/mundo ` +
+                `(${fetchedPlayerId || 'sem jogador'} @ ${fetchedWorld || 'sem mundo'}) ` +
+                `e o separador atual e ${currentPlayerId || 'sem jogador'} @ ${currentWorld || 'sem mundo'}: ${urlValue}`
+            );
+        }
+    }
+
     async function fetchCleanDocument(urlValue, type = 'text/html') {
         const text = await fetchCleanText(urlValue);
+
+        if (type === 'text/html') {
+            assertFetchedPageBelongsToCurrentPlayer(text, urlValue);
+        }
+
         const doc = new DOMParser().parseFromString(text, type);
 
         return type === 'text/html'
@@ -7333,6 +7477,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
 
             container.querySelector('#tw-alerts-reset').addEventListener('click', () => {
                 localStorage.removeItem(SETTINGS_KEY);
+                writeJson(SETTINGS_KEY, DEFAULT_SETTINGS);
                 applyFormSettings(DEFAULT_SETTINGS, container);
                 status.textContent = 'Configurações repostas.';
                 console.log('[TW] Configuracoes da UI repostas.');

@@ -36,12 +36,15 @@
     const storageKey = `${APP.id}:${world}`;
     const state = {
         coords: new Map(),
+        secondaryCoords: new Map(),
+        secondaryEnabled: false,
         color: APP.defaultColor,
         showLabels: true,
         coordinatesEnabled: true,
         distance: 20,
         zoneSize: 25,
         zones: [],
+        zonesEnabled: false,
         ownVillages: null,
         bonusTypes: [],
         bonusEnabled: false,
@@ -97,8 +100,10 @@
             state.color = /^#[0-9a-f]{6}$/i.test(saved.color) ? saved.color : APP.defaultColor;
             state.showLabels = saved.showLabels !== false;
             state.coordinatesEnabled = saved.coordinatesEnabled !== undefined ? saved.coordinatesEnabled !== false : saved.enabled !== false;
+            state.secondaryEnabled = saved.secondaryEnabled === true;
             state.distance = Math.max(1, Math.min(200, Number(saved.distance) || 20));
             state.zoneSize = Number(saved.zoneSize) === 50 ? 50 : 25;
+            state.zonesEnabled = saved.zonesEnabled === true;
             state.bonusTypes = Array.isArray(saved.bonusTypes) ? saved.bonusTypes.map(String) : [];
             state.bonusEnabled = saved.bonusEnabled === true;
             state.supportEnabled = saved.supportEnabled === true;
@@ -108,6 +113,7 @@
             state.attackExcludeBarbarians = saved.attackExcludeBarbarians === true;
             state.attackExcludeFarm = saved.attackExcludeFarm === true;
             setCoordinates(Array.isArray(saved.coords) ? saved.coords.map((item) => `${item.x}|${item.y}`) : []);
+            state.secondaryCoords = parseCoordinates(Array.isArray(saved.secondaryCoords) ? saved.secondaryCoords.map((item) => `${item.x}|${item.y}`) : []);
             state.zones = Array.isArray(saved.zones) ? saved.zones.map((zone) =>
                 [...parseCoordinates((zone || []).map((item) => `${item.x}|${item.y}`)).values()]
             ).filter((zone) => zone.length) : [];
@@ -119,12 +125,15 @@
     function save() {
         localStorage.setItem(storageKey, JSON.stringify({
             coords: [...state.coords.values()],
+            secondaryCoords: [...state.secondaryCoords.values()],
+            secondaryEnabled: state.secondaryEnabled,
             color: state.color,
             showLabels: state.showLabels,
             coordinatesEnabled: state.coordinatesEnabled,
             distance: state.distance,
             zoneSize: state.zoneSize,
             zones: state.zones,
+            zonesEnabled: state.zonesEnabled,
             bonusTypes: state.bonusTypes,
             bonusEnabled: state.bonusEnabled,
             supportEnabled: state.supportEnabled,
@@ -240,6 +249,7 @@
     }
 
     function zoneForCoordinate(x, y) {
+        if (!state.zonesEnabled) return -1;
         return state.zones.findIndex((zone) => zone.some((item) => item.x === x && item.y === y));
     }
 
@@ -274,6 +284,7 @@
 
     function activeCoordinates() {
         const merged = state.coordinatesEnabled ? new Map(state.coords) : new Map();
+        if (state.secondaryEnabled) for (const [key, item] of state.secondaryCoords) merged.set(key, { ...item, secondary: true });
         if (state.bonusEnabled) for (const [key, item] of state.bonusCoords) merged.set(key, item);
         if (state.supportEnabled) for (const [key, item] of state.supportCoords) merged.set(key, item);
         if (state.supportTravelEnabled) for (const [key, item] of state.supportTravelCoords) merged.set(key, item);
@@ -282,7 +293,11 @@
     }
 
     function markerColorFor(x, y) {
-        if (state.attackEnabled && state.attackCoords.has(`${x}|${y}`)) return "#d71920";
+        const attack = state.attackEnabled ? state.attackCoords.get(`${x}|${y}`) : null;
+        if (attack?.outgoingCount && attack?.returningCount) return "linear-gradient(90deg,#d71920 0 50%,#f59e0b 50% 100%)";
+        if (attack?.returningCount) return "#f59e0b";
+        if (attack) return "#d71920";
+        if (state.secondaryEnabled && state.secondaryCoords.has(`${x}|${y}`)) return "#f4b400";
         if (state.supportTravelEnabled && state.supportTravelCoords.has(`${x}|${y}`)) return "#f08a00";
         if (state.supportEnabled && state.supportCoords.has(`${x}|${y}`)) return "#00a9d6";
         const bonus = state.bonusCoords.get(`${x}|${y}`);
@@ -435,23 +450,36 @@
         return /am_farm|farm_icon|\/farm\.png|command[_-]?farm|farm assistant|assistente de farm|assistente de saque|farmar/.test(signature);
     }
 
+    function isReturningCommandRow(row) {
+        const signature = `${row.className || ""} ${row.textContent || ""} ${row.innerHTML || ""}`.toLowerCase();
+        return /return_|return\.png|back\.png|command[_-]?return|regress|retorn/.test(signature);
+    }
+
+    function isSupportCommandRow(row) {
+        const signature = `${row.className || ""} ${row.textContent || ""} ${row.innerHTML || ""}`.toLowerCase();
+        return /command[_-]?support|support\.png|apoio|apoiar/.test(signature);
+    }
+
     async function loadAttackedVillages(force = false) {
         if (!state.attackEnabled) {
             state.attackCoords.clear();
             return;
         }
         if (!force && state.attackCoords.size && Date.now() - state.attackLastUpdate < 60 * 1000) return;
-        const url = `${gd.link_base_pure || `${location.origin}/game.php?village=${gd.village?.id}&screen=`}overview_villages&mode=commands&type=attack&group=0&page=-1`;
-        const response = await fetch(url, { credentials: "same-origin" });
-        if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
-        const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+        const base = gd.link_base_pure || `${location.origin}/game.php?village=${gd.village?.id}&screen=`;
+        const sources = await Promise.all(["attack", "return"].map(async (type) => {
+            const response = await fetch(`${base}overview_villages&mode=commands&type=${type}&group=0&page=-1`, { credentials: "same-origin" });
+            if (!response.ok) throw new Error(`erro HTTP ${response.status}`);
+            return { type, doc: new DOMParser().parseFromString(await response.text(), "text/html") };
+        }));
         const owners = await loadVillageOwners();
         const own = await loadOwnVillages();
         const ownKeys = new Set(own.map(({ x, y }) => `${x}|${y}`));
-        const rows = [...doc.querySelectorAll("#commands_table tbody tr, #commands_table tr.command-row, #commands_table tr.row_a, #commands_table tr.row_ax, #commands_table tr.row_b, #commands_table tr.row_bx")];
         const found = new Map();
 
-        for (const row of rows) {
+        for (const { type, doc } of sources) for (const row of doc.querySelectorAll("#commands_table tbody tr, #commands_table tr.command-row, #commands_table tr.row_a, #commands_table tr.row_ax, #commands_table tr.row_b, #commands_table tr.row_bx")) {
+            const returning = type === "return" || isReturningCommandRow(row);
+            if (returning && isSupportCommandRow(row)) continue;
             const target = extractAttackTarget(row, ownKeys);
             if (!target) continue;
             const { x, y } = target;
@@ -461,7 +489,13 @@
             if (state.attackExcludeBarbarians && isBarbarian) continue;
             if (state.attackExcludeFarm && isFarm) continue;
             const previous = found.get(key);
-            found.set(key, { x, y, id: target.id || null, attack: true, isBarbarian, isFarm, count: (previous?.count || 0) + 1 });
+            const outgoingCount = (previous?.outgoingCount || 0) + (returning ? 0 : 1);
+            const returningCount = (previous?.returningCount || 0) + (returning ? 1 : 0);
+            found.set(key, {
+                x, y, id: target.id || previous?.id || null, attack: true, isBarbarian,
+                isFarm: Boolean(previous?.isFarm || isFarm), outgoingCount, returningCount,
+                count: outgoingCount + returningCount
+            });
         }
         state.attackCoords = found;
         state.attackLastUpdate = Date.now();
@@ -974,6 +1008,7 @@
 .${APP.id}-section > * { min-width: 0 !important; }
 
 .${APP.id}-toolsSection { border-left-color: #9135d2 !important; }
+.${APP.id}-secondarySection { border-left-color: #f4b400 !important; }
 .${APP.id}-zonesSection { border-left-color: #00a78e !important; }
 .${APP.id}-supportSection { border-left-color: #00a9d6 !important; }
 .${APP.id}-attackSection { border-left-color: #ed251d !important; }
@@ -1000,6 +1035,45 @@
     color: #111 !important;
     font: 13px Consolas, "Courier New", monospace !important;
     box-sizing: border-box !important;
+}
+
+.${APP.id}-secondaryInput {
+    width: 100% !important;
+    min-height: 95px !important;
+    resize: vertical !important;
+    padding: 6px 8px !important;
+    border: 1px solid #b07b13 !important;
+    border-radius: 2px !important;
+    background: #fff9dc !important;
+    color: #111 !important;
+    font: 13px Consolas, "Courier New", monospace !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-secondaryStar {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 20px !important;
+    height: 20px !important;
+    flex: 0 0 20px !important;
+    color: var(--tp-marker-color, #f4b400) !important;
+    font: bold 22px/20px Arial, sans-serif !important;
+    text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, 0 2px 3px #231305 !important;
+}
+
+.${APP.id}-miniDot.tp-secondary {
+    width: 13px !important;
+    height: 13px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: #f4b400 !important;
+    font: bold 14px/13px Arial, sans-serif !important;
+    text-align: center !important;
+    text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, 0 1px 2px #000 !important;
+    box-shadow: none !important;
+    transform: translate(-50%, -50%) !important;
 }
 
 .${APP.id}-tools {
@@ -1106,6 +1180,12 @@
 .tp-actions { display: flex !important; justify-content: flex-end !important; gap: 9px !important; }
 .${APP.id}-content .tp-secondary { background: linear-gradient(to bottom, #fff5d8, #e8cea0) !important; color: #4b210d !important; }
 .${APP.id}-content .tp-save { min-width: 145px !important; }
+.${APP.id}-attackLegend { display: flex !important; flex-wrap: wrap !important; gap: 9px !important; margin: 6px 0 !important; }
+.${APP.id}-attackLegend span { display: inline-flex !important; align-items: center !important; gap: 4px !important; }
+.${APP.id}-attackLegend i { width: 10px !important; height: 10px !important; border: 1px solid #fff !important; border-radius: 50% !important; box-shadow: 0 0 0 1px #4b260d !important; }
+.${APP.id}-attackLegend .tp-going { background: #d71920 !important; }
+.${APP.id}-attackLegend .tp-returning { background: #f59e0b !important; }
+.${APP.id}-attackLegend .tp-both { background: linear-gradient(90deg,#d71920 0 50%,#f59e0b 50% 100%) !important; }
 
 #${APP.id}-panel {
     position: fixed !important;
@@ -1446,6 +1526,7 @@
         injectStyles();
         if (state.panel) closePanel();
         const coordinates = [...state.coords.values()].map(({ x, y }) => `${x}|${y}`).join("\n");
+        const secondaryCoordinates = [...state.secondaryCoords.values()].map(({ x, y }) => `${x}|${y}`).join("\n");
         const body = `
             <div class="${APP.id}-frame">
                 <header class="${APP.id}-head"><strong>TW PT - Marcador de Aldeias ThePlaguePT v${APP.version}</strong><span>Marca, filtra e organiza coordenadas do mundo ${escapeHtml(world)} por proximidade e zonas.</span></header>
@@ -1454,11 +1535,15 @@
                         <div><h3>Coordenadas</h3><p>Cola coordenadas em qualquer texto. Repetidas são removidas automaticamente.</p></div>
                         <div><div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-enabled" type="checkbox" ${state.coordinatesEnabled ? "checked" : ""}> Ativar marcação da lista de coordenadas</label></div><div class="${APP.id}-optionsRow"><label>Cor base <input class="tp-color" type="color" value="${state.color}"></label><label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label><strong class="tp-count">${state.coords.size} aldeia(s)</strong></div></div><textarea class="${APP.id}-coordsInput" spellcheck="false" placeholder="500|500\n501|502\n498|507">${escapeHtml(coordinates)}</textarea></div>
                     </section>
+                    <section class="${APP.id}-section ${APP.id}-secondarySection">
+                        <div><h3>Marcador Secundário</h3><p>Lista independente, sem filtros nem zonas. Usa uma estrela para distinguir estas aldeias.</p></div>
+                        <div><div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-secondary-enabled" type="checkbox" ${state.secondaryEnabled ? "checked" : ""}> Ativar marcador secundário</label></div><div class="${APP.id}-optionsRow"><strong class="tp-secondary-count">${state.secondaryCoords.size} aldeia(s)</strong><button class="tp-secondary-clear" type="button">Limpar secundário</button></div></div><textarea class="${APP.id}-secondaryInput" spellcheck="false" placeholder="500|500\n501|502">${escapeHtml(secondaryCoordinates)}</textarea></div>
+                    </section>
                     <section class="${APP.id}-section ${APP.id}-toolsSection">
                         <div><h3>Filtros e zonas</h3><p>Reduz a lista por distância e cria grupos geográficos limitados.</p></div>
                         <div class="${APP.id}-tools">
                             <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Distância às minhas aldeias</span><div class="${APP.id}-toolLine"><span>Máximo</span><input class="tp-distance" type="number" min="1" max="200" step="1" value="${state.distance}"><span>campos</span><button class="tp-filter" type="button">Filtrar lista</button></div></div>
-                            <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Zonas geográficas</span><div class="${APP.id}-toolLine"><span>Máximo</span><select class="tp-zone-size"><option value="25" ${state.zoneSize === 25 ? "selected" : ""}>25 aldeias</option><option value="50" ${state.zoneSize === 50 ? "selected" : ""}>50 aldeias</option></select><button class="tp-zones" type="button">Criar zonas</button></div></div>
+                            <div class="${APP.id}-tool"><span class="${APP.id}-toolTitle">Zonas geográficas</span><div class="${APP.id}-toolLine"><span>Máximo</span><select class="tp-zone-size"><option value="25" ${state.zoneSize === 25 ? "selected" : ""}>25 aldeias</option><option value="50" ${state.zoneSize === 50 ? "selected" : ""}>50 aldeias</option></select><button class="tp-zones" type="button">Criar zonas</button><label><input class="tp-zones-enabled" type="checkbox" ${state.zonesEnabled ? "checked" : ""}> Mostrar zonas no mapa</label></div></div>
                         </div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
@@ -1471,7 +1556,7 @@
                     </section>
                     <section class="${APP.id}-section ${APP.id}-attackSection">
                         <div><h3>Aldeias atacadas</h3><p>Marca os destinos dos teus ataques em curso e apresenta as coordenadas no mapa.</p></div>
-                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-attack-enabled" type="checkbox" ${state.attackEnabled ? "checked" : ""}> Ativar marcação de aldeias atacadas</label></div><span class="${APP.id}-toolTitle">Filtros dos ataques</span><div class="${APP.id}-optionsRow"><label><input class="tp-attack-exclude-barb" type="checkbox" ${state.attackExcludeBarbarians ? "checked" : ""}> Excluir aldeias bárbaras</label><label><input class="tp-attack-exclude-farm" type="checkbox" ${state.attackExcludeFarm ? "checked" : ""}> Excluir Assistente de Farm</label></div><div class="${APP.id}-toolLine"><button class="tp-attack-apply" type="button">Carregar ataques e marcar</button><strong class="tp-attack-count">${state.attackCoords.size ? `${state.attackCoords.size} encontrada(s)` : ""}</strong></div></div>
+                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-attack-enabled" type="checkbox" ${state.attackEnabled ? "checked" : ""}> Ativar marcação de aldeias atacadas</label></div><span class="${APP.id}-toolTitle">Filtros dos ataques</span><div class="${APP.id}-optionsRow"><label><input class="tp-attack-exclude-barb" type="checkbox" ${state.attackExcludeBarbarians ? "checked" : ""}> Excluir aldeias bárbaras</label><label><input class="tp-attack-exclude-farm" type="checkbox" ${state.attackExcludeFarm ? "checked" : ""}> Excluir Assistente de Farm</label></div><div class="${APP.id}-attackLegend"><span><i class="tp-going"></i>A caminho</span><span><i class="tp-returning"></i>A retornar</span><span><i class="tp-both"></i>Ambos</span></div><div class="${APP.id}-toolLine"><button class="tp-attack-apply" type="button">Carregar ataques e marcar</button><strong class="tp-attack-count">${state.attackCoords.size ? `${state.attackCoords.size} encontrada(s)` : ""}</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-bonusSection">
                         <div><h3>Bárbaras bónus</h3><p>Analisa automaticamente as aldeias bárbaras e marca apenas os tipos de bónus selecionados.</p></div>
@@ -1500,13 +1585,18 @@
         state.panel = panel;
         sizeNativeDialog(panel);
         const textarea = panel.querySelector("textarea");
+        const secondaryTextarea = panel.querySelector(`.${APP.id}-secondaryInput`);
         const updateCount = () => panel.querySelector(".tp-count").textContent = `${parseCoordinates(textarea.value).size} aldeia(s)`;
+        const updateSecondaryCount = () => panel.querySelector(".tp-secondary-count").textContent = `${parseCoordinates(secondaryTextarea.value).size} aldeia(s)`;
         textarea.addEventListener("input", () => {
             state.zones = [];
+            state.zonesEnabled = false;
             updateZonesOutput(panel);
             updateCount();
         });
         panel.querySelector(".tp-clear").addEventListener("click", () => { textarea.value = ""; updateCount(); });
+        secondaryTextarea.addEventListener("input", updateSecondaryCount);
+        panel.querySelector(".tp-secondary-clear").addEventListener("click", () => { secondaryTextarea.value = ""; updateSecondaryCount(); });
         panel.querySelector(".tp-filter").addEventListener("click", async (event) => {
             const button = event.currentTarget;
             const distance = Math.max(1, Math.min(200, Number(panel.querySelector(".tp-distance").value) || 20));
@@ -1525,6 +1615,7 @@
                 textarea.value = filtered.map(({ x, y }) => `${x}|${y}`).join("\n");
                 state.distance = distance;
                 state.zones = [];
+                state.zonesEnabled = false;
                 updateZonesOutput(panel);
                 updateCount();
                 notify(`${filtered.length} de ${candidates.length} aldeias estão a até ${distance} campos.`);
@@ -1545,6 +1636,9 @@
             try {
                 const own = await loadOwnVillages();
                 state.zones = buildZones(coordinatesToGroup, state.zoneSize, own);
+                state.zonesEnabled = true;
+                const zonesEnabled = panel.querySelector(".tp-zones-enabled");
+                if (zonesEnabled) zonesEnabled.checked = true;
                 updateZonesOutput(panel);
                 notify(`${state.zones.length} zona(s) criada(s), da mais próxima para a mais distante.`);
             } catch (error) {
@@ -1624,11 +1718,14 @@
         });
         panel.querySelector(".tp-save").addEventListener("click", async () => {
             setCoordinates(textarea.value);
+            state.secondaryCoords = parseCoordinates(secondaryTextarea.value);
+            state.secondaryEnabled = panel.querySelector(".tp-secondary-enabled")?.checked === true;
             state.color = panel.querySelector(".tp-color").value;
             state.showLabels = panel.querySelector(".tp-labels").checked;
             state.coordinatesEnabled = panel.querySelector(".tp-enabled").checked;
             state.distance = Math.max(1, Math.min(200, Number(panel.querySelector(".tp-distance").value) || 20));
             state.zoneSize = Number(panel.querySelector(".tp-zone-size").value) === 50 ? 50 : 25;
+            state.zonesEnabled = panel.querySelector(".tp-zones-enabled")?.checked === true && state.zones.length > 0;
             state.bonusTypes = [...panel.querySelectorAll(`.${APP.id}-bonusOptions input:checked`)].map((input) => String(input.value));
             state.bonusEnabled = panel.querySelector(".tp-bonus-enabled")?.checked === true;
             state.supportMode = panel.querySelector(".tp-support-mode")?.value || "both";
@@ -1865,8 +1962,10 @@
             const support = state.supportCoords.get(`${x}|${y}`);
             const supportTravel = state.supportTravelCoords.get(`${x}|${y}`);
             const attack = state.attackCoords.get(`${x}|${y}`);
+            const secondary = state.secondaryEnabled && state.secondaryCoords.has(`${x}|${y}`);
             const details = [];
-            if (attack) details.push(`${attack.count} ataque(s) em curso${attack.isBarbarian ? " — aldeia bárbara" : ""}${attack.isFarm ? " — Assistente de Farm" : ""}`);
+            if (attack) details.push(`${attack.outgoingCount || 0} ataque(s) a caminho; ${attack.returningCount || 0} a retornar${attack.isBarbarian ? " — aldeia bárbara" : ""}${attack.isFarm ? " — Assistente de Farm" : ""}`);
+            if (secondary) details.push("marcador secundário");
             if (supportTravel) details.push(`${supportTravel.count} apoio(s) a caminho (${supportTravel.isOwn ? "aldeia própria" : "outro jogador"})`);
             if (support) details.push(`tropas estacionadas em apoio (${support.isOwn ? "aldeia própria" : "outro jogador"})`);
             if (bonus) details.push(bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`);
@@ -1876,7 +1975,8 @@
             marker.style.top = `${top}px`;
             const bonusIcon = bonus ? bonusIconUrl(bonus.bonus) : "";
             const labelIcon = bonusIcon ? `<img class="${APP.id}-pinBonusIcon" src="${escapeHtml(bonusIcon)}" alt="" title="${escapeHtml(bonusData()?.[bonus.bonus]?.text || `Bónus ${bonus.bonus}`)}">` : "";
-            marker.innerHTML = `<i class="${APP.id}-pinIcon"></i>${state.showLabels || attack || supportTravel ? `<b class="${APP.id}-pinLabel ${bonusIcon ? `${APP.id}-pinLabelBonus` : ""}">${labelIcon}<span>${x}|${y}</span></b>` : ""}`;
+            const markerIcon = secondary ? `<i class="${APP.id}-secondaryStar">★</i>` : `<i class="${APP.id}-pinIcon"></i>`;
+            marker.innerHTML = `${markerIcon}${state.showLabels || attack || supportTravel || secondary ? `<b class="${APP.id}-pinLabel ${bonusIcon ? `${APP.id}-pinLabelBonus` : ""}">${labelIcon}<span>${x}|${y}</span></b>` : ""}`;
             image.parentElement.appendChild(marker);
         }
     }
@@ -1960,7 +2060,9 @@
         for (const { x, y } of activeCoordinates().values()) {
             if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) continue;
             const dot = document.createElement("span");
-            dot.className = `${APP.id}-miniDot`;
+            const secondary = state.secondaryEnabled && state.secondaryCoords.has(`${x}|${y}`);
+            dot.className = `${APP.id}-miniDot${secondary ? " tp-secondary" : ""}`;
+            if (secondary) dot.textContent = "★";
             dot.title = `${x}|${y}`;
             dot.dataset.x = String(x);
             dot.dataset.y = String(y);
@@ -1969,7 +2071,7 @@
             dot.style.top = `${((y - bounds.minY) / (bounds.maxY - bounds.minY)) * 100}%`;
             overlay.appendChild(dot);
         }
-        state.zones.forEach((zone, index) => {
+        (state.coordinatesEnabled && state.zonesEnabled ? state.zones : []).forEach((zone, index) => {
             const center = zoneCenter(zone);
             if (center.x < bounds.minX || center.x > bounds.maxX || center.y < bounds.minY || center.y > bounds.maxY) return;
             const badge = document.createElement("span");
@@ -1996,7 +2098,9 @@
         overlay.style.setProperty("--tp-marker-color", state.color);
         for (const { x, y } of targets.values()) {
             const dot = document.createElement("span");
-            dot.className = `${APP.id}-miniDot`;
+            const secondary = state.secondaryEnabled && state.secondaryCoords.has(`${x}|${y}`);
+            dot.className = `${APP.id}-miniDot${secondary ? " tp-secondary" : ""}`;
+            if (secondary) dot.textContent = "★";
             dot.title = `${x}|${y}`;
             dot.dataset.x = String(x);
             dot.dataset.y = String(y);
@@ -2004,7 +2108,7 @@
             positionMiniElement(dot, x, y, mapping);
             overlay.appendChild(dot);
         }
-        state.zones.forEach((zone, index) => {
+        (state.coordinatesEnabled && state.zonesEnabled ? state.zones : []).forEach((zone, index) => {
             const center = zoneCenter(zone);
             const badge = document.createElement("span");
             badge.className = `${APP.id}-zoneBadge`;

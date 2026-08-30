@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.23
+// @version      1.3.24
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -25,7 +25,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.23',
+        version: '1.3.24',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -350,7 +350,6 @@
             <span class="auto-farm-a-launcher-icon">F</span>
             <span data-auto-farm-power role="switch" aria-checked="false"
                 title="Ligar ou desligar o AutoFarm">&#x23FB;</span>
-            <span data-auto-farm-dot aria-hidden="true"></span>
             <span data-auto-farm-countdown hidden></span>
         `;
         button.addEventListener('click', event => {
@@ -562,9 +561,6 @@
             #${APP.toolbarId}>#${APP.buttonId}.af-verificacao{background:linear-gradient(to bottom,#d99a2b,#a86412 55%,#754006)!important}
             #${APP.toolbarId}>#${APP.buttonId}:hover,#${APP.toolbarId}>#${APP.buttonId}:focus-visible{filter:brightness(1.18)!important}
             #${APP.buttonId} .auto-farm-a-launcher-icon{display:block!important;line-height:26px!important}
-            #${APP.buttonId} [data-auto-farm-dot]{position:absolute!important;right:2px!important;bottom:2px!important;width:6px!important;height:6px!important;border:1px solid #2b1509!important;border-radius:50%!important;background:#ff6b6b!important;box-shadow:0 0 2px #000!important}
-            #${APP.buttonId}.af-ligado [data-auto-farm-dot]{background:#7cfc00!important}
-            #${APP.buttonId}.af-verificacao [data-auto-farm-dot]{background:#ffe34a!important}
             #${APP.buttonId} [data-auto-farm-power]{position:absolute!important;right:-7px!important;top:-7px!important;width:15px!important;height:15px!important;display:flex!important;align-items:center!important;justify-content:center!important;border:1px solid #4f120f!important;border-radius:50%!important;background:#a92d27!important;color:#fff!important;font:bold 10px/13px Arial,sans-serif!important;text-shadow:0 1px #000!important;box-shadow:0 1px 3px #0009!important;cursor:pointer!important;pointer-events:auto!important;z-index:4!important}
             #${APP.buttonId}.af-ligado [data-auto-farm-power]{background:#3f8a29!important}
             #${APP.buttonId}.af-verificacao [data-auto-farm-power]{background:#c27b16!important}
@@ -3039,6 +3035,15 @@
             return { sent: false, cancelled: true, model: task.model };
         }
 
+        const availability = getFarmTemplateAvailability(task.model);
+        if (availability.known && !availability.available) {
+            console.info(
+                `[${APP.shortName}] Modelo ${task.model.toUpperCase()} sem unidades suficientes ` +
+                `antes do envio (${availability.missing.join(', ')}).`
+            );
+            return { sent: false, noTroops: true, model: task.model, preflight: true };
+        }
+
         const unitSpeed = await loadWorldUnitSpeed();
         const distance = getTargetDistance(task.row);
         const target = getCoordinates(task.row.textContent);
@@ -3068,6 +3073,11 @@
             !modelHasCapacity(task.model, currentConfig) ||
             !roundTargetCanSend(task.model, task.targetKey, currentConfig)
         ) return { sent: false, cancelled: true, model: task.model };
+
+        const finalAvailability = getFarmTemplateAvailability(task.model);
+        if (finalAvailability.known && !finalAvailability.available) {
+            return { sent: false, noTroops: true, model: task.model, preflight: true };
+        }
 
         const errorsBefore = captureGameErrors();
         task.button.click();
@@ -3133,12 +3143,18 @@
             ...getCurrentRelevantGameErrors(),
         ]));
         const message = messages.join(' · ');
-        const captcha = hasCaptchaChallenge(document) || messages.some(isCaptchaMessage);
+        const pageText = normalizeGameMessage(
+            document.body?.innerText || document.body?.textContent || ''
+        );
+        const captcha = hasCaptchaChallenge(document) ||
+            messages.some(isCaptchaMessage) ||
+            isCaptchaMessage(pageText);
         if (captcha) pauseForCaptcha('resposta ao envio do modelo');
         return {
             captcha,
-            noTroops: messages.some(isNoTroopsMessage),
-            rateLimited: messages.some(isCommandRateLimitMessage),
+            noTroops: messages.some(isNoTroopsMessage) || isNoTroopsMessage(pageText),
+            rateLimited: messages.some(isCommandRateLimitMessage) ||
+                isCommandRateLimitMessage(pageText),
             error: messages.length > 0,
             message: message || 'erro não identificado',
         };
@@ -4080,10 +4096,23 @@
         if (!Object.values(result).some(value => value > 0)) {
             Object.assign(result, getFarmTemplateUnitsFromDom(model, templateId));
         }
-        if (!Object.values(result).some(value => value > 0)) {
-            Object.assign(result, getAvailableFarmUnitsFromDom());
-        }
         return result;
+    }
+
+    function getFarmTemplateAvailability(model) {
+        const required = getFarmTemplateUnits(model);
+        const available = getAvailableFarmUnitsFromDom();
+        const requirements = Object.entries(required)
+            .filter(([, amount]) => Number(amount) > 0);
+        const known = requirements.length > 0 && Object.keys(available).length > 0;
+        if (!known) return { known: false, available: true, missing: [] };
+
+        const missing = requirements.filter(([unit, amount]) => (
+            Number(available[unit] ?? 0) < Number(amount)
+        )).map(([unit, amount]) => (
+            `${unit} ${Number(available[unit] ?? 0)}/${Number(amount)}`
+        ));
+        return { known: true, available: missing.length === 0, missing };
     }
 
     function collectTemplateUnits(template, result) {
@@ -4163,26 +4192,56 @@
         const result = {};
         const root = document.querySelector('#am_widget_Farm');
         if (!root) return result;
+
+        Object.keys(UNIT_MINUTES_PER_FIELD).forEach(unit => {
+            const candidates = [
+                root.querySelector(`#${unit}`),
+                root.querySelector(`[data-unit="${unit}"][data-count]`),
+                root.querySelector(`[data-unit="${unit}"].unit-count`),
+                root.querySelector(`.unit-item-${unit}`),
+                root.querySelector(`.unit_${unit}`),
+            ].filter(Boolean);
+            for (const element of candidates) {
+                const values = [
+                    element.getAttribute?.('data-count'),
+                    element.getAttribute?.('data-value'),
+                    element.textContent,
+                ];
+                const parsed = values.map(parseFarmUnitAmount)
+                    .find(Number.isFinite);
+                if (Number.isFinite(parsed)) {
+                    result[unit] = parsed;
+                    break;
+                }
+            }
+        });
+
         root.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
             const unit = getInputUnitName(checkbox);
             const cell = checkbox.closest('td,th');
             const row = cell?.closest('tr');
-            if (!unit || !checkbox.checked || !cell || !row) return;
+            if (!unit || !cell || !row) return;
 
             let amount = null;
             let candidateRow = row.nextElementSibling;
             for (let index = 0; candidateRow && index < 3; index += 1) {
                 const candidateCell = candidateRow.cells?.[cell.cellIndex];
-                const text = String(candidateCell?.textContent || '').trim().replace(/\s+/g, '');
-                if (/^\d{1,3}(?:[.]\d{3})*$/.test(text) || /^\d+$/.test(text)) {
-                    amount = Number(text.replace(/[.]/g, ''));
+                const parsed = parseFarmUnitAmount(candidateCell?.textContent);
+                if (Number.isFinite(parsed)) {
+                    amount = parsed;
                     break;
                 }
                 candidateRow = candidateRow.nextElementSibling;
             }
-            if (Number.isFinite(amount) && amount > 0) result[unit] = amount;
+            if (Number.isFinite(amount) && amount >= 0) result[unit] = amount;
         });
         return result;
+    }
+
+    function parseFarmUnitAmount(value) {
+        const text = String(value ?? '').trim().replace(/\s+/g, '');
+        if (!/^\d{1,3}(?:[.]\d{3})*$/.test(text) && !/^\d+$/.test(text)) return NaN;
+        return Number(text.replace(/[.]/g, ''));
     }
 
     function templateInputBelongsToModel(input, row, model, templateId, fallbackRow) {
