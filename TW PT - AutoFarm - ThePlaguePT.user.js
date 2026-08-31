@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.28
+// @version      1.3.29
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -27,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.28',
+        version: '1.3.29',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -2178,7 +2178,31 @@
         state.idleScans = 0;
         const run = ensureRunState();
         if (navigateToNextFarmPage(run)) return;
+        if (restartFarmTargetPass(run)) return;
         finishCurrentVillageFarm(run);
+    }
+
+    function restartFarmTargetPass(runValue) {
+        const run = runValue || ensureRunState();
+        const settings = state.settings || loadSettings();
+        const exhausted = new Set(run.round.exhaustedModels || []);
+        const hasIncompleteTargets = Object.values(run.round.targets || {}).some(progress => {
+            const config = settings.models?.[progress.model];
+            return Boolean(
+                config?.enabled &&
+                !exhausted.has(progress.model) &&
+                Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config)
+            );
+        });
+        if (!hasIncompleteTargets) return false;
+
+        run.round.targetPass = Math.max(1, Number(run.round.targetPass) || 1) + 1;
+        run.round.visitedPages = [];
+        run.round.phase = 'changing_page';
+        run.round.farmCompleted = false;
+        writeRunState(run);
+        navigateRoundUrl(buildFirstFarmPageUrl(run.round.currentVillageId).href);
+        return true;
     }
 
     function finishCurrentVillageFarm(runValue) {
@@ -2639,6 +2663,8 @@
             currentRun.round.currentVillageId = current;
             currentRun.round.visitedPages = [];
             currentRun.round.exhaustedModels = [];
+            currentRun.round.targets = {};
+            currentRun.round.targetPass = 1;
             startCurrentFarmPage(currentRun);
         } finally {
             state.villagePreparing = false;
@@ -2654,7 +2680,6 @@
         const pageKey = getCurrentFarmPageKey();
         if (!run.round.visitedPages.includes(pageKey)) run.round.visitedPages.push(pageKey);
         run.round.phase = 'farming';
-        run.round.targets = {};
         run.round.farmCompleted = false;
         run.round.pauseUntil = 0;
         writeRunState(run);
@@ -2681,7 +2706,6 @@
         if (!next) return false;
 
         run.round.phase = 'changing_page';
-        run.round.targets = {};
         writeRunState(run);
         navigateRoundUrl(next.url);
         return true;
@@ -2812,6 +2836,7 @@
             run.round.currentVillageId = nextVillage;
             run.round.visitedPages = [];
             run.round.targets = {};
+            run.round.targetPass = 1;
             run.round.farmCompleted = false;
             run.round.phase = 'changing_village';
             writeRunState(run);
@@ -2933,6 +2958,7 @@
         const run = runValue || ensureRunState();
         run.counts = { a: 0, b: 0, c: 0 };
         run.round.targets = {};
+        run.round.targetPass = 1;
         run.round.farmCompleted = false;
         run.round.spy = { sent: 0, attempted: {} };
         run.round.groupId = '';
@@ -2988,6 +3014,7 @@
         const run = ensureRunState();
         const exhaustedModels = new Set(run.round.exhaustedModels || []);
         const activeCounts = getActiveAttackCounts();
+        const targetPass = Math.max(1, Number(run.round.targetPass) || 1);
         const now = Date.now();
         state.pendingTargetDueAt = 0;
         state.pageDeferredCandidates = 0;
@@ -3003,6 +3030,9 @@
                 if (Math.max(0, Number(progress.sent) || 0) >= maximum) {
                     row.dataset.twPtAutofarmSent = '1';
                     state.processedTargets.add(targetKey);
+                    continue;
+                }
+                if (Math.max(0, Number(progress.lastPass) || 0) >= targetPass) {
                     continue;
                 }
                 const button = row.querySelector(`a.farm_icon_${progress.model}`);
@@ -3142,10 +3172,13 @@
 
     function roundTargetCanSend(model, targetKey, config) {
         if (!targetKey) return true;
-        const progress = readRunState()?.round?.targets?.[targetKey];
+        const round = readRunState()?.round;
+        const progress = round?.targets?.[targetKey];
         if (!progress) return true;
         return progress.model === model &&
             Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config) &&
+            Math.max(0, Number(progress.lastPass) || 0) <
+                Math.max(1, Number(round.targetPass) || 1) &&
             Math.max(0, Number(progress.nextAt) || 0) <= Date.now();
     }
 
@@ -3633,6 +3666,7 @@
                 pauseUntil: 0,
                 farmCompleted: false,
                 targets: {},
+                targetPass: 1,
                 spy: { sent: 0, attempted: {} },
                 groupId: '',
                 groupName: '',
@@ -3686,6 +3720,7 @@
             : 0;
         const sent = targetKey ? previousSent + 1 : 1;
         const complete = !targetKey || sent >= maximum;
+        const targetPass = Math.max(1, Number(run.round.targetPass) || 1);
         const now = Date.now();
         const nextAt = complete
             ? 0
@@ -3698,6 +3733,7 @@
                 sent,
                 nextAt,
                 lastAt: now,
+                lastPass: targetPass,
             };
         }
         run.lastSend = {
@@ -4425,6 +4461,7 @@
             pauseUntil: Math.max(0, Number(source.pauseUntil) || 0),
             farmCompleted: source.farmCompleted === true,
             targets: normalizeRoundTargets(source.targets),
+            targetPass: integerValue(source.targetPass, 1, 1, 50),
             spy: normalizeRoundSpy(source.spy),
             groupId: /^-?\d+$/.test(String(source.groupId || '')) ? String(source.groupId) : '',
             groupName: String(source.groupName || '').slice(0, 120),
@@ -4481,6 +4518,12 @@
                 sent: integerValue(progress.sent, 1, 1, 50),
                 nextAt: Math.max(0, Number(progress.nextAt) || 0),
                 lastAt: Math.max(0, Number(progress.lastAt) || 0),
+                lastPass: integerValue(
+                    progress.lastPass,
+                    1,
+                    1,
+                    50
+                ),
             };
         });
         return targets;
