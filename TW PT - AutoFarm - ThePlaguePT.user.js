@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.29
+// @version      1.3.30
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -27,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.29',
+        version: '1.3.30',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -2191,7 +2191,8 @@
             return Boolean(
                 config?.enabled &&
                 !exhausted.has(progress.model) &&
-                Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config)
+                Math.max(0, Number(progress.baselineActive) || 0) +
+                    Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config)
             );
         });
         if (!hasIncompleteTargets) return false;
@@ -3027,7 +3028,23 @@
                 if (exhaustedModels.has(progress.model)) continue;
                 const config = settings.models[progress.model];
                 const maximum = getSameVillageLimit(config);
-                if (Math.max(0, Number(progress.sent) || 0) >= maximum) {
+                const sent = Math.max(0, Number(progress.sent) || 0);
+                const activeStatus = getTargetActiveLimitStatus(
+                    row,
+                    progress.model,
+                    targetKey,
+                    config
+                );
+                const observedBaseline = Math.max(
+                    Math.max(0, Number(progress.baselineActive) || 0),
+                    activeStatus.count - sent
+                );
+                if (observedBaseline !== progress.baselineActive) {
+                    progress.baselineActive = observedBaseline;
+                    run.round.targets[targetKey] = progress;
+                    writeRunState(run);
+                }
+                if (observedBaseline + sent >= maximum || activeStatus.count >= maximum) {
                     row.dataset.twPtAutofarmSent = '1';
                     state.processedTargets.add(targetKey);
                     continue;
@@ -3065,6 +3082,7 @@
                     model: progress.model,
                     reportColor,
                     targetKey,
+                    targetActiveCount: activeStatus.count,
                 };
             }
 
@@ -3072,7 +3090,8 @@
             const selected = selectModelForRow(
                 row,
                 activeCounts,
-                exhaustedModels
+                exhaustedModels,
+                targetKey
             );
             if (selected) {
                 return {
@@ -3081,6 +3100,7 @@
                     model: selected.model,
                     reportColor: selected.reportColor,
                     targetKey,
+                    targetActiveCount: selected.targetActiveCount,
                 };
             }
         }
@@ -3111,7 +3131,8 @@
     function selectModelForRow(
         row,
         activeCounts,
-        exhaustedModelsValue
+        exhaustedModelsValue,
+        targetKeyValue = getTargetKey(row)
     ) {
         const settings = state.settings || loadSettings();
         const reportColor = getReportColor(row);
@@ -3131,11 +3152,25 @@
                 continue;
             }
             if (isFarmButtonDisabled(button)) continue;
+            const targetStatus = getTargetActiveLimitStatus(
+                row,
+                model,
+                targetKeyValue,
+                config
+            );
+            if (config.sameVillage?.enabled && targetStatus.count >= getSameVillageLimit(config)) {
+                continue;
+            }
             if (!modelHasCapacity(model, config, activeCounts)) {
                 deferFarmRow(getNextActiveImpact(model));
                 continue;
             }
-            return { model, button, reportColor };
+            return {
+                model,
+                button,
+                reportColor,
+                targetActiveCount: targetStatus.count,
+            };
         }
         return null;
     }
@@ -3170,13 +3205,74 @@
         return config.loot.full || config.loot.partial;
     }
 
-    function roundTargetCanSend(model, targetKey, config) {
+    function getTargetActiveLimitStatus(row, model, targetKey, config) {
+        if (!config?.sameVillage?.enabled || !targetKey) {
+            return { count: 0, gameCount: null, localCount: 0 };
+        }
+        const gameCount = getGameActiveTargetCount(row);
+        const localCount = getActiveTargetStatus(model, targetKey, config).count;
+        return {
+            count: Math.max(localCount, gameCount === null ? 0 : gameCount),
+            gameCount,
+            localCount,
+        };
+    }
+
+    function getGameActiveTargetCount(row) {
+        if (!row) return null;
+        const descriptions = [
+            row.getAttribute?.('title'),
+            row.getAttribute?.('aria-label'),
+            row.getAttribute?.('data-title'),
+            row.getAttribute?.('data-attacks'),
+            row.getAttribute?.('data-attack-count'),
+        ];
+        row.querySelectorAll?.([
+            '[title]',
+            '[aria-label]',
+            '[data-title]',
+            '[data-attacks]',
+            '[data-attack-count]',
+        ].join(','))?.forEach(element => {
+            descriptions.push(
+                element.getAttribute?.('title'),
+                element.getAttribute?.('aria-label'),
+                element.getAttribute?.('data-title'),
+                element.getAttribute?.('data-attacks'),
+                element.getAttribute?.('data-attack-count')
+            );
+        });
+        descriptions.push(row.outerHTML);
+
+        let maximum = null;
+        descriptions.filter(Boolean).forEach(description => {
+            const text = normalizeText(description);
+            const patterns = [
+                /(\d+)\s*(?:ataques?|attacks?|angriffe?|attaques?)\s*(?:em curso|a decorrer|ativos?|active|running|in progress)?/i,
+                /(?:ataques?|attacks?|angriffe?|attaques?)\s*(?:em curso|a decorrer|ativos?|active|running|in progress)?\s*[:=-]?\s*(\d+)/i,
+            ];
+            for (const pattern of patterns) {
+                const match = text.match(pattern);
+                if (!match) continue;
+                const count = Number(match[1]);
+                if (Number.isFinite(count)) maximum = Math.max(maximum ?? 0, count);
+            }
+        });
+        return maximum;
+    }
+
+    function roundTargetCanSend(model, targetKey, config, row) {
         if (!targetKey) return true;
         const round = readRunState()?.round;
         const progress = round?.targets?.[targetKey];
+        const activeStatus = getTargetActiveLimitStatus(row, model, targetKey, config);
+        if (config?.sameVillage?.enabled && activeStatus.count >= getSameVillageLimit(config)) {
+            return false;
+        }
         if (!progress) return true;
         return progress.model === model &&
-            Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config) &&
+            Math.max(0, Number(progress.baselineActive) || 0) +
+                Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config) &&
             Math.max(0, Number(progress.lastPass) || 0) <
                 Math.max(1, Number(round.targetPass) || 1) &&
             Math.max(0, Number(progress.nextAt) || 0) <= Date.now();
@@ -3198,7 +3294,7 @@
             !currentConfig?.enabled ||
             !modelMatchesRow(task.row, currentConfig, currentColor) ||
             !modelHasCapacity(task.model, currentConfig) ||
-            !roundTargetCanSend(task.model, task.targetKey, currentConfig)
+            !roundTargetCanSend(task.model, task.targetKey, currentConfig, task.row)
         ) {
             console.warn(
                 `[${APP.shortName}] Envio ${task.model.toUpperCase()} cancelado: ` +
@@ -3230,7 +3326,7 @@
             !currentConfig?.enabled ||
             !modelMatchesRow(task.row, currentConfig, currentColor) ||
             !modelHasCapacity(task.model, currentConfig) ||
-            !roundTargetCanSend(task.model, task.targetKey, currentConfig)
+            !roundTargetCanSend(task.model, task.targetKey, currentConfig, task.row)
         ) return { sent: false, cancelled: true, model: task.model };
 
         await reserveCommandSendSlot();
@@ -3243,7 +3339,7 @@
             !currentConfig?.enabled ||
             !modelMatchesRow(task.row, currentConfig, currentColor) ||
             !modelHasCapacity(task.model, currentConfig) ||
-            !roundTargetCanSend(task.model, task.targetKey, currentConfig)
+            !roundTargetCanSend(task.model, task.targetKey, currentConfig, task.row)
         ) return { sent: false, cancelled: true, model: task.model };
 
         const finalAvailability = getFarmTemplateAvailability(task.model);
@@ -3285,6 +3381,7 @@
             distance,
             minutesPerField,
             unitSpeed,
+            targetActiveCount: task.targetActiveCount,
         });
         if (!task.targetKey || progress.complete) {
             state.processedRows.add(task.row);
@@ -3718,8 +3815,11 @@
         const previousSent = targetKey && run.round.targets[targetKey]?.model === model
             ? Math.max(0, Number(run.round.targets[targetKey].sent) || 0)
             : 0;
+        const previousBaseline = targetKey && run.round.targets[targetKey]?.model === model
+            ? Math.max(0, Number(run.round.targets[targetKey].baselineActive) || 0)
+            : Math.max(0, Number(details.targetActiveCount) || 0);
         const sent = targetKey ? previousSent + 1 : 1;
-        const complete = !targetKey || sent >= maximum;
+        const complete = !targetKey || previousBaseline + sent >= maximum;
         const targetPass = Math.max(1, Number(run.round.targetPass) || 1);
         const now = Date.now();
         const nextAt = complete
@@ -3734,6 +3834,7 @@
                 nextAt,
                 lastAt: now,
                 lastPass: targetPass,
+                baselineActive: previousBaseline,
             };
         }
         run.lastSend = {
@@ -4524,6 +4625,7 @@
                     1,
                     50
                 ),
+                baselineActive: integerValue(progress.baselineActive, 0, 0, 50),
             };
         });
         return targets;

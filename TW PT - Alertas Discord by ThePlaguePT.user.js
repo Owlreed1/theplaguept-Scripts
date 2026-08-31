@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.83
+// @version      1.3.85
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.83';
+    const SCRIPT_VERSION = '1.3.85';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
     const SCRIPT_DISPLAY_TITLE = `Alertas Discord - ThePlaguePT v${SCRIPT_VERSION}`;
 
@@ -1069,25 +1069,87 @@
         return Math.sqrt((dx * dx) + (dy * dy)).toFixed(2);
     }
 
-    function extractStableArrival(row, timerText) {
-        const rowText = cleanText(row.innerText).replace(timerText || '', ' ');
-        const match = rowText.match(
-            /((Hoje|Amanhã|Amanha|Ontem|\d{1,2}\.\d{1,2}(?:\.\d{2,4})?)\s*)?(?:às\s*)?(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i
+    function normalizeTimingText(value) {
+        return cleanText(value)
+            .replace(/(\d{1,2}:\d{2}:\d{2})\s*[.:]\s*(\d{1,3})(?!\d)/g, (_, time, ms) => (
+                `${time}:${String(ms).padStart(3, '0')}`
+            ))
+            .replace(/\s+(:\d{3})\b/g, '$1');
+    }
+
+    function getNodeTimingTextCandidates(node) {
+        if (!node) return [];
+
+        const values = [
+            node.innerText || '',
+            node.textContent || ''
+        ];
+
+        if (typeof node.getAttribute === 'function') {
+            values.push(
+                node.getAttribute('title') || '',
+                node.getAttribute('data-title') || ''
+            );
+        }
+
+        return values
+            .map(normalizeTimingText)
+            .filter(Boolean);
+    }
+
+    function getNodeTimingText(node) {
+        const candidates = getNodeTimingTextCandidates(node);
+        return candidates.find(text => /\d{1,2}:\d{2}:\d{2}:\d{3}\b/.test(text)) || candidates[0] || '';
+    }
+
+    function extractArrivalFromText(value, timerText) {
+        const timer = normalizeTimingText(timerText);
+        const text = timer
+            ? normalizeTimingText(value).replace(timer, ' ')
+            : normalizeTimingText(value);
+        const match = text.match(
+            /((Hoje|Amanhã|Amanha|Ontem|Today|Tomorrow|Yesterday|\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)\s*)?(?:às|as|at)?\s*(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i
         );
 
         if (!match) return '';
 
         const day = cleanText(match[1] || '');
         const time = cleanText(match[3] || '');
-        return cleanText(`${day} ${time}`);
+        return cleanText(day ? `${day} às ${time}` : time);
+    }
+
+    function extractStableArrival(row, timerText) {
+        const cells = Array.from(row ? row.querySelectorAll('td') : []);
+        const candidates = [
+            ...cells.flatMap(getNodeTimingTextCandidates),
+            ...getNodeTimingTextCandidates(row)
+        ];
+        const arrivals = candidates
+            .map(text => extractArrivalFromText(text, timerText))
+            .filter(Boolean);
+
+        if (!arrivals.length) return '';
+
+        const hasDayOrDate = text => /hoje|amanh|ontem|today|tomorrow|yesterday|\d{1,2}[./]\d{1,2}/i.test(text);
+        const hasMilliseconds = text => /\d{1,2}:\d{2}:\d{2}:\d{3}\b/.test(text);
+
+        return arrivals.find(text => hasDayOrDate(text) && hasMilliseconds(text)) ||
+            arrivals.find(hasMilliseconds) ||
+            arrivals.find(hasDayOrDate) ||
+            arrivals[0];
+    }
+
+    function isDurationText(value) {
+        return /^\d+:\d{2}(?::\d{2}(?::\d{3})?)?$/.test(normalizeTimingText(value));
     }
 
     function parseDurationMs(value) {
-        const text = cleanText(value);
+        const text = normalizeTimingText(value);
 
-        let match = text.match(/^(\d+):(\d{2}):(\d{2})(?::\d{3})?$/);
+        let match = text.match(/^(\d+):(\d{2}):(\d{2})(?::(\d{1,3}))?$/);
         if (match) {
-            return ((Number(match[1]) * 3600) + (Number(match[2]) * 60) + Number(match[3])) * 1000;
+            const milliseconds = match[4] ? Number(String(match[4]).padStart(3, '0')) : 0;
+            return (((Number(match[1]) * 3600) + (Number(match[2]) * 60) + Number(match[3])) * 1000) + milliseconds;
         }
 
         match = text.match(/^(\d+):(\d{2})$/);
@@ -1186,15 +1248,8 @@
     }
 
     function parseRemainingSeconds(value) {
-        const text = cleanText(value);
-
-        let match = text.match(/^(\d+):(\d{2}):(\d{2})$/);
-        if (match) return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-
-        match = text.match(/^(\d+):(\d{2})$/);
-        if (match) return Number(match[1]) * 60 + Number(match[2]);
-
-        return null;
+        const durationMs = parseDurationMs(value);
+        return durationMs ? durationMs / 1000 : null;
     }
 
     function inferUnitFromTravelTime(distance, remainingText) {
@@ -1264,24 +1319,25 @@
         const target = parseVillage(targetCell);
         const targetIndex = cells.indexOf(targetCell);
         const timerNode = row.querySelector('.timer, [data-endtime]');
-        const timerText = timerNode ? cleanText(timerNode.innerText) : '';
+        const timerText = getNodeTimingText(timerNode);
         const endTime = timerNode ? (timerNode.getAttribute('data-endtime') || '') : '';
         const estimatedEndTime = getEstimatedEndKey(timerText);
         const timingTexts = cells
             .slice(targetIndex + 1)
-            .map(cell => cleanText(cell.innerText))
+            .map(getNodeTimingText)
             .filter(Boolean)
             .filter(text => text !== attacker)
             .filter(text => text !== origin.text)
             .filter(text => text !== target.text);
 
         const stableArrival = extractStableArrival(row, timerText);
-        const arrival = stableArrival || timingTexts.find(text =>
-            text !== timerText &&
-            /hoje|amanh|ontem|às|\d{1,2}:\d{2}:\d{2}/i.test(text)
-        ) || timingTexts[0] || 'N/A';
+        const arrival = stableArrival ||
+            timingTexts.map(text => extractArrivalFromText(text, timerText)).find(Boolean) ||
+            timingTexts.find(text => text !== timerText && /hoje|amanh|ontem|às|\d{1,2}:\d{2}:\d{2}/i.test(text)) ||
+            timingTexts[0] ||
+            'N/A';
 
-        const remaining = timerText || timingTexts.find(text => text !== arrival) || 'N/A';
+        const remaining = timerText || timingTexts.find(text => text !== arrival && isDurationText(text)) || 'N/A';
         const distance = calculateDistance(origin, target);
         let unit = detectUnit(row, commandName);
 
@@ -1937,7 +1993,16 @@
     }
 
     function formatArrivalText(value) {
-        return cleanText(value).replace(/^hoje\b/i, 'Hoje');
+        return normalizeTimingText(value)
+            .replace(/^hoje\b/i, 'Hoje')
+            .replace(/^amanhã\b/i, 'Amanhã')
+            .replace(/^amanha\b/i, 'Amanhã')
+            .replace(/^ontem\b/i, 'Ontem') ||
+            'N/A';
+    }
+
+    function formatRemainingText(value) {
+        return normalizeTimingText(value) || 'N/A';
     }
 
     function getDefenderProfileUrl() {
@@ -2006,7 +2071,7 @@
                         '',
                         `🛡️ Unidade: ${getCommandValue(attack)}`,
                         `🕒 Chegada: **${formatArrivalText(attack.arrival)}**`,
-                        `⌛ Restante: **${attack.remaining}**`
+                        `⌛ Restante: **${formatRemainingText(attack.remaining)}**`
                     ].join('\n'),
                     inline: false
                 },
@@ -2039,6 +2104,22 @@
         const target = attack.origin.coords ? attack.origin.coords.text : attack.origin.name;
         const attacker = attack.attacker || 'Desconhecido';
         return target + '|' + attacker;
+    }
+
+    function getAttackArrivalSortKey(attack) {
+        const arrival = formatArrivalText(attack && attack.arrival);
+        const match = arrival.match(/(\d{1,2}):(\d{2}):(\d{2})(?::(\d{3}))?/);
+
+        if (!match) return arrival;
+
+        const dayWeight = /^amanh/i.test(arrival) || /^tomorrow/i.test(arrival) ? 1 : 0;
+        return [
+            dayWeight,
+            String(Number(match[1])).padStart(2, '0'),
+            match[2],
+            match[3],
+            match[4] || '000'
+        ].join(':');
     }
 
     function numberIcon(index) {
@@ -2272,7 +2353,7 @@
             return;
         }
 
-        train.attacks.sort((a, b) => String(a.arrival).localeCompare(String(b.arrival)));
+        train.attacks.sort((a, b) => getAttackArrivalSortKey(a).localeCompare(getAttackArrivalSortKey(b)));
         await enrichAttackWithTribes(train.attacks[0]);
 
         if (train.attacks.length === 1) {
@@ -2292,7 +2373,7 @@
         const arrivals = train.attacks
             .map((attack, index) => [
                 `${numberIcon(index)} **${formatArrivalText(attack.arrival)}**`,
-                `⌛ Restante: **${attack.remaining}**`
+                `⌛ Restante: **${formatRemainingText(attack.remaining)}**`
             ].join('\n'))
             .join('\n\n');
 
@@ -3520,27 +3601,21 @@
             summary.supportDefenseTotals,
             summary.scavengingDefenseTotals
         );
-        summary.totalSpecialDefenseTotals = mergeSpecialDefenseTroopTotalsByMax(
-            firstTroopTotalsWithValues(
-                summary.totalSpecialDefenseTotals,
-                summary.totalDefenseTotals,
-                summary.defenseTotals,
-                summary.totals
-            ),
-            summary.totals || {}
+        summary.totalSpecialDefenseTotals = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.totalDefenseTotals, summary.defenseTotals),
+            summary.totalSpecialDefenseTotals,
+            summary.totals
         );
-        summary.supportSpecialDefenseTotals = getSpecialDefenseTroopTotals(
-            firstTroopTotalsWithValues(
-                summary.supportSpecialDefenseTotals,
-                summary.supportTotals
-            )
+        summary.supportSpecialDefenseTotals = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.supportDefenseTotals, summary.supportTotals),
+            summary.supportSpecialDefenseTotals,
+            summary.supportStationedSpecialDefenseTotals,
+            summary.supportTransitSpecialDefenseTotals
         );
-        summary.scavengingSpecialDefenseTotals = getSpecialDefenseTroopTotals(
-            firstTroopTotalsWithValues(
-                summary.scavengingAllTotals,
-                summary.scavengingSpecialDefenseTotals,
-                summary.scavengingTotals
-            )
+        summary.scavengingSpecialDefenseTotals = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.scavengingDefenseTotals, summary.scavengingTotals),
+            summary.scavengingSpecialDefenseTotals,
+            summary.scavengingAllTotals
         );
         summary.farmSpecialDefenseTotals = getSpecialDefenseFarmTroopTotals(
             firstTroopTotalsWithValues(
@@ -4241,6 +4316,18 @@
         return sources.find(source => source && typeof source === 'object') || {};
     }
 
+    function firstTroopTotalsWithUnitValue(unitKey, ...sources) {
+        return sources.find(source => Number(source && source[unitKey] || 0) > 0) || {};
+    }
+
+    function composeDefenseTotalsWithSpecialLight(defenseSource, ...lightSources) {
+        const totals = getDefenseTroopTotals(defenseSource || {});
+        const lightSource = firstTroopTotalsWithUnitValue('light', ...lightSources);
+
+        totals.light = Number(lightSource.light || 0);
+        return totals;
+    }
+
     function getTroopScanExpectedVillageCount(summary, parsedCount) {
         return Math.max(
             Number(getPlayerVillageCount() || 0),
@@ -4861,11 +4948,6 @@
                 }
             }
 
-            if (isAwayTroopOverviewRow(rowText)) {
-                addTroopTotals(supportStationedTotals, getDefenseTroopTotals(rowTotals));
-                addTroopTotals(supportStationedSpecialTotals, getSpecialDefenseTroopTotals(rowTotals));
-            }
-
             if (isTotalTroopRow(rowText)) {
                 village.totals = rowTotals;
                 if (!village.hasAttackRow) {
@@ -5034,12 +5116,32 @@
         const overviewSupportTransitTotals = getDefenseTroopTotals(summary.supportTransitTotals);
         const overviewReceivedSupportStationedTotals = getDefenseTroopTotals(summary.receivedSupportStationedTotals);
         const overviewScavengingTotals = getDefenseTroopTotals(summary.scavengingTotals);
-        const overviewTotalSpecialTotals = getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.totalSpecialDefenseTotals, summary.totals, summary.defenseTotals));
-        const overviewSupportSpecialTotals = getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.supportSpecialDefenseTotals, summary.supportTotals));
-        const overviewSupportStationedSpecialTotals = getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.supportStationedSpecialDefenseTotals, summary.supportStationedTotals));
-        const overviewSupportTransitSpecialTotals = getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.supportTransitSpecialDefenseTotals, summary.supportTransitTotals));
-        const overviewReceivedSupportStationedSpecialTotals = getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.receivedSupportStationedSpecialDefenseTotals, summary.receivedSupportStationedTotals));
-        const overviewScavengingSpecialTotals = getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.scavengingAllTotals, summary.scavengingSpecialDefenseTotals, summary.scavengingTotals));
+        const overviewTotalSpecialTotals = composeDefenseTotalsWithSpecialLight(
+            overviewDefenseTotals,
+            summary.totalSpecialDefenseTotals,
+            summary.totals
+        );
+        const overviewSupportSpecialTotals = composeDefenseTotalsWithSpecialLight(
+            overviewSupportTotals,
+            summary.supportSpecialDefenseTotals
+        );
+        const overviewSupportStationedSpecialTotals = composeDefenseTotalsWithSpecialLight(
+            overviewSupportStationedTotals,
+            summary.supportStationedSpecialDefenseTotals
+        );
+        const overviewSupportTransitSpecialTotals = composeDefenseTotalsWithSpecialLight(
+            overviewSupportTransitTotals,
+            summary.supportTransitSpecialDefenseTotals
+        );
+        const overviewReceivedSupportStationedSpecialTotals = composeDefenseTotalsWithSpecialLight(
+            overviewReceivedSupportStationedTotals,
+            summary.receivedSupportStationedSpecialDefenseTotals
+        );
+        const overviewScavengingSpecialTotals = composeDefenseTotalsWithSpecialLight(
+            overviewScavengingTotals,
+            summary.scavengingAllTotals,
+            summary.scavengingSpecialDefenseTotals
+        );
         const hasOverviewDefenseTotals = hasTroopValues(overviewDefenseTotals);
         const expectedVillageCount = getTroopScanExpectedVillageCount(summary, originalVillages.length);
 
@@ -5108,10 +5210,13 @@
                 const scavengingSpecialDefenseTotals = getSpecialDefenseTroopTotals(scavengingTotals);
                 const supportBreakdown = parseSupportTroopBreakdown(doc);
                 const receivedSupportStationedDefenseTotals = getDefenseTroopTotals(supportBreakdown.stationedTotals);
+                const supportStationedDefenseTotals = getDefenseTroopTotals(supportBreakdown.stationedTotals);
                 const supportTransitDefenseTotals = getDefenseTroopTotals(supportBreakdown.transitTotals);
                 const receivedSupportStationedSpecialDefenseTotals = getSpecialDefenseTroopTotals(supportBreakdown.stationedTotals);
+                const supportStationedSpecialDefenseTotals = getSpecialDefenseTroopTotals(supportBreakdown.stationedTotals);
                 const supportTransitSpecialDefenseTotals = getSpecialDefenseTroopTotals(supportBreakdown.transitTotals);
                 const supportTotals = createTroopTotals();
+                addTroopTotals(supportTotals, supportStationedDefenseTotals);
                 addTroopTotals(supportTotals, supportTransitDefenseTotals);
                 const supportDefenseTotals = getDefenseTroopTotals(supportTotals);
                 const transitTotals = parseTransitTroopTotals(doc);
@@ -5135,9 +5240,11 @@
                 addTroopTotals(rebuiltSupportAllTotals, supportBreakdown.stationedTotals);
                 addTroopTotals(rebuiltSupportAllTotals, supportBreakdown.transitTotals);
                 addTroopTotals(rebuiltSupportTotals, supportDefenseTotals);
+                addTroopTotals(rebuiltSupportStationedTotals, supportStationedDefenseTotals);
                 addTroopTotals(rebuiltReceivedSupportStationedTotals, receivedSupportStationedDefenseTotals);
                 addTroopTotals(rebuiltSupportTransitTotals, supportTransitDefenseTotals);
                 addTroopTotals(rebuiltScavengingTotals, scavengingDefenseTotals);
+                addTroopTotals(rebuiltSupportStationedSpecialTotals, supportStationedSpecialDefenseTotals);
                 addTroopTotals(rebuiltReceivedSupportStationedSpecialTotals, receivedSupportStationedSpecialDefenseTotals);
                 addTroopTotals(rebuiltSupportTransitSpecialTotals, supportTransitSpecialDefenseTotals);
                 addTroopTotals(rebuiltScavengingSpecialTotals, scavengingSpecialDefenseTotals);
@@ -5211,11 +5318,15 @@
             summary.scavengingTotals = hasTroopValues(rebuiltScavengingTotals)
                 ? getDefenseTroopTotals(rebuiltScavengingTotals)
                 : overviewScavengingTotals;
-            summary.totalSpecialDefenseTotals = mergeSpecialDefenseTroopTotalsByMax(
+            summary.totalSpecialDefenseTotals = composeDefenseTotalsWithSpecialLight(
+                summary.defenseTotals,
                 overviewTotalSpecialTotals,
                 rebuiltTotals
             );
-            summary.supportSpecialDefenseTotals = overviewSupportSpecialTotals;
+            summary.supportSpecialDefenseTotals = composeDefenseTotalsWithSpecialLight(
+                summary.supportTotals,
+                overviewSupportSpecialTotals
+            );
             summary.supportStationedSpecialDefenseTotals = mergeSpecialDefenseTroopTotalsByMax(
                 overviewSupportStationedSpecialTotals,
                 rebuiltSupportStationedSpecialTotals
@@ -5229,7 +5340,7 @@
                 rebuiltReceivedSupportStationedSpecialTotals
             );
             summary.scavengingSpecialDefenseTotals = hasTroopValues(rebuiltScavengingSpecialTotals)
-                ? getSpecialDefenseTroopTotals(rebuiltScavengingSpecialTotals)
+                ? composeDefenseTotalsWithSpecialLight(summary.scavengingTotals, rebuiltScavengingSpecialTotals)
                 : overviewScavengingSpecialTotals;
             summary.homeAllTotals = rebuiltHomeAllTotals;
             summary.scavengingAllTotals = rebuiltScavengingAllTotals;
@@ -5440,28 +5551,21 @@
     }
 
     function buildSimpleDefenseTroopSummaryEmbed(summary) {
-        const totalDefense = getSpecialDefenseTroopTotals(
-            firstTroopTotalsWithValues(
-                summary.totalSpecialDefenseTotals,
-                summary.totals,
-                summary.totalDefenseTotals,
-                summary.defenseTotals
-            )
+        const totalDefense = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.totalDefenseTotals, summary.defenseTotals),
+            summary.totalSpecialDefenseTotals,
+            summary.totals
         );
-        const supportDefense = getSpecialDefenseTroopTotals(
-            firstTroopTotalsWithValues(
-                summary.supportSpecialDefenseTotals,
-                summary.supportDefenseTotals,
-                summary.supportTotals
-            )
+        const supportDefense = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.supportDefenseTotals, summary.supportTotals),
+            summary.supportSpecialDefenseTotals,
+            summary.supportStationedSpecialDefenseTotals,
+            summary.supportTransitSpecialDefenseTotals
         );
-        const scavengingDefense = getSpecialDefenseTroopTotals(
-            firstTroopTotalsWithValues(
-                summary.scavengingSpecialDefenseTotals,
-                summary.scavengingAllTotals,
-                summary.scavengingDefenseTotals,
-                summary.scavengingTotals
-            )
+        const scavengingDefense = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.scavengingDefenseTotals, summary.scavengingTotals),
+            summary.scavengingSpecialDefenseTotals,
+            summary.scavengingAllTotals
         );
         const farmDefense = getSpecialDefenseFarmTroopTotals(
             firstTroopTotalsWithValues(
@@ -5470,12 +5574,7 @@
                 summary.farmTotals
             )
         );
-        const availableDefense = getSpecialDefenseTroopTotals(
-            firstTroopTotalsWithValues(
-                summary.availableSpecialDefenseTotals,
-                subtractSpecialDefenseTroopTotals(totalDefense, supportDefense, scavengingDefense, farmDefense)
-            )
-        );
+        const availableDefense = subtractSpecialDefenseTroopTotals(totalDefense, supportDefense, scavengingDefense, farmDefense);
 
         return {
             title: '🛡️ ━━ DEFESA DISPONÍVEL ━━ 🛡️',
@@ -5708,6 +5807,25 @@
         }
 
         summary.defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
+        const loggedTotalDefense = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.totalDefenseTotals, summary.defenseTotals),
+            summary.totalSpecialDefenseTotals,
+            summary.totals
+        );
+        const loggedSupportDefense = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.supportDefenseTotals, summary.supportTotals),
+            summary.supportSpecialDefenseTotals,
+            summary.supportStationedSpecialDefenseTotals,
+            summary.supportTransitSpecialDefenseTotals
+        );
+        const loggedScavengingDefense = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.scavengingDefenseTotals, summary.scavengingTotals),
+            summary.scavengingSpecialDefenseTotals,
+            summary.scavengingAllTotals
+        );
+        const loggedFarmDefense = getSpecialDefenseFarmTroopTotals(
+            firstTroopTotalsWithValues(summary.farmSpecialDefenseTotals, summary.farmAllTotals)
+        );
         console.log('[TW] Defesa disponivel lida:', {
             fonte: summary.placeScanIncomplete
                 ? 'Visao geral de tropas'
@@ -5715,11 +5833,16 @@
             aldeiasVisaoGeral: summary.parsedVillageCount,
             aldeiasPraca: summary.placeVillageCount,
             colunas: summary.troopColumns,
-            total: getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.totalSpecialDefenseTotals, summary.totals, summary.totalDefenseTotals, summary.defenseTotals)),
-            apoios: getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.supportSpecialDefenseTotals, summary.supportDefenseTotals, summary.supportTotals)),
-            buscasColeta: getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.scavengingSpecialDefenseTotals, summary.scavengingDefenseTotals, summary.scavengingTotals)),
-            farm: getSpecialDefenseFarmTroopTotals(firstTroopTotalsWithValues(summary.farmSpecialDefenseTotals, summary.farmAllTotals)),
-            disponivel: getSpecialDefenseTroopTotals(firstTroopTotalsWithValues(summary.availableSpecialDefenseTotals, summary.availableDefenseTotals))
+            total: loggedTotalDefense,
+            apoios: loggedSupportDefense,
+            buscasColeta: loggedScavengingDefense,
+            farm: loggedFarmDefense,
+            disponivel: subtractSpecialDefenseTroopTotals(
+                loggedTotalDefense,
+                loggedSupportDefense,
+                loggedScavengingDefense,
+                loggedFarmDefense
+            )
         });
 
         const embed = buildSimpleDefenseTroopSummaryEmbed(summary);
