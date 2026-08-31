@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.85
+// @version      1.3.86
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.85';
+    const SCRIPT_VERSION = '1.3.86';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
     const SCRIPT_DISPLAY_TITLE = `Alertas Discord - ThePlaguePT v${SCRIPT_VERSION}`;
 
@@ -3601,11 +3601,6 @@
             summary.supportDefenseTotals,
             summary.scavengingDefenseTotals
         );
-        summary.totalSpecialDefenseTotals = composeDefenseTotalsWithSpecialLight(
-            firstTroopTotalsWithValues(summary.totalDefenseTotals, summary.defenseTotals),
-            summary.totalSpecialDefenseTotals,
-            summary.totals
-        );
         summary.supportSpecialDefenseTotals = composeDefenseTotalsWithSpecialLight(
             firstTroopTotalsWithValues(summary.supportDefenseTotals, summary.supportTotals),
             summary.supportSpecialDefenseTotals,
@@ -3624,6 +3619,7 @@
                 summary.farmTotals
             )
         );
+        summary.totalSpecialDefenseTotals = composeSummaryTotalSpecialDefenseTotals(summary);
         summary.availableSpecialDefenseTotals = subtractSpecialDefenseTroopTotals(
             summary.totalSpecialDefenseTotals,
             summary.supportSpecialDefenseTotals,
@@ -4322,9 +4318,35 @@
 
     function composeDefenseTotalsWithSpecialLight(defenseSource, ...lightSources) {
         const totals = getDefenseTroopTotals(defenseSource || {});
-        const lightSource = firstTroopTotalsWithUnitValue('light', ...lightSources);
+        const lightValue = lightSources.reduce((bestValue, source) => {
+            return Math.max(bestValue, Number(source && source.light || 0));
+        }, Number(totals.light || 0));
 
-        totals.light = Number(lightSource.light || 0);
+        totals.light = lightValue;
+        return totals;
+    }
+
+    function composeSummaryTotalSpecialDefenseTotals(summary) {
+        const totals = composeDefenseTotalsWithSpecialLight(
+            firstTroopTotalsWithValues(summary.totalDefenseTotals, summary.defenseTotals),
+            summary.totalSpecialDefenseTotals,
+            summary.totals
+        );
+        const homeLight = Number(summary.homeAllTotals && summary.homeAllTotals.light || 0);
+        const supportLight = Number(summary.supportSpecialDefenseTotals && summary.supportSpecialDefenseTotals.light || 0);
+        const scavengingLight = Number(summary.scavengingSpecialDefenseTotals && summary.scavengingSpecialDefenseTotals.light || 0);
+        const farmLight = Number(summary.farmSpecialDefenseTotals && summary.farmSpecialDefenseTotals.light || 0);
+        const hasHomeScan = summary.placeScanIncomplete === false && summary.homeAllTotals;
+
+        if (hasHomeScan) {
+            totals.light = Math.max(
+                Number(totals.light || 0),
+                homeLight + supportLight + scavengingLight + farmLight
+            );
+        } else if (farmLight && Number(totals.light || 0) < farmLight) {
+            totals.light = Number(totals.light || 0) + farmLight;
+        }
+
         return totals;
     }
 
@@ -5551,11 +5573,6 @@
     }
 
     function buildSimpleDefenseTroopSummaryEmbed(summary) {
-        const totalDefense = composeDefenseTotalsWithSpecialLight(
-            firstTroopTotalsWithValues(summary.totalDefenseTotals, summary.defenseTotals),
-            summary.totalSpecialDefenseTotals,
-            summary.totals
-        );
         const supportDefense = composeDefenseTotalsWithSpecialLight(
             firstTroopTotalsWithValues(summary.supportDefenseTotals, summary.supportTotals),
             summary.supportSpecialDefenseTotals,
@@ -5574,6 +5591,11 @@
                 summary.farmTotals
             )
         );
+        const totalDefense = composeSummaryTotalSpecialDefenseTotals(Object.assign({}, summary, {
+            supportSpecialDefenseTotals: supportDefense,
+            scavengingSpecialDefenseTotals: scavengingDefense,
+            farmSpecialDefenseTotals: farmDefense
+        }));
         const availableDefense = subtractSpecialDefenseTroopTotals(totalDefense, supportDefense, scavengingDefense, farmDefense);
 
         return {
@@ -5807,11 +5829,6 @@
         }
 
         summary.defenderTribe = await getPlayerTribe(getDefenderProfileUrl());
-        const loggedTotalDefense = composeDefenseTotalsWithSpecialLight(
-            firstTroopTotalsWithValues(summary.totalDefenseTotals, summary.defenseTotals),
-            summary.totalSpecialDefenseTotals,
-            summary.totals
-        );
         const loggedSupportDefense = composeDefenseTotalsWithSpecialLight(
             firstTroopTotalsWithValues(summary.supportDefenseTotals, summary.supportTotals),
             summary.supportSpecialDefenseTotals,
@@ -5826,6 +5843,11 @@
         const loggedFarmDefense = getSpecialDefenseFarmTroopTotals(
             firstTroopTotalsWithValues(summary.farmSpecialDefenseTotals, summary.farmAllTotals)
         );
+        const loggedTotalDefense = composeSummaryTotalSpecialDefenseTotals(Object.assign({}, summary, {
+            supportSpecialDefenseTotals: loggedSupportDefense,
+            scavengingSpecialDefenseTotals: loggedScavengingDefense,
+            farmSpecialDefenseTotals: loggedFarmDefense
+        }));
         console.log('[TW] Defesa disponivel lida:', {
             fonte: summary.placeScanIncomplete
                 ? 'Visao geral de tropas'
