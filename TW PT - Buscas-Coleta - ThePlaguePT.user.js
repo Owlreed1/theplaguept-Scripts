@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Buscas/Coleta - ThePlaguePT
 // @namespace    theplaguept.tw.buscas-coleta
-// @version      1.3.5
+// @version      1.3.6
 // @description  Automatiza ciclos independentes de coleta no Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -11,16 +11,18 @@
 // @supportURL   https://github.com/ThePlaguePT/TribalWars-Scripts/issues
 // @updateURL    https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Buscas-Coleta%20-%20ThePlaguePT.user.js
 // @downloadURL  https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Buscas-Coleta%20-%20ThePlaguePT.user.js
-// @grant        none
+// @grant        GM_openInTab
+// @grant        unsafeWindow
+// @grant        window.close
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==
 
-(function () {
+(function (window, closeCurrentTab) {
     'use strict';
 
     var SCRIPT_NAME = 'TW PT - Buscas/Coleta - ThePlaguePT';
-    var SCRIPT_VERSION = '1.3.5';
+    var SCRIPT_VERSION = '1.3.6';
     var WORLD_SCOPE = obterEscopoMundo();
     var STORAGE_KEY = chaveDoMundo('scriptColeta.enabled.v1');
     var SETTINGS_KEY = chaveDoMundo('scriptColeta.settings.v1');
@@ -1052,7 +1054,7 @@
             if (workerEstaAtivo()) {
                 atualizarBotao('A trabalhar noutro separador');
             } else if (aberturaPorClique) {
-                abrirWorker({ focar: true, automatico: false });
+                abrirWorker({ focar: false, automatico: false });
             } else {
                 supervisionarWorker();
             }
@@ -1245,7 +1247,11 @@
                 atualizarBotao('Ronda concluída — a fechar separador');
                 pararHeartbeat(true);
                 try {
-                    window.close();
+                    if (typeof closeCurrentTab === 'function') {
+                        closeCurrentTab();
+                    } else {
+                        window.close();
+                    }
                 } catch (erro) {
                     console.warn(
                         '[Script Coleta] O navegador não permitiu fechar o separador.',
@@ -2615,46 +2621,68 @@
     }
 
     function abrirOuFocarSeparadorTrabalho() {
+        if (estaLigado()) {
+            estado.nextRunAt = 0;
+            guardarEstado();
+        }
         if (estaNaPaginaTrabalho() && eSeparadorTrabalhoGerido()) {
             criarPainel();
-            atualizarBotao('Separador de trabalho aberto');
-            try {
-                window.focus();
-            } catch (erro) {
-                // O navegador decide se permite alterar o foco.
+            if (estaLigado()) {
+                atualizarBotao('A iniciar ronda manual…');
+                agendarProximaExecucao();
+            } else {
+                atualizarBotao('Separador de trabalho aberto');
             }
             return true;
         }
-        return abrirWorker({ focar: true, automatico: false });
+        return abrirWorker({ focar: false, automatico: false });
     }
 
     function abrirWorker(opcoes) {
         var definicoes = opcoes || {};
-        var focar = definicoes.focar !== false;
         var automatico = Boolean(definicoes.automatico);
-        if (
-            workerEstaAtivo() ||
-            (workerWindowRef && !workerWindowRef.closed)
-        ) {
-            try {
-                var existente = window.open('', WORKER_TAB_NAME);
-                if (existente) {
-                    workerWindowRef = existente;
-                    if (focar) {
-                        existente.focus();
-                        atualizarBotao('Separador de trabalho focado');
-                    } else {
-                        atualizarBotao('Separador de trabalho aberto');
-                    }
-                    return true;
-                }
-            } catch (erroFoco) {
-                // Se não for possível focar, tenta abrir pelo URL normal.
-            }
+        if (workerWindowRef && !workerWindowRef.closed) {
+            atualizarBotao('Separador de trabalho aberto em segundo plano');
+            return true;
         }
+        if (workerEstaAtivo()) {
+            atualizarBotao('A trabalhar noutro separador');
+            return true;
+        }
+
         var url = new URL(criarUrlColetaIndividual(obterIdAldeiaAtual()));
         url.searchParams.set(WORKER_URL_PARAM, '1');
-        var worker = window.open(url.href, WORKER_TAB_NAME);
+        var controladorTinhaFoco = typeof document.hasFocus === 'function'
+            ? document.hasFocus()
+            : !document.hidden;
+        var worker = null;
+        var abertoPeloGestor = false;
+
+        if (typeof GM_openInTab === 'function') {
+            try {
+                worker = GM_openInTab(url.href, {
+                    active: false,
+                    insert: true,
+                    setParent: true
+                });
+                abertoPeloGestor = Boolean(worker);
+            } catch (erroGestor) {
+                console.warn(
+                    '[Script Coleta] A abertura em segundo plano não ficou disponível.',
+                    erroGestor
+                );
+            }
+        }
+        if (!worker) {
+            try {
+                worker = window.open(url.href, WORKER_TAB_NAME);
+            } catch (erroAbertura) {
+                console.error(
+                    '[Script Coleta] Não foi possível abrir o separador de trabalho.',
+                    erroAbertura
+                );
+            }
+        }
         if (!worker) {
             proximaTentativaAbrirWorker = Date.now() + AUTO_OPEN_RETRY;
             atualizarBotao(
@@ -2668,15 +2696,30 @@
         proximaTentativaAbrirWorker = Date.now() + AUTO_OPEN_RETRY;
         atualizarBotao(
             automatico
-                ? 'Ronda aberta automaticamente'
-                : 'Coleta aberta noutro separador'
+                ? 'Ronda aberta automaticamente em segundo plano'
+                : 'Coleta aberta em segundo plano'
         );
         iniciarSupervisor();
-        if (focar) {
+
+        if (abertoPeloGestor && 'onclose' in worker) {
+            worker.onclose = function () {
+                if (workerWindowRef !== worker) {
+                    return;
+                }
+                workerWindowRef = null;
+                proximaTentativaAbrirWorker = 0;
+                iniciarSupervisor();
+            };
+        } else {
             try {
-                worker.focus();
-            } catch (erro) {
-                // O navegador escolhe o separador que fica em primeiro plano.
+                if (typeof worker.blur === 'function') {
+                    worker.blur();
+                }
+                if (controladorTinhaFoco) {
+                    window.focus();
+                }
+            } catch (erroFoco) {
+                // Alguns navegadores não permitem devolver o foco ao controlador.
             }
         }
         return true;
@@ -2808,7 +2851,14 @@
         } else if (evento.key === STATE_KEY) {
             estado = carregarEstado();
             atualizarResumoPainel();
-            if (!eSeparadorTrabalhoGerido()) {
+            if (
+                eSeparadorTrabalhoGerido() &&
+                estaNaPaginaTrabalho() &&
+                estaLigado() &&
+                !cicloEmCurso
+            ) {
+                agendarProximaExecucao();
+            } else if (!eSeparadorTrabalhoGerido()) {
                 supervisionarWorker();
             }
         } else if (evento.key === SETTINGS_KEY) {
@@ -2833,7 +2883,7 @@
         estadoAtual = mensagem || (ligado ? 'Ativo' : 'Parado');
         var titulo = SCRIPT_NAME + ' v' + SCRIPT_VERSION + ': ' +
             (ligado ? 'LIGADO' : 'DESLIGADO') + ' — ' + estadoAtual +
-            '. Clique em B para abrir/focar; clique em ⏻ para ligar/desligar.';
+            '. Clique em B para abrir em segundo plano; clique em ⏻ para ligar/desligar.';
         botao.classList.toggle('sc-ligado', ligado);
         botao.setAttribute('aria-label', titulo);
         botao.setAttribute('data-tp-title', titulo);
@@ -2952,4 +3002,7 @@
             console.warn('[Script Coleta] Armazenamento indisponível.', erro);
         }
     }
-}());
+})(
+    typeof unsafeWindow !== 'undefined' ? unsafeWindow : window,
+    typeof window.close === 'function' ? window.close.bind(window) : null
+);
