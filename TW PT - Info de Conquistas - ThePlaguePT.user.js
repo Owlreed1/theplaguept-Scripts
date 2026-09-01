@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Info de Conquistas - ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.62
+// @version      1.0.63
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        *://*/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.62",
+        version: "1.0.63",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -424,6 +424,543 @@
     }
 }
 `;
+        style.textContent += `
+.${APP.id}-hidden {
+    display: none !important;
+}
+
+#${APP.id}-panel,
+#${APP.id}-panel * {
+    box-sizing: border-box;
+}
+
+#${APP.id}-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 20002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,.35);
+}
+
+#${APP.id}-panel.${APP.id}-hidden {
+    display: none !important;
+}
+
+.${APP.id}-shell {
+    position: relative;
+    width: min(1260px, calc(100vw - 58px));
+    max-height: calc(100vh - 42px);
+    padding: 12px;
+    border: 1px solid #3f2b18;
+    background: #d8c18b;
+    box-shadow: 0 2px 8px rgba(0,0,0,.65), inset 0 0 0 2px #f4e4b5;
+    overflow: visible;
+}
+
+.${APP.id}-frame {
+    width: 100%;
+    max-height: calc(100vh - 66px);
+    overflow: hidden;
+    border: 2px solid #8f2b25;
+    background: #f3dfaa;
+    color: #2d1307;
+    font: 12px Verdana, Arial, sans-serif;
+}
+
+.${APP.id}-close {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    z-index: 3;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 2px solid #2d1307;
+    border-radius: 3px;
+    background: #f6dfaa;
+    color: #2d1307;
+    font: bold 16px/16px Arial, sans-serif;
+    cursor: pointer;
+}
+
+.${APP.id}-head {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid #d1ad68;
+    background: linear-gradient(to bottom, #f7e7b7, #ebcc7f);
+}
+
+.${APP.id}-head strong {
+    display: block;
+    color: #941915;
+    font-size: 18px;
+    line-height: 22px;
+}
+
+.${APP.id}-head span {
+    display: block;
+    margin-top: 2px;
+    color: #3d1a09;
+    font-size: 12px;
+}
+
+.${APP.id}-body {
+    max-height: calc(100vh - 146px);
+    overflow: auto;
+    padding: 10px 14px;
+}
+
+.${APP.id}-section {
+    display: grid;
+    grid-template-columns: 290px minmax(0, 1fr);
+    gap: 14px;
+    padding: 10px 0;
+    border-left: 4px solid #d72d35;
+    border-bottom: 1px solid #d1ad68;
+}
+
+.${APP.id}-settings-section { border-left-color: #9b50d8; }
+.${APP.id}-summary-section { border-left-color: #1aa6d9; }
+.${APP.id}-results-section { border-left-color: #e8a515; }
+.${APP.id}-actions-section { border-left-color: #8b6319; }
+
+.${APP.id}-section-copy {
+    padding-left: 12px;
+}
+
+.${APP.id}-section-title {
+    color: #941915;
+    font-weight: 700;
+    font-size: 14px;
+    text-transform: uppercase;
+}
+
+.${APP.id}-section-desc {
+    margin: 4px 0 0;
+    color: #4f210b;
+    line-height: 15px;
+}
+
+.${APP.id}-toolbar,
+.${APP.id}-summary,
+.${APP.id}-actions {
+    display: grid;
+    gap: 8px;
+}
+
+.${APP.id}-toolbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.${APP.id}-config-list {
+    display: grid;
+    gap: 8px;
+}
+
+.${APP.id}-field label,
+.${APP.id}-config-title {
+    display: block;
+    color: #1d0d05;
+    font-weight: 700;
+    margin-bottom: 3px;
+}
+
+.${APP.id}-field input,
+.${APP.id}-field select {
+    width: 100%;
+    height: 28px;
+    border: 1px solid #c47b2c;
+    background: #fff3cf;
+    color: #2d1307;
+    padding: 3px 7px;
+    font: 12px Verdana, Arial, sans-serif;
+}
+
+.${APP.id}-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+}
+
+.${APP.id}-check input {
+    width: 13px;
+    height: 13px;
+}
+
+.${APP.id}-config-item {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 4px;
+    border-bottom: 1px solid #d1ad68;
+    padding: 4px 0 8px;
+}
+
+.${APP.id}-range-row input[type="range"] {
+    width: 100%;
+}
+
+.${APP.id}-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.${APP.id}-metric {
+    border: 1px solid #d18b35;
+    background: #fff4d4;
+    padding: 8px 10px;
+}
+
+.${APP.id}-metric strong {
+    display: block;
+    font-size: 20px;
+    color: #1b0d04;
+}
+
+.${APP.id}-metric span {
+    display: block;
+    margin-top: 2px;
+    color: #5e3b16;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.${APP.id}-content {
+    max-height: 352px;
+    overflow: auto;
+    border: 1px solid #d18b35;
+    background: #fff2c8;
+}
+
+.${APP.id}-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.${APP.id}-table th,
+.${APP.id}-table td {
+    border-bottom: 1px solid #d1ad68;
+    padding: 6px 7px;
+    text-align: left;
+    vertical-align: top;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.${APP.id}-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: linear-gradient(to bottom, #d7b56f, #c89745);
+    color: #3b1607;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.${APP.id}-table tr:nth-child(even) td { background: #f6e2ae; }
+.${APP.id}-table tr:nth-child(odd) td { background: #fff2c8; }
+
+.${APP.id}-button {
+    height: 28px;
+    border: 1px solid #4f120f;
+    border-radius: 2px;
+    background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
+    color: #fff;
+    font: bold 12px Verdana, Arial, sans-serif;
+    text-shadow: 1px 1px 1px #000;
+    cursor: pointer;
+}
+
+.${APP.id}-button.${APP.id}-brown {
+    background: linear-gradient(to bottom, #785033, #54341f 55%, #342011);
+}
+
+.${APP.id}-actions {
+    grid-template-columns: 150px 1fr 1fr auto;
+    align-items: start;
+}
+
+.${APP.id}-action-stack {
+    display: grid;
+    gap: 8px;
+}
+
+.${APP.id}-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+    color: #5e3b16;
+    font-size: 11px;
+}
+
+.${APP.id}-notice {
+    padding: 22px;
+    color: #4f210b;
+    text-align: center;
+    font-weight: 700;
+}
+
+#${APP.id}-launcher {
+    position: fixed !important;
+    left: 12px;
+    right: auto !important;
+    top: 370px;
+    bottom: auto !important;
+    z-index: 2147483647;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    width: 30px;
+    min-width: 30px;
+    height: 28px;
+    overflow: hidden;
+    border: 1px solid #4f120f;
+    border-radius: 2px;
+    background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.45);
+    color: #fff;
+    font: bold 12px Verdana, Arial, sans-serif;
+    text-shadow: 1px 1px 1px #000;
+    white-space: nowrap;
+    padding: 0;
+    cursor: pointer;
+    transition: width .18s ease, min-width .18s ease, padding .18s ease, gap .18s ease, background .18s ease;
+}
+
+#${APP.id}-launcher:hover,
+#${APP.id}-launcher:focus-visible {
+    width: 244px;
+    min-width: 244px;
+    gap: 8px;
+    padding: 0 9px;
+    justify-content: flex-start;
+    background: linear-gradient(to bottom, #c4473e, #a02c27 55%, #7e1c17);
+}
+
+#${APP.id}-launcher .${APP.id}-launcher-icon,
+#${APP.id}-map-load .${APP.id}-map-load-icon {
+    position: relative;
+    display: block;
+    width: 17px;
+    height: 15px;
+    flex: 0 0 17px;
+    box-sizing: border-box;
+    border: 1px solid #f1d28d;
+    border-radius: 2px;
+    background:
+        linear-gradient(90deg, rgba(255,241,184,.35) 0 2px, transparent 2px 6px, rgba(255,241,184,.28) 6px 8px, transparent 8px 12px, rgba(255,241,184,.35) 12px),
+        linear-gradient(to bottom, #f2d08a, #d49a40);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 1px 1px #000;
+    transform: skewX(-8deg);
+}
+
+#${APP.id}-launcher .${APP.id}-launcher-icon::before,
+#${APP.id}-map-load .${APP.id}-map-load-icon::before {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 1px;
+    width: 1px;
+    height: 11px;
+    background: rgba(96,57,19,.75);
+    box-shadow: 5px 0 0 rgba(96,57,19,.65);
+}
+
+#${APP.id}-launcher .${APP.id}-launcher-icon::after,
+#${APP.id}-map-load .${APP.id}-map-load-icon::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 5px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #d9152f;
+    box-shadow: 0 0 0 1px #fff1b8;
+}
+
+#${APP.id}-launcher .${APP.id}-launcher-text {
+    display: inline-block;
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    transform: translateX(-4px);
+    transition: max-width .18s ease, opacity .14s ease, transform .18s ease;
+}
+
+#${APP.id}-launcher:hover .${APP.id}-launcher-text,
+#${APP.id}-launcher:focus-visible .${APP.id}-launcher-text {
+    max-width: 198px;
+    opacity: 1;
+    transform: translateX(0);
+}
+
+#${APP.id}-map-load {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 120;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    width: 30px;
+    min-width: 30px;
+    height: 28px;
+    overflow: visible;
+    white-space: nowrap;
+    border: 1px solid #4f120f;
+    border-radius: 2px;
+    background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.45);
+    color: #fff;
+    font: bold 12px Verdana, Arial, sans-serif;
+    text-shadow: 1px 1px 1px #000;
+    padding: 0;
+    cursor: pointer;
+}
+
+#${APP.id}-map-load.${APP.id}-map-toggle-off {
+    border-color: #2f302d;
+    background: linear-gradient(to bottom, #7c7d75, #55564f 55%, #353631);
+}
+
+#${APP.id}-map-load.${APP.id}-map-toggle-off::after {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 12px;
+    width: 20px;
+    height: 3px;
+    border-radius: 3px;
+    background: #f4ead0;
+    box-shadow: 0 0 0 1px #2d2d29, 1px 1px 2px rgba(0,0,0,.75);
+    transform: rotate(-45deg);
+    pointer-events: none;
+}
+
+#${APP.id}-map-load.${APP.id}-map-toggle-off .${APP.id}-map-load-icon {
+    filter: grayscale(1) brightness(.78);
+    opacity: .92;
+}
+
+#${APP.id}-map-load .${APP.id}-map-load-label {
+    display: none;
+}
+
+.${APP.id}-map-layer,
+.${APP.id}-minimap-layer {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.${APP.id}-map-layer { z-index: 90; }
+.${APP.id}-minimap-layer { z-index: 70; overflow: hidden; }
+
+.${APP.id}-map-marker,
+.${APP.id}-minimap-dot {
+    --${APP.id}-marker-color: #d9152f;
+    --${APP.id}-marker-rgb: 217,21,47;
+    --${APP.id}-marker-bg-alpha: .95;
+    --${APP.id}-marker-glow: rgba(217,21,47,.95);
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px solid #fff1b8;
+    border-radius: 50%;
+    background: rgba(var(--${APP.id}-marker-rgb), var(--${APP.id}-marker-bg-alpha));
+    pointer-events: none;
+}
+
+.${APP.id}-map-marker {
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    box-shadow: 0 0 0 2px var(--${APP.id}-marker-color), 0 0 9px var(--${APP.id}-marker-glow), inset 0 0 0 1px rgba(91,18,14,.65);
+    color: #fff7d7;
+    font: bold 9px/20px Verdana, Arial, sans-serif;
+    letter-spacing: 0;
+    text-align: center;
+    text-shadow: 1px 1px 1px #000;
+}
+
+.${APP.id}-minimap-dot {
+    z-index: 71;
+    width: 7px;
+    height: 7px;
+    box-shadow: 0 0 0 1px var(--${APP.id}-marker-color), 0 0 4px var(--${APP.id}-marker-glow), 0 1px 2px rgba(0,0,0,.75);
+    transform: translate(-50%, -50%);
+}
+
+.${APP.id}-map-age-1h {
+    --${APP.id}-marker-color: #18a83b;
+    --${APP.id}-marker-rgb: 24,168,59;
+    --${APP.id}-marker-glow: rgba(24,168,59,.95);
+}
+
+.${APP.id}-map-age-3h {
+    --${APP.id}-marker-color: #d7b316;
+    --${APP.id}-marker-rgb: 215,179,22;
+    --${APP.id}-marker-glow: rgba(215,179,22,.95);
+}
+
+.${APP.id}-map-age-6h {
+    --${APP.id}-marker-color: #ee7c13;
+    --${APP.id}-marker-rgb: 238,124,19;
+    --${APP.id}-marker-glow: rgba(238,124,19,.95);
+}
+
+.${APP.id}-map-age-old {
+    --${APP.id}-marker-color: #d9152f;
+    --${APP.id}-marker-rgb: 217,21,47;
+    --${APP.id}-marker-glow: rgba(217,21,47,.95);
+}
+`;
+        (document.head || document.documentElement).appendChild(style);
+    }
+
+    function ensureTpScriptBar(doc = document) {
+        if (!doc || !doc.body) return null;
+
+        let bar = doc.getElementById("tp-theplaguept-script-bar");
+        if (!bar) {
+            bar = doc.createElement("div");
+            bar.id = "tp-theplaguept-script-bar";
+            bar.setAttribute("aria-label", "Botoes ThePlaguePT");
+            (doc.body || doc.documentElement).appendChild(bar);
+        }
+
+        return bar;
+    }
+
+    function attachToTpScriptBar(element, doc = document) {
+        const bar = ensureTpScriptBar(doc);
+        if (!bar || !element) return;
+
+        element.classList.add("tp-theplaguept-script-bar-item");
+        element.setAttribute("data-tp-title", element.getAttribute("data-tp-title") || element.getAttribute("aria-label") || APP.title);
+        if (element.parentElement !== bar) bar.appendChild(element);
+    }
+
+    function createLauncher() {
+        let button = document.getElementById(`${APP.id}-launcher`);
+        if (!button) {
+            button = document.createElement("button");
+            button.id = `${APP.id}-launcher`;
+        }
+
         button.type = "button";
         const launcherTitle = `Conquistas - ThePlaguePT v${APP.version}`;
         button.title = launcherTitle;
@@ -433,8 +970,11 @@
             <span class="${APP.id}-launcher-icon" aria-hidden="true"></span>
             <span class="${APP.id}-launcher-text">${launcherTitle}</span>
         `;
-        button.addEventListener("click", openPanel);
-        document.body.appendChild(button);
+        if (!button.dataset.tpconqLauncherBound) {
+            button.dataset.tpconqLauncherBound = "1";
+            button.addEventListener("click", openPanel);
+        }
+        if (!button.isConnected) document.body.appendChild(button);
         attachToTpScriptBar(button);
         state.launcher = button;
         scheduleLauncherPosition();
@@ -484,7 +1024,7 @@
             return;
         }
 
-        const parent = document.getElementById("tpMapMarker-mapToolbar") || findMapOverlayRoot() || document.getElementById("map") || document.body;
+        const parent = findMapOverlayRoot() || document.getElementById("map") || document.getElementById("tpMapMarker-mapToolbar") || document.body;
         let button = existing;
         if (!button) {
             button = document.createElement("button");
