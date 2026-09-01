@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.30
+// @version      1.3.31
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -27,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.30',
+        version: '1.3.31',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -1625,6 +1625,7 @@
         ) {
             run.round.number += 1;
             run.round.pauseUntil = 0;
+            resetRoundTargetCapacity(run);
             run.round.phase = 'start_reloading';
             writeRunState(run);
         }
@@ -2664,8 +2665,7 @@
             currentRun.round.currentVillageId = current;
             currentRun.round.visitedPages = [];
             currentRun.round.exhaustedModels = [];
-            currentRun.round.targets = {};
-            currentRun.round.targetPass = 1;
+            resetRoundTargetCapacity(currentRun);
             startCurrentFarmPage(currentRun);
         } finally {
             state.villagePreparing = false;
@@ -2836,8 +2836,7 @@
         if (nextVillage) {
             run.round.currentVillageId = nextVillage;
             run.round.visitedPages = [];
-            run.round.targets = {};
-            run.round.targetPass = 1;
+            resetRoundTargetCapacity(run);
             run.round.farmCompleted = false;
             run.round.phase = 'changing_village';
             writeRunState(run);
@@ -2934,6 +2933,7 @@
         if (!automationCanRun() || !state.ownsWorker) return;
         run.round.number += 1;
         run.round.pauseUntil = 0;
+        resetRoundTargetCapacity(run);
         hideRoundCountdown();
         run.round.phase = 'start_reloading';
         writeRunState(run);
@@ -2958,8 +2958,7 @@
     function clearRoundProgress(runValue) {
         const run = runValue || ensureRunState();
         run.counts = { a: 0, b: 0, c: 0 };
-        run.round.targets = {};
-        run.round.targetPass = 1;
+        resetRoundTargetCapacity(run);
         run.round.farmCompleted = false;
         run.round.spy = { sent: 0, attempted: {} };
         run.round.groupId = '';
@@ -2971,6 +2970,16 @@
         run.round.exhaustedModels = [];
         setSpyStatus(state.settings?.spy?.enabled ? 'Pronto' : 'Inativo');
         resetPageRuntime();
+    }
+
+    function resetRoundTargetCapacity(runValue) {
+        const run = runValue || ensureRunState();
+        // Este progresso só organiza as vagas da ronda atual. Os comandos que
+        // ainda estão em curso continuam no registo ativo e voltam a ser lidos
+        // da própria linha do jogo na ronda seguinte.
+        run.round.targets = {};
+        run.round.targetPass = 1;
+        return run;
     }
 
     function allActiveModelsExhausted() {
