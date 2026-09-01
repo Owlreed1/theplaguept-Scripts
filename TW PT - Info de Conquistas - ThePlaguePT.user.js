@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Info de Conquistas - ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.61
+// @version      1.0.62
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        *://*/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.61",
+        version: "1.0.62",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -54,6 +54,14 @@
         sortKey: "recent",
         autoTimer: null,
         mapMarkerTimer: null,
+        mapMarkerFrame: null,
+        mapMarkerRealtimeFrame: null,
+        mapMarkerRealtimeUntil: 0,
+        mapMarkerDragging: false,
+        mapMarkerRealtimeBound: false,
+        mapMarkerObserver: null,
+        mapMarkerObserverRoots: [],
+        mapMarkersUpdating: false,
         mapLoadButton: null,
         panelSettingsDraft: null,
         launcherPositionFrame: 0,
@@ -95,6 +103,8 @@
         createLauncher();
         scheduleLauncherPosition();
         ensureMapLoadButton();
+        bindRealtimeMapMarkerUpdates();
+        setupMapMarkerObserver();
         window.addEventListener("resize", scheduleLauncherPosition);
         window.addEventListener("orientationchange", scheduleLauncherPosition);
         document.addEventListener("keydown", (event) => {
@@ -105,8 +115,143 @@
         window.setInterval(() => {
             scheduleLauncherPosition();
             ensureMapLoadButton();
+            setupMapMarkerObserver();
             if (state.rows.length && markMapEnabled()) scheduleMapMarkers(0);
         }, 3000);
+    }
+
+    function bindRealtimeMapMarkerUpdates() {
+        if (state.mapMarkerRealtimeBound) return;
+        state.mapMarkerRealtimeBound = true;
+
+        const options = { capture: true, passive: true };
+        ["pointerdown", "mousedown", "touchstart"].forEach((type) => {
+            document.addEventListener(type, handleMapMarkerPointerStart, options);
+        });
+        ["pointermove", "mousemove", "touchmove", "wheel"].forEach((type) => {
+            document.addEventListener(type, handleMapMarkerPointerMove, options);
+        });
+        ["pointerup", "mouseup", "touchend", "touchcancel"].forEach((type) => {
+            document.addEventListener(type, handleMapMarkerPointerEnd, options);
+        });
+        document.addEventListener("keydown", handleMapMarkerKeyboardMove, true);
+    }
+
+    function handleMapMarkerPointerStart(event) {
+        if (!mapMarkerEventHitsMap(event)) return;
+        state.mapMarkerDragging = true;
+        requestRealtimeMapMarkerUpdates(700);
+    }
+
+    function handleMapMarkerPointerMove(event) {
+        if (state.mapMarkerDragging || mapMarkerEventHitsMap(event)) requestRealtimeMapMarkerUpdates(360);
+    }
+
+    function handleMapMarkerPointerEnd() {
+        if (!state.mapMarkerDragging) return;
+        state.mapMarkerDragging = false;
+        requestRealtimeMapMarkerUpdates(700);
+    }
+
+    function handleMapMarkerKeyboardMove(event) {
+        if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+        if (isMapScreen()) requestRealtimeMapMarkerUpdates(700);
+    }
+
+    function mapMarkerEventHitsMap(event) {
+        if (!isMapScreen()) return false;
+        const target = event && event.target instanceof Element ? event.target : null;
+        if (!target) return false;
+
+        const root = findMapRoot();
+        const miniMap = findMiniMapContainer();
+        return Boolean((root && root.contains(target)) || (miniMap && miniMap.contains(target)));
+    }
+
+    function requestRealtimeMapMarkerUpdates(durationMs = 360) {
+        if (!isMapScreen() || !markMapEnabled() || !state.rows.length) return;
+        const now = performanceNow();
+        state.mapMarkerRealtimeUntil = Math.max(state.mapMarkerRealtimeUntil, now + durationMs);
+        if (!state.mapMarkerRealtimeFrame) {
+            state.mapMarkerRealtimeFrame = window.requestAnimationFrame(runRealtimeMapMarkerUpdates);
+        }
+    }
+
+    function runRealtimeMapMarkerUpdates(now) {
+        state.mapMarkerRealtimeFrame = null;
+        if (!isMapScreen() || !markMapEnabled() || !state.rows.length) return;
+
+        updateMapMarkers();
+
+        if (now < state.mapMarkerRealtimeUntil) {
+            state.mapMarkerRealtimeFrame = window.requestAnimationFrame(runRealtimeMapMarkerUpdates);
+        }
+    }
+
+    function setupMapMarkerObserver() {
+        if (typeof MutationObserver !== "function") return;
+        if (!isMapScreen()) {
+            disconnectMapMarkerObserver();
+            return;
+        }
+
+        const roots = uniqueNodes([findMapRoot(), findMiniMapContainer()].filter(Boolean));
+        if (!roots.length) {
+            disconnectMapMarkerObserver();
+            return;
+        }
+        if (sameNodeList(state.mapMarkerObserverRoots, roots)) return;
+
+        disconnectMapMarkerObserver();
+        state.mapMarkerObserverRoots = roots;
+        state.mapMarkerObserver = new MutationObserver((mutations) => {
+            if (state.mapMarkersUpdating) return;
+            if (!mutations.some(isExternalMapMutation)) return;
+            requestRealtimeMapMarkerUpdates(300);
+        });
+        roots.forEach((root) => {
+            state.mapMarkerObserver.observe(root, {
+                attributes: true,
+                attributeFilter: ["class", "style", "src"],
+                childList: true,
+                subtree: true,
+            });
+        });
+    }
+
+    function disconnectMapMarkerObserver() {
+        if (state.mapMarkerObserver) state.mapMarkerObserver.disconnect();
+        state.mapMarkerObserver = null;
+        state.mapMarkerObserverRoots = [];
+    }
+
+    function isExternalMapMutation(mutation) {
+        if (isOwnMapMarkerNode(mutation.target)) return false;
+        const changedNodes = Array.from(mutation.addedNodes || []).concat(Array.from(mutation.removedNodes || []));
+        const elementNodes = changedNodes.filter((node) => node && node.nodeType === 1);
+        if (elementNodes.length && elementNodes.every(isOwnMapMarkerNode)) return false;
+        return true;
+    }
+
+    function isOwnMapMarkerNode(node) {
+        if (!node || node.nodeType !== 1) return false;
+        const element = node;
+        const id = element.id || "";
+        if (id.startsWith(`${APP.id}-map`) || id.startsWith(`${APP.id}-minimap`)) return true;
+        if (element.classList && Array.from(element.classList).some((name) => name.startsWith(`${APP.id}-map`) || name.startsWith(`${APP.id}-minimap`))) return true;
+        return Boolean(element.closest && element.closest(`#${APP.id}-map-load, #${APP.id}-map-layer, #${APP.id}-minimap-layer`));
+    }
+
+    function uniqueNodes(nodes) {
+        return nodes.filter((node, index) => node && nodes.indexOf(node) === index);
+    }
+
+    function sameNodeList(left, right) {
+        return left.length === right.length && left.every((node, index) => node === right[index]);
+    }
+
+    function performanceNow() {
+        return window.performance && typeof window.performance.now === "function" ? window.performance.now() : Date.now();
     }
 
     function injectStyle() {
@@ -1393,31 +1538,54 @@
 
     function scheduleMapMarkers(delay = 80) {
         if (state.mapMarkerTimer) window.clearTimeout(state.mapMarkerTimer);
-        state.mapMarkerTimer = window.setTimeout(updateMapMarkers, delay);
+        state.mapMarkerTimer = null;
+
+        if (delay <= 16) {
+            if (state.mapMarkerFrame) window.cancelAnimationFrame(state.mapMarkerFrame);
+            state.mapMarkerFrame = window.requestAnimationFrame(() => {
+                state.mapMarkerFrame = null;
+                updateMapMarkers();
+            });
+            return;
+        }
+
+        state.mapMarkerTimer = window.setTimeout(() => {
+            state.mapMarkerTimer = null;
+            updateMapMarkers();
+        }, delay);
     }
 
     function updateMapMarkers() {
-        clearMapMarkers();
-        if (!markMapEnabled() || !state.rows.length) return;
+        if (state.mapMarkersUpdating) return;
+        state.mapMarkersUpdating = true;
 
-        const root = findMapRoot();
+        try {
+            clearMapMarkers();
+            if (!markMapEnabled() || !state.rows.length) return;
 
-        const rows = mapMarkerRows().slice().sort((a, b) => b.timestamp - a.timestamp);
-        const latestByVillage = new Map();
-        rows.forEach((row) => {
-            if (!row.village || !row.village.id) return;
-            if (!latestByVillage.has(row.village.id)) latestByVillage.set(row.village.id, row);
-        });
+            const root = findMapRoot();
 
-        let marked = 0;
-        const candidates = Array.from(latestByVillage.values()).slice(0, APP.mapMarkerSearchMax);
-        if (root) {
-            for (const row of candidates) {
-                if (markMapVillage(root, row)) marked += 1;
-                if (marked >= APP.mapMarkerMax) break;
+            const rows = mapMarkerRows().slice().sort((a, b) => b.timestamp - a.timestamp);
+            const latestByVillage = new Map();
+            rows.forEach((row) => {
+                if (!row.village || !row.village.id) return;
+                if (!latestByVillage.has(row.village.id)) latestByVillage.set(row.village.id, row);
+            });
+
+            let marked = 0;
+            const candidates = Array.from(latestByVillage.values()).slice(0, APP.mapMarkerSearchMax);
+            if (root) {
+                for (const row of candidates) {
+                    if (markMapVillage(root, row)) marked += 1;
+                    if (marked >= APP.mapMarkerMax) break;
+                }
             }
+            markMiniMap(candidates);
+        } finally {
+            window.setTimeout(() => {
+                state.mapMarkersUpdating = false;
+            }, 0);
         }
-        markMiniMap(candidates);
     }
 
     function clearMapMarkers() {
