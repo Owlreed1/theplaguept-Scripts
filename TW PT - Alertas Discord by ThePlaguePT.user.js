@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.91
+// @version      1.3.92
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.91';
+    const SCRIPT_VERSION = '1.3.92';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
     const SCRIPT_DISPLAY_TITLE = `Alertas Discord - ThePlaguePT v${SCRIPT_VERSION}`;
 
@@ -7907,7 +7907,7 @@
                             </label>
                             <div class="tw-alerts-mini-desc">Pausa o script e avisa no Discord.</div>
                             <label class="tw-alerts-check-top tw-alerts-check-extra">
-                                <input id="tw-alerts-captcha-sound" type="checkbox" ${settings.playCaptchaSoundAlerts ? 'checked' : ''}>
+                                <input id="tw-alerts-sound-alert" type="checkbox" ${settings.playCaptchaSoundAlerts ? 'checked' : ''}>
                                 <span>Aviso Sonoro</span>
                             </label>
                             <div class="tw-alerts-mini-desc">Toca os dois sons seguidos e repete 5 segundos depois ate resolver.</div>
@@ -8168,7 +8168,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
                 notifyNobleCounter: false,
                 combineAttackFullsAndNobles: true,
                 notifyVerificationAlerts: container.querySelector('#tw-alerts-verification').checked,
-                playCaptchaSoundAlerts: container.querySelector('#tw-alerts-captcha-sound').checked,
+                playCaptchaSoundAlerts: container.querySelector('#tw-alerts-sound-alert').checked,
                 summaryIntervalHours: Number(container.querySelector('#tw-alerts-summary-interval').value || 8),
                 troopsIntervalHours: Number(container.querySelector('#tw-alerts-troops-interval').value || 8),
                 attackFullsIntervalHours: Number(container.querySelector('#tw-alerts-attack-fulls-interval').value || 8),
@@ -8211,7 +8211,7 @@ ${buildVerificationSlotRows('council', verificationCouncilSlots, 'ID cargo')}
             container.querySelector('#tw-alerts-attack-fulls').checked = Boolean(nextSettings.notifyAttackFulls);
             container.querySelector('#tw-alerts-combine-counters').value = '1';
             container.querySelector('#tw-alerts-verification').checked = Boolean(nextSettings.notifyVerificationAlerts);
-            container.querySelector('#tw-alerts-captcha-sound').checked = Boolean(nextSettings.playCaptchaSoundAlerts);
+            container.querySelector('#tw-alerts-sound-alert').checked = Boolean(nextSettings.playCaptchaSoundAlerts);
             container.querySelector('#tw-alerts-interval').value = nextSettings.checkInterval || CHECK_INTERVAL;
             container.querySelector('#tw-alerts-summary-interval').value = String(normalizeIntervalHours(nextSettings.summaryIntervalHours, DEFAULT_SUMMARY_INTERVAL_HOURS));
             container.querySelector('#tw-alerts-troops-interval').value = String(normalizeIntervalHours(nextSettings.troopsIntervalHours, DEFAULT_TROOPS_INTERVAL_HOURS));

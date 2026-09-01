@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.31
+// @version      1.3.32
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -27,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.31',
+        version: '1.3.32',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -1123,7 +1123,7 @@
             try {
                 const page = await requestBackgroundPage(buildGroupOverviewUrl(groupId, mode), 30000);
                 const documentValue = new DOMParser().parseFromString(page.text, 'text/html');
-                if (documentValue.querySelector('#bot_check,.g-recaptcha,[id*="captcha"]')) {
+                if (hasCaptchaChallenge(documentValue)) {
                     throw new Error('O jogo pediu uma verificação antes de listar os grupos.');
                 }
                 received = true;
@@ -1289,7 +1289,12 @@
             '#bot_check',
             '#botprotection_quest',
             '#captcha',
-            '[id*="captcha" i]',
+            '#captcha_form',
+            '[id^="captcha" i]',
+            '[id*="recaptcha" i]',
+            '[id*="hcaptcha" i]',
+            '.captcha',
+            '.captcha-container',
             '.g-recaptcha',
             '.h-captcha',
             '[data-sitekey]',
@@ -1322,11 +1327,31 @@
         const body = documentValue?.body;
         if (!body) return '';
         if (documentValue === document && typeof body.innerText === 'string') {
-            return normalizeText(body.innerText);
+            const copy = body.cloneNode(true);
+            removeAutomationUiFromClone(copy);
+            return normalizeText(copy.innerText || copy.textContent || '');
         }
         const copy = body.cloneNode(true);
+        removeAutomationUiFromClone(copy);
         copy.querySelectorAll('script,style,noscript,template,svg').forEach(element => element.remove());
         return normalizeText(copy.textContent || '');
+    }
+
+    function removeAutomationUiFromClone(root) {
+        if (!root?.querySelectorAll) return;
+
+        root.querySelectorAll([
+            '#tp-theplaguept-script-bar',
+            '#tw-discord-alerts-ui',
+            '#tw-discord-alerts-panel',
+            '#popup_box_twDiscordAlertsSettings',
+            '#twPtAutoFarm-worker-status',
+            '#twPtAutoFarm-settings',
+            '#auto-farm-a-settings',
+            '#auto-farm-a-toggle',
+            '[data-tw-alerts-settings]',
+            '[data-tp-title]'
+        ].join(',')).forEach(element => element.remove());
     }
 
     function responseHasCaptcha(html) {
@@ -4008,7 +4033,7 @@
                 try {
                     const page = await requestBackgroundPage(buildActiveCommandsUrl(sourceId, mode), 15000);
                     const documentValue = new DOMParser().parseFromString(page.text, 'text/html');
-                    if (documentValue.querySelector('#bot_check,.g-recaptcha,[id*="captcha"]')) {
+                    if (hasCaptchaChallenge(documentValue)) {
                         throw new Error('O jogo pediu uma verificação ao atualizar os ataques em curso.');
                     }
                     const candidate = extractTravellingCommands(documentValue);
