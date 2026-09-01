@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.5.13
+// @version      2.5.14
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -22,7 +22,7 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        version: "2.5.13",
+        version: "2.5.14",
         displayBaseTitle: "Marcador - ThePlaguePT",
         get displayTitle() {
             return `${this.displayBaseTitle} v${this.version}`;
@@ -77,6 +77,7 @@
         launcher: null,
         mapToolbar: null,
         mapToggle: null,
+        secondaryMapToggle: null,
         bonusMapToggle: null,
         supportMapToggle: null,
         supportTravelMapToggle: null,
@@ -840,6 +841,7 @@
 }
 
 #${APP.id}-mapToolbar .tp-toggleBonus,
+#${APP.id}-mapToolbar .tp-toggleSecondary,
 #${APP.id}-mapToolbar .tp-toggleSupport,
 #${APP.id}-mapToolbar .tp-toggleSupportTravel,
 #${APP.id}-mapToolbar .tp-toggleAttack {
@@ -930,7 +932,22 @@
 }
 
 .${APP.id}-zoneBadge {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 20px !important;
+    height: 20px !important;
+    padding: 0 !important;
+    border: 2px solid #fff !important;
+    border-radius: 50% !important;
     background: var(--tp-zone-color, ${APP.defaultColor}) !important;
+    color: #fff !important;
+    font: bold 14px/20px Arial, sans-serif !important;
+    -webkit-text-stroke: 1px #000 !important;
+    paint-order: stroke fill !important;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000 !important;
+    box-shadow: 0 0 0 1px #111, 0 2px 4px rgba(0,0,0,.65) !important;
+    box-sizing: border-box !important;
 }
 
 .${APP.id}-minimapOverlay,
@@ -1209,7 +1226,11 @@
     box-sizing: border-box !important;
 }
 
-#popup_box_${APP.id}Dialog .popup_box_content { overflow-x: hidden !important; }
+#popup_box_${APP.id}Dialog,
+#popup_box_${APP.id}Dialog .popup_box_container,
+#popup_box_${APP.id}Dialog .popup_box_content {
+    overflow: hidden !important;
+}
 #popup_box_${APP.id}Dialog { z-index: ${APP.zIndex + 100} !important; }
 
 @media (max-width: 900px) {
@@ -1322,6 +1343,7 @@
         if (!getMapToolbar()) return false;
 
         createMapToggle();
+        createSecondaryMapToggle();
         createBonusMapToggle();
         createSupportMapToggle();
         createSupportTravelMapToggle();
@@ -1359,6 +1381,41 @@
         button.title = state.coordinatesEnabled ? "Desligar marcações por coordenadas" : "Ligar marcações por coordenadas";
         button.setAttribute("aria-label", button.title);
         button.setAttribute("aria-pressed", String(state.coordinatesEnabled));
+    }
+
+    function createSecondaryMapToggle() {
+        document.getElementById(`${APP.id}-secondaryMapToggle`)?.remove();
+        const toolbar = getMapToolbar();
+        if (!toolbar) return;
+        const button = document.createElement("button");
+        button.id = `${APP.id}-secondaryMapToggle`;
+        button.type = "button";
+        button.innerHTML = `<span class="tp-toggleSecondary" aria-hidden="true">★</span>`;
+        button.addEventListener("click", () => {
+            if (!state.secondaryCoords.size && !state.secondaryEnabled) {
+                notify("Adiciona primeiro coordenadas no Marcador Secundário.");
+                return;
+            }
+            state.secondaryEnabled = !state.secondaryEnabled;
+            const checkbox = state.panel?.querySelector(".tp-secondary-enabled");
+            if (checkbox) checkbox.checked = state.secondaryEnabled;
+            save();
+            updateSecondaryMapToggle();
+            refreshMarkers(true);
+            notify(state.secondaryEnabled ? "Marcador secundário ativado." : "Marcador secundário desativado.");
+        });
+        toolbar.appendChild(button);
+        state.secondaryMapToggle = button;
+        updateSecondaryMapToggle();
+    }
+
+    function updateSecondaryMapToggle() {
+        const button = state.secondaryMapToggle || document.getElementById(`${APP.id}-secondaryMapToggle`);
+        if (!button) return;
+        button.classList.toggle("tp-off", !state.secondaryEnabled);
+        button.title = state.secondaryEnabled ? "Desligar marcador secundário" : "Ligar marcador secundário";
+        button.setAttribute("aria-label", button.title);
+        button.setAttribute("aria-pressed", String(state.secondaryEnabled));
     }
 
     function createBonusMapToggle() {
@@ -1536,10 +1593,6 @@
                         <div><h3>Coordenadas</h3><p>Cola coordenadas em qualquer texto. Repetidas são removidas automaticamente.</p></div>
                         <div><div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-enabled" type="checkbox" ${state.coordinatesEnabled ? "checked" : ""}> Ativar marcação da lista de coordenadas</label></div><div class="${APP.id}-optionsRow"><label>Cor base <input class="tp-color" type="color" value="${state.color}"></label><label><input class="tp-labels" type="checkbox" ${state.showLabels ? "checked" : ""}> Mostrar coordenada no mapa</label><strong class="tp-count">${state.coords.size} aldeia(s)</strong></div></div><textarea class="${APP.id}-coordsInput" spellcheck="false" placeholder="500|500\n501|502\n498|507">${escapeHtml(coordinates)}</textarea></div>
                     </section>
-                    <section class="${APP.id}-section ${APP.id}-secondarySection">
-                        <div><h3>Marcador Secundário</h3><p>Lista independente, sem filtros nem zonas. Usa uma estrela para distinguir estas aldeias.</p></div>
-                        <div><div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-secondary-enabled" type="checkbox" ${state.secondaryEnabled ? "checked" : ""}> Ativar marcador secundário</label></div><div class="${APP.id}-optionsRow"><strong class="tp-secondary-count">${state.secondaryCoords.size} aldeia(s)</strong><button class="tp-secondary-clear" type="button">Limpar secundário</button></div></div><textarea class="${APP.id}-secondaryInput" spellcheck="false" placeholder="500|500\n501|502">${escapeHtml(secondaryCoordinates)}</textarea></div>
-                    </section>
                     <section class="${APP.id}-section ${APP.id}-toolsSection">
                         <div><h3>Filtros e zonas</h3><p>Reduz a lista por distância e cria grupos geográficos limitados.</p></div>
                         <div class="${APP.id}-tools">
@@ -1550,6 +1603,10 @@
                     <section class="${APP.id}-section ${APP.id}-zonesSection ${state.zones.length ? "tp-visible" : ""}">
                         <div><h3>Zonas</h3><p>Uma caixa independente por zona, ordenada da mais próxima para a mais distante.</p></div>
                         <div class="${APP.id}-zonesOutput">${zonesCardsHtml(state.zones)}</div>
+                    </section>
+                    <section class="${APP.id}-section ${APP.id}-secondarySection">
+                        <div><h3>Marcador Secundário</h3><p>Lista independente, sem filtros nem zonas. Usa uma estrela para distinguir estas aldeias.</p></div>
+                        <div><div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-secondary-enabled" type="checkbox" ${state.secondaryEnabled ? "checked" : ""}> Ativar marcador secundário</label></div><div class="${APP.id}-optionsRow"><strong class="tp-secondary-count">${state.secondaryCoords.size} aldeia(s)</strong><button class="tp-secondary-clear" type="button">Limpar secundário</button></div></div><textarea class="${APP.id}-secondaryInput" spellcheck="false" placeholder="500|500\n501|502">${escapeHtml(secondaryCoordinates)}</textarea></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-supportSection">
                         <div><h3>Tropas em apoio</h3><p>Marca separadamente os apoios estacionados e os que ainda estão a caminho.</p></div>
@@ -1741,6 +1798,7 @@
             try { await loadAttackedVillages(true); } catch (error) { notify(`Não foi possível carregar os ataques: ${error.message}`); }
             save();
             updateMapToggle();
+            updateSecondaryMapToggle();
             updateBonusMapToggle();
             updateSupportMapToggle();
             updateSupportTravelMapToggle();
@@ -1758,11 +1816,12 @@
         if (!dialogBox) return;
         dialogBox.style.setProperty("width", width, "important");
         dialogBox.style.setProperty("max-width", width, "important");
+        dialogBox.style.setProperty("overflow", "hidden", "important");
         dialogBox.querySelectorAll(".popup_box_container,.popup_box_content").forEach((element) => {
             element.style.setProperty("width", "100%", "important");
             element.style.setProperty("max-width", "100%", "important");
             element.style.setProperty("box-sizing", "border-box", "important");
-            element.style.setProperty("overflow-x", "hidden", "important");
+            element.style.setProperty("overflow", "hidden", "important");
         });
     }
 
