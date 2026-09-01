@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.5.14
+// @version      2.5.15
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -22,7 +22,7 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        version: "2.5.14",
+        version: "2.5.15",
         displayBaseTitle: "Marcador - ThePlaguePT",
         get displayTitle() {
             return `${this.displayBaseTitle} v${this.version}`;
@@ -973,12 +973,19 @@
 /* Painel clássico do Marcador — independente da barra de atalhos. */
 .${APP.id}-native {
     width: 100% !important;
+    height: calc(100vh - 52px) !important;
+    max-height: calc(100vh - 52px) !important;
     max-width: none !important;
     color: #5b270b !important;
     font: 12px Verdana, Arial, sans-serif !important;
 }
 
 .${APP.id}-frame {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
     border: 2px solid #8f1c16 !important;
     border-radius: 3px !important;
     background: #f6e6b9 !important;
@@ -987,6 +994,7 @@
 }
 
 .${APP.id}-head {
+    flex: 0 0 auto !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 2px !important;
@@ -1003,7 +1011,9 @@
 .${APP.id}-head span { color: #6c330f !important; }
 
 .${APP.id}-content {
-    max-height: calc(100vh - 150px) !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
     overflow-x: hidden !important;
     overflow-y: auto !important;
     padding: 6px 12px 12px !important;
@@ -1224,6 +1234,12 @@
     width: min(1320px, calc(100vw - 34px)) !important;
     max-width: min(1320px, calc(100vw - 34px)) !important;
     box-sizing: border-box !important;
+}
+
+#popup_box_${APP.id}Dialog .popup_box_container,
+#popup_box_${APP.id}Dialog .popup_box_content {
+    height: calc(100vh - 38px) !important;
+    max-height: calc(100vh - 38px) !important;
 }
 
 #popup_box_${APP.id}Dialog,
