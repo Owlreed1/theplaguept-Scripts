@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Info de Conquistas - ThePlaguePT
 // @namespace    theplaguept.tw.conquistas-mundo
-// @version      1.0.63
+// @version      1.0.65
 // @description  Painel de conquistas do mundo por jogador, tribo, aldeia e hora.
 // @author       ThePlaguePT
 // @match        *://*/game.php*
@@ -23,7 +23,7 @@
 
     const APP = {
         id: "tpconq",
-        version: "1.0.63",
+        version: "1.0.65",
         dialogId: "tpconqWorldConquests",
         title: "Conquistas do Mundo",
         githubUrl: "https://github.com/ThePlaguePT/TribalWars-Scripts",
@@ -506,8 +506,8 @@
 }
 
 .${APP.id}-body {
-    max-height: calc(100vh - 146px);
-    overflow: auto;
+    max-height: calc(100vh - 138px);
+    overflow: hidden;
     padding: 10px 14px;
 }
 
@@ -522,7 +522,8 @@
 
 .${APP.id}-settings-section { border-left-color: #9b50d8; }
 .${APP.id}-summary-section { border-left-color: #1aa6d9; }
-.${APP.id}-results-section { border-left-color: #e8a515; }
+.${APP.id}-results-section,
+.${APP.id}-list-section { border-left-color: #e8a515; }
 .${APP.id}-actions-section { border-left-color: #8b6319; }
 
 .${APP.id}-section-copy {
@@ -589,12 +590,32 @@
     height: 13px;
 }
 
-.${APP.id}-config-item {
+.${APP.id}-config-row {
     display: grid;
     grid-template-columns: 22px minmax(0, 1fr);
     gap: 4px;
+    align-items: start;
     border-bottom: 1px solid #d1ad68;
     padding: 4px 0 8px;
+}
+
+.${APP.id}-config-row > span > b {
+    display: block;
+    margin-bottom: 2px;
+}
+
+.${APP.id}-config-row > span > span {
+    display: block;
+    color: #4f210b;
+    font-size: 11px;
+    line-height: 14px;
+}
+
+.${APP.id}-range-head {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
 }
 
 .${APP.id}-range-row input[type="range"] {
@@ -627,14 +648,16 @@
 }
 
 .${APP.id}-content {
-    max-height: 352px;
-    overflow: auto;
+    max-height: 296px;
+    overflow-y: auto;
+    overflow-x: hidden;
     border: 1px solid #d18b35;
     background: #fff2c8;
 }
 
 .${APP.id}-table {
     width: 100%;
+    min-width: 0;
     border-collapse: collapse;
     table-layout: fixed;
 }
@@ -664,12 +687,15 @@
 
 .${APP.id}-button {
     height: 28px;
+    min-width: 150px;
+    padding: 0 12px;
     border: 1px solid #4f120f;
     border-radius: 2px;
     background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611);
     color: #fff;
     font: bold 12px Verdana, Arial, sans-serif;
     text-shadow: 1px 1px 1px #000;
+    white-space: nowrap;
     cursor: pointer;
 }
 
@@ -827,9 +853,33 @@
     cursor: pointer;
 }
 
+#tpMapMarker-mapToolbar #${APP.id}-map-load,
+#${APP.id}-map-load.${APP.id}-map-load-integrated {
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    left: auto !important;
+    bottom: auto !important;
+    z-index: auto !important;
+    width: 28px !important;
+    min-width: 28px !important;
+    max-width: 28px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 0 28px !important;
+}
+
+#tpMapMarker-mapToolbar #${APP.id}-map-load.${APP.id}-map-toggle-on,
+#${APP.id}-map-load.${APP.id}-map-load-integrated.${APP.id}-map-toggle-on {
+    border-color: #4f120f !important;
+    background: linear-gradient(to bottom, #b33a34, #8f2420 55%, #681611) !important;
+}
+
 #${APP.id}-map-load.${APP.id}-map-toggle-off {
-    border-color: #2f302d;
-    background: linear-gradient(to bottom, #7c7d75, #55564f 55%, #353631);
+    border-color: #2f302d !important;
+    background: linear-gradient(to bottom, #7c7d75, #55564f 55%, #353631) !important;
 }
 
 #${APP.id}-map-load.${APP.id}-map-toggle-off::after {
@@ -847,8 +897,8 @@
 }
 
 #${APP.id}-map-load.${APP.id}-map-toggle-off .${APP.id}-map-load-icon {
-    filter: grayscale(1) brightness(.78);
-    opacity: .92;
+    filter: grayscale(1) brightness(.78) !important;
+    opacity: .92 !important;
 }
 
 #${APP.id}-map-load .${APP.id}-map-load-label {
@@ -926,6 +976,344 @@
     --${APP.id}-marker-color: #d9152f;
     --${APP.id}-marker-rgb: 217,21,47;
     --${APP.id}-marker-glow: rgba(217,21,47,.95);
+}
+`;
+        style.textContent += `
+#popup_box_${APP.dialogId},
+#popup_box_${APP.dialogId} .popup_box_content {
+    width: auto !important;
+    max-width: calc(100vw - 24px) !important;
+    box-sizing: border-box !important;
+}
+
+#popup_box_${APP.dialogId} {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    right: auto !important;
+    bottom: auto !important;
+    margin: 0 !important;
+    margin-left: 0 !important;
+    transform: translate(-50%, -50%) !important;
+    max-height: calc(100vh - 8px) !important;
+    overflow: visible !important;
+    z-index: 20002 !important;
+}
+
+#popup_box_${APP.dialogId} .popup_box_content {
+    padding: 8px !important;
+    overflow: hidden !important;
+}
+
+#popup_box_${APP.dialogId} .${APP.id}-shell {
+    width: 1260px !important;
+    max-width: calc(100vw - 44px) !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+#${APP.id}-panel {
+    overflow: hidden !important;
+}
+
+.${APP.id}-shell {
+    width: 1260px !important;
+    max-width: calc(100vw - 44px) !important;
+    max-height: calc(100vh - 34px) !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-frame {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    max-height: calc(100vh - 42px) !important;
+    border: 2px solid #8f2b25 !important;
+    border-radius: 3px !important;
+    background: #f3dfaa !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-head {
+    padding: 14px 16px 12px !important;
+}
+
+.${APP.id}-head strong {
+    font-size: 18px !important;
+    line-height: 22px !important;
+}
+
+.${APP.id}-body {
+    max-height: calc(100vh - 142px) !important;
+    padding: 8px 14px 10px !important;
+    overflow: hidden !important;
+}
+
+.${APP.id}-section {
+    grid-template-columns: 270px minmax(0, 1fr) !important;
+    gap: 8px 18px !important;
+    padding: 9px 0 9px 10px !important;
+    align-items: start !important;
+    min-width: 0 !important;
+}
+
+.${APP.id}-section-copy {
+    min-width: 0 !important;
+    padding-left: 2px !important;
+    padding-top: 2px !important;
+}
+
+.${APP.id}-section-title {
+    margin-bottom: 5px !important;
+    line-height: 16px !important;
+}
+
+.${APP.id}-section-desc {
+    max-width: 240px !important;
+    line-height: 14px !important;
+}
+
+.${APP.id}-section-options {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+}
+
+.${APP.id}-toolbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 7px 8px !important;
+}
+
+.${APP.id}-field {
+    min-width: 0 !important;
+}
+
+.${APP.id}-field label {
+    height: 15px !important;
+    line-height: 15px !important;
+    margin-bottom: 3px !important;
+    white-space: nowrap !important;
+}
+
+.${APP.id}-field input,
+.${APP.id}-field select {
+    height: 27px !important;
+    min-width: 0 !important;
+}
+
+.${APP.id}-config-list {
+    display: grid !important;
+    gap: 0 !important;
+}
+
+.${APP.id}-config-row {
+    display: grid !important;
+    grid-template-columns: 20px minmax(0, 1fr) !important;
+    gap: 2px 6px !important;
+    align-items: start !important;
+    min-width: 0 !important;
+    padding: 5px 0 8px !important;
+    border-bottom: 1px solid #d1ad68 !important;
+    color: #2b1b08 !important;
+    font-size: 12px !important;
+    line-height: 15px !important;
+    font-weight: bold !important;
+}
+
+.${APP.id}-config-row input[type="checkbox"] {
+    width: 13px !important;
+    height: 13px !important;
+    margin: 1px 0 0 !important;
+}
+
+.${APP.id}-config-row > span {
+    display: block !important;
+    min-width: 0 !important;
+}
+
+.${APP.id}-config-row > span > b {
+    display: block !important;
+    margin: 0 0 2px !important;
+    color: #1d0d05 !important;
+    font-size: 12px !important;
+    line-height: 15px !important;
+}
+
+.${APP.id}-config-row > span > span {
+    display: block !important;
+    color: #5e3b16 !important;
+    font-size: 11px !important;
+    line-height: 14px !important;
+    font-weight: normal !important;
+}
+
+.${APP.id}-range-row {
+    padding-top: 6px !important;
+}
+
+.${APP.id}-range-head {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+}
+
+.${APP.id}-range-head output {
+    color: #941915 !important;
+    font-weight: bold !important;
+}
+
+.${APP.id}-range-row input[type="range"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    width: 100% !important;
+    height: 18px !important;
+    margin: 2px 0 4px !important;
+    border: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+.${APP.id}-range-row input[type="range"]::-webkit-slider-runnable-track {
+    height: 7px !important;
+    border-radius: 8px !important;
+    background: #b12b2b !important;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,.25) !important;
+}
+
+.${APP.id}-range-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin-top: -5px !important;
+    border: 1px solid #7b1c18 !important;
+    border-radius: 50% !important;
+    background: #b12b2b !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,.55) !important;
+}
+
+.${APP.id}-range-row input[type="range"]::-moz-range-track {
+    height: 7px !important;
+    border-radius: 8px !important;
+    background: #b12b2b !important;
+}
+
+.${APP.id}-range-row input[type="range"]::-moz-range-thumb {
+    width: 16px !important;
+    height: 16px !important;
+    border: 1px solid #7b1c18 !important;
+    border-radius: 50% !important;
+    background: #b12b2b !important;
+}
+
+.${APP.id}-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+}
+
+.${APP.id}-metric {
+    min-width: 0 !important;
+    padding: 7px 10px !important;
+}
+
+.${APP.id}-content {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    max-height: 270px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+}
+
+.${APP.id}-table th,
+.${APP.id}-table td {
+    padding: 6px 7px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    overflow-wrap: anywhere !important;
+}
+
+.${APP.id}-table th:nth-child(1),
+.${APP.id}-table td:nth-child(1) { width: 10% !important; }
+.${APP.id}-table th:nth-child(2),
+.${APP.id}-table td:nth-child(2) { width: 22% !important; }
+.${APP.id}-table th:nth-child(3),
+.${APP.id}-table td:nth-child(3) { width: 8% !important; }
+.${APP.id}-table th:nth-child(4),
+.${APP.id}-table td:nth-child(4) { width: 14% !important; }
+.${APP.id}-table th:nth-child(5),
+.${APP.id}-table td:nth-child(5) { width: 10% !important; }
+.${APP.id}-table th:nth-child(6),
+.${APP.id}-table td:nth-child(6) { width: 14% !important; }
+.${APP.id}-table th:nth-child(7),
+.${APP.id}-table td:nth-child(7) { width: 10% !important; }
+.${APP.id}-table th:nth-child(8),
+.${APP.id}-table td:nth-child(8) { width: 8% !important; }
+
+.${APP.id}-actions {
+    grid-template-columns: 150px minmax(170px, 1fr) minmax(170px, 1fr) auto !important;
+    gap: 6px 10px !important;
+    align-items: start !important;
+}
+
+.${APP.id}-action-stack {
+    width: 150px !important;
+    gap: 6px !important;
+}
+
+.${APP.id}-button {
+    width: 100% !important;
+    min-width: 150px !important;
+    min-height: 25px !important;
+    height: 25px !important;
+    padding: 1px 8px !important;
+    margin: 0 !important;
+    font-size: 11px !important;
+    line-height: 14px !important;
+}
+
+.${APP.id}-check {
+    white-space: nowrap !important;
+}
+
+.${APP.id}-footer {
+    margin-top: 7px !important;
+    overflow: hidden !important;
+}
+
+.${APP.id}-footer span {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+@media (max-width: 960px) {
+    .${APP.id}-section,
+    .${APP.id}-toolbar,
+    .${APP.id}-actions {
+        grid-template-columns: 1fr !important;
+    }
+
+    .${APP.id}-section-desc {
+        max-width: none !important;
+    }
+
+    .${APP.id}-action-stack {
+        width: 100% !important;
+    }
 }
 `;
         (document.head || document.documentElement).appendChild(style);
@@ -1024,7 +1412,8 @@
             return;
         }
 
-        const parent = findMapOverlayRoot() || document.getElementById("map") || document.getElementById("tpMapMarker-mapToolbar") || document.body;
+        const toolbar = document.getElementById("tpMapMarker-mapToolbar");
+        const parent = toolbar || findMapOverlayRoot() || document.getElementById("map") || document.body;
         let button = existing;
         if (!button) {
             button = document.createElement("button");
@@ -1042,6 +1431,7 @@
             parent.style.position = "relative";
         }
         if (button.parentElement !== parent) parent.appendChild(button);
+        button.classList.toggle(`${APP.id}-map-load-integrated`, parent === toolbar);
         state.mapLoadButton = button;
         syncMapLoadButtonState();
     }
@@ -1547,7 +1937,7 @@
         const content = frame.closest(".popup_box_content") || (box && box.querySelector(".popup_box_content")) || frame.parentElement;
         const shell = frame.closest(`.${APP.id}-shell`) || frame.parentElement;
         const viewportWidth = document.documentElement.clientWidth || window.innerWidth || 1320;
-        const width = Math.min(1320, Math.max(320, viewportWidth - 24));
+        const width = Math.min(1304, Math.max(320, viewportWidth - 24));
 
         if (box) {
             setStyleImportant(box, "position", "fixed");
@@ -1574,13 +1964,22 @@
             setStyleImportant(node, "overflow-y", "hidden");
         });
 
+        if (content) {
+            setStyleImportant(content, "padding", "8px");
+        }
+
         if (shell) {
-            setStyleImportant(shell, "width", "min(1260px, calc(100vw - 58px))");
+            setStyleImportant(shell, "width", "1260px");
+            setStyleImportant(shell, "max-width", "calc(100vw - 44px)");
             setStyleImportant(shell, "margin", "0 auto");
             setStyleImportant(shell, "padding", "0");
+            setStyleImportant(shell, "border", "0");
+            setStyleImportant(shell, "background", "transparent");
+            setStyleImportant(shell, "box-shadow", "none");
             setStyleImportant(shell, "overflow", "visible");
         }
         setStyleImportant(frame, "width", "100%");
+        setStyleImportant(frame, "max-width", "100%");
         setStyleImportant(frame, "max-height", "calc(100vh - 42px)");
         setStyleImportant(frame, "overflow", "hidden");
     }

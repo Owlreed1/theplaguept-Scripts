@@ -7908,7 +7908,7 @@
                             <div class="tw-alerts-mini-desc">Pausa o script e avisa no Discord.</div>
                             <label class="tw-alerts-check-top tw-alerts-check-extra">
                                 <input id="tw-alerts-captcha-sound" type="checkbox" ${settings.playCaptchaSoundAlerts ? 'checked' : ''}>
-                                <span>Som do captcha em loop</span>
+                                <span>Aviso Sonoro</span>
                             </label>
                             <div class="tw-alerts-mini-desc">Toca os dois sons seguidos e repete 5 segundos depois ate resolver.</div>
                         </div>
