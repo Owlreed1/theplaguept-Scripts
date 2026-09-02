@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.5.19
+// @version      2.5.20
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -22,7 +22,7 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        version: "2.5.19",
+        version: "2.5.20",
         displayBaseTitle: "Marcador - ThePlaguePT",
         get displayTitle() {
             return `${this.displayBaseTitle} v${this.version}`;
@@ -86,6 +86,7 @@
         secondaryMapToggle: null,
         secondaryQuickBox: null,
         tribePlayersMapToggle: null,
+        tribeQuickBox: null,
         tribePlayerFilter: null,
         bonusMapToggle: null,
         supportMapToggle: null,
@@ -354,7 +355,7 @@
             return;
         }
         const requested = state.tribeQuery.split(/[\n,;]+/).map((value) => value.trim().toLocaleLowerCase()).filter(Boolean);
-        if (!requested.length) throw new Error("indica pelo menos uma tribo");
+        if (!requested.length) throw new Error("indica pelo menos um jogador ou uma tribo");
         if (!force && state.tribeCoords.size && Date.now() - state.tribeDataLastUpdate < 5 * 60 * 1000) return;
 
         const fetchMapFile = async (name) => {
@@ -373,15 +374,17 @@
             const tag = decodeMapField(fields[2]).toLocaleLowerCase();
             if (requested.includes(name) || requested.includes(tag)) allyIds.add(Number(fields[0]));
         });
-        if (!allyIds.size) throw new Error("nenhuma tribo encontrada com esses nomes ou tags");
-
         const players = new Map();
         playersText.split("\n").forEach((line) => {
             const fields = line.trim().split(",");
-            if (fields.length < 3 || !allyIds.has(Number(fields[2]))) return;
+            if (fields.length < 3) return;
             const id = Number(fields[0]);
-            players.set(id, { id, name: decodeMapField(fields[1]), villages: [] });
+            const name = decodeMapField(fields[1]);
+            const selectedByPlayer = requested.includes(name.toLocaleLowerCase());
+            const selectedByTribe = allyIds.has(Number(fields[2]));
+            if (selectedByPlayer || selectedByTribe) players.set(id, { id, name, villages: [] });
         });
+        if (!players.size) throw new Error("nenhum jogador, nome de tribo ou tag encontrado");
         villagesText.split("\n").forEach((line) => {
             const fields = line.trim().split(",");
             if (fields.length < 5) return;
@@ -987,6 +990,47 @@
     border: 1px solid #56230f !important;
     border-radius: 2px !important;
     background: linear-gradient(to bottom, #9e5932, #6e2d19) !important;
+    color: #fff !important;
+    font-weight: bold !important;
+    cursor: pointer !important;
+}
+
+#${APP.id}-tribeQuickBox {
+    position: absolute !important;
+    top: 50px !important;
+    right: 10px !important;
+    z-index: 27 !important;
+    width: 250px !important;
+    max-width: calc(100% - 20px) !important;
+    padding: 5px !important;
+    border: 2px solid #274d91 !important;
+    border-radius: 3px !important;
+    background: #e8e2c5 !important;
+    box-shadow: 0 2px 7px rgba(0,0,0,.65) !important;
+    color: #241609 !important;
+    font: 11px Verdana, Arial, sans-serif !important;
+    pointer-events: auto !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-tribeQuickHead { margin-bottom: 4px !important; color: #244f9b !important; font-weight: bold !important; }
+.${APP.id}-tribeQuickLine { display: flex !important; gap: 4px !important; }
+.${APP.id}-tribeQuickInput {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    height: 27px !important;
+    padding: 3px 5px !important;
+    border: 1px solid #526c99 !important;
+    background: #fffdf0 !important;
+    font: 11px Verdana, Arial, sans-serif !important;
+    box-sizing: border-box !important;
+}
+.${APP.id}-tribeQuickLine button {
+    min-height: 27px !important;
+    padding: 2px 8px !important;
+    border: 1px solid #1e3f78 !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #4777c7, #28539a) !important;
     color: #fff !important;
     font-weight: bold !important;
     cursor: pointer !important;
@@ -1621,7 +1665,6 @@
         createSupportMapToggle();
         createSupportTravelMapToggle();
         createAttackMapToggle();
-        createSecondaryQuickBox();
 
         return true;
     }
@@ -1666,10 +1709,6 @@
         button.type = "button";
         button.innerHTML = `<span class="tp-toggleSecondary" aria-hidden="true">★</span>`;
         button.addEventListener("click", () => {
-            if (!state.secondaryCoords.size && !state.secondaryEnabled) {
-                notify("Adiciona primeiro coordenadas no Marcador Secundário.");
-                return;
-            }
             state.secondaryEnabled = !state.secondaryEnabled;
             const checkbox = state.panel?.querySelector(".tp-secondary-enabled");
             if (checkbox) checkbox.checked = state.secondaryEnabled;
@@ -1692,10 +1731,14 @@
         button.setAttribute("aria-pressed", String(state.secondaryEnabled));
         const quickCount = document.querySelector(`#${APP.id}-secondaryQuickBox .tp-secondary-quick-count`);
         if (quickCount) quickCount.textContent = String(state.secondaryCoords.size);
+        createSecondaryQuickBox();
+        layoutMapSidePanels();
     }
 
     function createSecondaryQuickBox() {
         document.getElementById(`${APP.id}-secondaryQuickBox`)?.remove();
+        state.secondaryQuickBox = null;
+        if (!state.secondaryEnabled) return;
         const host = getMapToggleHost();
         if (!host) return;
         const box = document.createElement("div");
@@ -1739,18 +1782,13 @@
         button.type = "button";
         button.innerHTML = `<span class="tp-toggleTribePlayers" aria-hidden="true">♟</span>`;
         button.addEventListener("click", async () => {
-            if (!state.tribeQuery.trim() && !state.tribePlayersEnabled) {
-                notify("Indica primeiro as tribos no painel do marcador.");
-                return;
-            }
             state.tribePlayersEnabled = !state.tribePlayersEnabled;
             const checkbox = state.panel?.querySelector(".tp-tribe-enabled");
             if (checkbox) checkbox.checked = state.tribePlayersEnabled;
-            if (state.tribePlayersEnabled) {
+            if (state.tribePlayersEnabled && state.tribeQuery.trim()) {
                 try { await loadTribePlayerVillages(); }
                 catch (error) {
-                    state.tribePlayersEnabled = false;
-                    notify(`Não foi possível carregar as tribos: ${error.message}`);
+                    notify(`Não foi possível carregar jogadores/tribos: ${error.message}`);
                 }
             }
             save();
@@ -1766,10 +1804,69 @@
         const button = state.tribePlayersMapToggle || document.getElementById(`${APP.id}-tribePlayersMapToggle`);
         if (!button) return;
         button.classList.toggle("tp-off", !state.tribePlayersEnabled);
-        button.title = state.tribePlayersEnabled ? "Desligar aldeias dos jogadores das tribos" : "Ligar aldeias dos jogadores das tribos";
+        button.title = state.tribePlayersEnabled ? "Desligar marcador de jogador/tribo" : "Ligar marcador de jogador/tribo";
         button.setAttribute("aria-label", button.title);
         button.setAttribute("aria-pressed", String(state.tribePlayersEnabled));
+        createTribeQuickBox();
         renderTribePlayerFilter();
+        layoutMapSidePanels();
+    }
+
+    function createTribeQuickBox() {
+        document.getElementById(`${APP.id}-tribeQuickBox`)?.remove();
+        state.tribeQuickBox = null;
+        if (!state.tribePlayersEnabled) return;
+        const host = getMapToggleHost();
+        if (!host) return;
+        const box = document.createElement("div");
+        box.id = `${APP.id}-tribeQuickBox`;
+        box.innerHTML = `
+            <div class="${APP.id}-tribeQuickHead">♟ Marcador de Jogador/Tribo</div>
+            <div class="${APP.id}-tribeQuickLine"><input class="${APP.id}-tribeQuickInput" type="text" value="${escapeHtml(state.tribeQuery)}" placeholder="Jogador, tag ou tribo"><button type="button">Marcar</button></div>`;
+        const input = box.querySelector(`.${APP.id}-tribeQuickInput`);
+        const apply = async () => {
+            const query = input.value.trim();
+            if (!query) return notify("Indica um nome de jogador, tag ou nome de tribo.");
+            const button = box.querySelector("button");
+            button.disabled = true;
+            button.textContent = "…";
+            state.tribeQuery = query;
+            state.tribePlayersEnabled = true;
+            try {
+                await loadTribePlayerVillages(true);
+                save();
+                const panelInput = state.panel?.querySelector(`.${APP.id}-tribeQuery`);
+                if (panelInput) panelInput.value = query;
+                const panelCheckbox = state.panel?.querySelector(".tp-tribe-enabled");
+                if (panelCheckbox) panelCheckbox.checked = true;
+                const panelCount = state.panel?.querySelector(".tp-tribe-count");
+                if (panelCount) panelCount.textContent = `${state.tribePlayerGroups.length} jogador(es), ${state.tribeCoords.size} aldeia(s)`;
+                updateTribePlayersMapToggle();
+                refreshMarkers(true);
+                notify(`${state.tribePlayerGroups.length} jogador(es) marcados.`);
+            } catch (error) {
+                notify(`Não foi possível carregar jogadores/tribos: ${error.message}`);
+            } finally {
+                button.disabled = false;
+                button.textContent = "Marcar";
+            }
+        };
+        box.querySelector("button").addEventListener("click", apply);
+        input.addEventListener("keydown", (event) => { if (event.key === "Enter") apply(); });
+        host.appendChild(box);
+        state.tribeQuickBox = box;
+    }
+
+    function layoutMapSidePanels() {
+        let top = 50;
+        const secondary = document.getElementById(`${APP.id}-secondaryQuickBox`);
+        const tribeQuick = document.getElementById(`${APP.id}-tribeQuickBox`);
+        const playerFilter = document.getElementById(`${APP.id}-tribePlayerFilter`);
+        for (const element of [secondary, tribeQuick, playerFilter]) {
+            if (!element) continue;
+            element.style.setProperty("top", `${top}px`, "important");
+            top += element.offsetHeight + 6;
+        }
     }
 
     function renderTribePlayerFilter() {
@@ -1812,6 +1909,7 @@
         });
         host.appendChild(panel);
         state.tribePlayerFilter = panel;
+        layoutMapSidePanels();
     }
 
     function createBonusMapToggle() {
@@ -2005,8 +2103,8 @@
                         <div><div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-secondary-enabled" type="checkbox" ${state.secondaryEnabled ? "checked" : ""}> Ativar marcador secundário</label></div><div class="${APP.id}-optionsRow"><strong class="tp-secondary-count">${state.secondaryCoords.size} aldeia(s)</strong><button class="tp-secondary-clear" type="button">Limpar secundário</button></div></div><textarea class="${APP.id}-secondaryInput" spellcheck="false" placeholder="500|500\n501|502">${escapeHtml(secondaryCoordinates)}</textarea></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-tribePlayersSection">
-                        <div><h3>Jogadores das Tribos</h3><p>Marca todas as aldeias dos jogadores das tribos indicadas. Cada jogador recebe uma cor e o seu nome no minimapa.</p></div>
-                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-tribe-enabled" type="checkbox" ${state.tribePlayersEnabled ? "checked" : ""}> Ativar aldeias dos jogadores</label></div><span class="${APP.id}-toolTitle">Tags ou nomes das tribos</span><div class="${APP.id}-toolLine"><input class="${APP.id}-tribeQuery" type="text" value="${escapeHtml(state.tribeQuery)}" placeholder="STN; No0B; Nome da tribo"><button class="tp-tribe-apply" type="button">Carregar jogadores e marcar</button><strong class="tp-tribe-count">${state.tribePlayerGroups.length ? `${state.tribePlayerGroups.length} jogador(es), ${state.tribeCoords.size} aldeia(s)` : ""}</strong></div></div>
+                        <div><h3>Marcador de Jogador/Tribo</h3><p>Marca pelo nome do jogador ou pela tag/nome da tribo. Cada jogador recebe uma cor e o seu nome no minimapa.</p></div>
+                        <div class="${APP.id}-tool"><div class="${APP.id}-enableRow"><label class="${APP.id}-enableLabel"><input class="tp-tribe-enabled" type="checkbox" ${state.tribePlayersEnabled ? "checked" : ""}> Ativar marcador de jogador/tribo</label></div><span class="${APP.id}-toolTitle">Jogadores, tags ou nomes de tribos</span><div class="${APP.id}-toolLine"><input class="${APP.id}-tribeQuery" type="text" value="${escapeHtml(state.tribeQuery)}" placeholder="Jogador; STN; Nome da tribo"><button class="tp-tribe-apply" type="button">Carregar e marcar</button><strong class="tp-tribe-count">${state.tribePlayerGroups.length ? `${state.tribePlayerGroups.length} jogador(es), ${state.tribeCoords.size} aldeia(s)` : ""}</strong></div></div>
                     </section>
                     <section class="${APP.id}-section ${APP.id}-supportSection">
                         <div><h3>Tropas em apoio</h3><p>Marca separadamente os apoios estacionados e os que ainda estão a caminho.</p></div>
@@ -2059,7 +2157,7 @@
             const button = event.currentTarget;
             state.tribeQuery = panel.querySelector(`.${APP.id}-tribeQuery`).value.trim();
             state.tribePlayersEnabled = panel.querySelector(".tp-tribe-enabled").checked;
-            if (!state.tribeQuery) return notify("Indica pelo menos uma tag ou nome de tribo.");
+            if (!state.tribeQuery) return notify("Indica pelo menos um jogador, tag ou nome de tribo.");
             button.disabled = true;
             button.textContent = "A carregar…";
             try {
@@ -2070,10 +2168,10 @@
                 panel.querySelector(".tp-tribe-count").textContent = `${state.tribePlayerGroups.length} jogador(es), ${state.tribeCoords.size} aldeia(s)`;
                 notify(`${state.tribePlayerGroups.length} jogador(es) e ${state.tribeCoords.size} aldeia(s) carregados.`);
             } catch (error) {
-                notify(`Não foi possível carregar as tribos: ${error.message}`);
+                notify(`Não foi possível carregar jogadores/tribos: ${error.message}`);
             } finally {
                 button.disabled = false;
-                button.textContent = "Carregar jogadores e marcar";
+                button.textContent = "Carregar e marcar";
             }
         });
         panel.querySelector(".tp-filter").addEventListener("click", async (event) => {
@@ -2219,7 +2317,7 @@
             try { await loadSupportedVillages(true); } catch (error) { notify(`Não foi possível carregar os apoios: ${error.message}`); }
             try { await loadTravelingSupportVillages(true); } catch (error) { notify(`Não foi possível carregar os apoios a caminho: ${error.message}`); }
             try { await loadAttackedVillages(true); } catch (error) { notify(`Não foi possível carregar os ataques: ${error.message}`); }
-            try { await loadTribePlayerVillages(true); } catch (error) { notify(`Não foi possível carregar as tribos: ${error.message}`); }
+            try { await loadTribePlayerVillages(true); } catch (error) { notify(`Não foi possível carregar jogadores/tribos: ${error.message}`); }
             save();
             updateMapToggle();
             updateSecondaryMapToggle();
@@ -2422,6 +2520,8 @@
             Boolean(node.closest?.(`#${APP.id}-tribePlayerFilter`)) ||
             node.id === `${APP.id}-secondaryQuickBox` ||
             Boolean(node.closest?.(`#${APP.id}-secondaryQuickBox`)) ||
+            node.id === `${APP.id}-tribeQuickBox` ||
+            Boolean(node.closest?.(`#${APP.id}-tribeQuickBox`)) ||
             node.classList?.contains(`${APP.id}-mapPin`);
     }
 
