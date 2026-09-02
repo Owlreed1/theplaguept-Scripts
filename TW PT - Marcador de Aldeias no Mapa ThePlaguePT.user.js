@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.5.16
+// @version      2.5.17
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -22,7 +22,7 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        version: "2.5.16",
+        version: "2.5.17",
         displayBaseTitle: "Marcador - ThePlaguePT",
         get displayTitle() {
             return `${this.displayBaseTitle} v${this.version}`;
@@ -42,6 +42,7 @@
         tribeQuery: "",
         tribeCoords: new Map(),
         tribePlayerGroups: [],
+        disabledTribePlayerIds: new Set(),
         tribeDataLastUpdate: 0,
         color: APP.defaultColor,
         showLabels: true,
@@ -84,6 +85,7 @@
         mapToggle: null,
         secondaryMapToggle: null,
         tribePlayersMapToggle: null,
+        tribePlayerFilter: null,
         bonusMapToggle: null,
         supportMapToggle: null,
         supportTravelMapToggle: null,
@@ -110,6 +112,7 @@
             state.secondaryEnabled = saved.secondaryEnabled === true;
             state.tribePlayersEnabled = saved.tribePlayersEnabled === true;
             state.tribeQuery = String(saved.tribeQuery || "");
+            state.disabledTribePlayerIds = new Set(Array.isArray(saved.disabledTribePlayerIds) ? saved.disabledTribePlayerIds.map(Number).filter(Number.isFinite) : []);
             state.distance = Math.max(1, Math.min(200, Number(saved.distance) || 20));
             state.zoneSize = Number(saved.zoneSize) === 50 ? 50 : 25;
             state.zonesEnabled = saved.zonesEnabled === true;
@@ -138,6 +141,7 @@
             secondaryEnabled: state.secondaryEnabled,
             tribePlayersEnabled: state.tribePlayersEnabled,
             tribeQuery: state.tribeQuery,
+            disabledTribePlayerIds: [...state.disabledTribePlayerIds],
             color: state.color,
             showLabels: state.showLabels,
             coordinatesEnabled: state.coordinatesEnabled,
@@ -296,7 +300,9 @@
     function activeCoordinates() {
         const merged = state.coordinatesEnabled ? new Map(state.coords) : new Map();
         if (state.secondaryEnabled) for (const [key, item] of state.secondaryCoords) merged.set(key, { ...item, secondary: true });
-        if (state.tribePlayersEnabled) for (const [key, item] of state.tribeCoords) merged.set(key, item);
+        if (state.tribePlayersEnabled) for (const [key, item] of state.tribeCoords) {
+            if (!state.disabledTribePlayerIds.has(Number(item.playerId))) merged.set(key, item);
+        }
         if (state.bonusEnabled) for (const [key, item] of state.bonusCoords) merged.set(key, item);
         if (state.supportEnabled) for (const [key, item] of state.supportCoords) merged.set(key, item);
         if (state.supportTravelEnabled) for (const [key, item] of state.supportTravelCoords) merged.set(key, item);
@@ -328,8 +334,16 @@
     }
 
     function playerMarkerColor(index) {
-        const hue = (Number(index) * 137.508 + 14) % 360;
-        return `hsl(${hue.toFixed(1)} 78% 43%)`;
+        const colors = [
+            "#e60026", "#0066ff", "#00a83b", "#ff7900", "#7a20d9", "#00a9a5",
+            "#d900a6", "#8f4e00", "#e04700", "#0057b8", "#138f00", "#bd00ff",
+            "#d62728", "#0088cc", "#63a800", "#ff3d7f", "#5b3fd1", "#00966d"
+        ];
+        return colors[Math.abs(Number(index) || 0) % colors.length];
+    }
+
+    function isTribePlayerVisible(player) {
+        return !state.disabledTribePlayerIds.has(Number(player?.id));
     }
 
     async function loadTribePlayerVillages(force = false) {
@@ -389,6 +403,7 @@
         state.tribeCoords = coords;
         state.tribePlayerGroups = groups;
         state.tribeDataLastUpdate = Date.now();
+        renderTribePlayerFilter();
     }
 
     async function loadSupportedVillages(force = false) {
@@ -921,6 +936,79 @@
     border-radius: 50% !important;
     background: #a32620 !important;
 }
+
+#${APP.id}-tribePlayerFilter {
+    position: absolute !important;
+    top: 50px !important;
+    right: 10px !important;
+    z-index: 26 !important;
+    width: 218px !important;
+    max-width: calc(100% - 20px) !important;
+    border: 2px solid #5b3214 !important;
+    border-radius: 3px !important;
+    background: #f4e4b8 !important;
+    box-shadow: 0 2px 7px rgba(0,0,0,.65) !important;
+    color: #351b09 !important;
+    font: 11px Verdana, Arial, sans-serif !important;
+    pointer-events: auto !important;
+    overflow: hidden !important;
+}
+
+.${APP.id}-playerFilterHead {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 5px !important;
+    padding: 5px 6px !important;
+    border-bottom: 1px solid #9b6a32 !important;
+    background: linear-gradient(to bottom, #e7c77f, #c99b50) !important;
+    font-weight: bold !important;
+}
+
+.${APP.id}-playerFilterActions { display: inline-flex !important; gap: 3px !important; }
+.${APP.id}-playerFilterActions button {
+    min-width: 25px !important;
+    height: 21px !important;
+    padding: 0 4px !important;
+    border: 1px solid #5a2a12 !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #9e5932, #6e2d19) !important;
+    color: #fff !important;
+    font: bold 10px Arial, sans-serif !important;
+    cursor: pointer !important;
+}
+
+.${APP.id}-playerFilterList {
+    max-height: 270px !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    padding: 3px !important;
+    scrollbar-color: #986a38 #ead5a3 !important;
+}
+
+.${APP.id}-playerFilterItem {
+    display: grid !important;
+    grid-template-columns: 17px 13px minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    gap: 4px !important;
+    min-height: 23px !important;
+    padding: 2px 3px !important;
+    border-bottom: 1px solid rgba(117,76,32,.25) !important;
+    cursor: pointer !important;
+}
+
+.${APP.id}-playerFilterItem:hover { background: rgba(255,255,255,.42) !important; }
+.${APP.id}-playerFilterItem input { margin: 0 !important; }
+.${APP.id}-playerFilterColor {
+    width: 11px !important;
+    height: 11px !important;
+    border: 1px solid #fff !important;
+    border-radius: 50% !important;
+    background: var(--tp-player-color) !important;
+    box-shadow: 0 0 0 1px #281508 !important;
+}
+.${APP.id}-playerFilterName { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; font-weight: bold !important; }
+.${APP.id}-playerFilterCount { color: #714215 !important; font-size: 10px !important; }
 
 #${APP.id}-mapToolbar .tp-toggleBonus,
 #${APP.id}-mapToolbar .tp-toggleSecondary,
@@ -1587,6 +1675,49 @@
         button.title = state.tribePlayersEnabled ? "Desligar aldeias dos jogadores das tribos" : "Ligar aldeias dos jogadores das tribos";
         button.setAttribute("aria-label", button.title);
         button.setAttribute("aria-pressed", String(state.tribePlayersEnabled));
+        renderTribePlayerFilter();
+    }
+
+    function renderTribePlayerFilter() {
+        document.getElementById(`${APP.id}-tribePlayerFilter`)?.remove();
+        state.tribePlayerFilter = null;
+        if (!state.tribePlayersEnabled || !state.tribePlayerGroups.length) return;
+        const host = getMapToggleHost();
+        if (!host) return;
+        const panel = document.createElement("div");
+        panel.id = `${APP.id}-tribePlayerFilter`;
+        panel.innerHTML = `
+            <div class="${APP.id}-playerFilterHead">
+                <span>Jogadores (${state.tribePlayerGroups.length})</span>
+                <span class="${APP.id}-playerFilterActions"><button type="button" data-action="all" title="Ligar todos">Todos</button><button type="button" data-action="none" title="Desligar todos">Nenhum</button></span>
+            </div>
+            <div class="${APP.id}-playerFilterList">${state.tribePlayerGroups.map((player) => `
+                <label class="${APP.id}-playerFilterItem" title="${escapeHtml(player.name)} — ${player.villages.length} aldeia(s)">
+                    <input type="checkbox" data-player-id="${player.id}" ${isTribePlayerVisible(player) ? "checked" : ""}>
+                    <i class="${APP.id}-playerFilterColor" style="--tp-player-color:${player.color}"></i>
+                    <span class="${APP.id}-playerFilterName">${escapeHtml(player.name)}</span>
+                    <small class="${APP.id}-playerFilterCount">${player.villages.length}</small>
+                </label>`).join("")}</div>`;
+        panel.addEventListener("change", (event) => {
+            const checkbox = event.target.closest("input[data-player-id]");
+            if (!checkbox) return;
+            const id = Number(checkbox.dataset.playerId);
+            if (checkbox.checked) state.disabledTribePlayerIds.delete(id);
+            else state.disabledTribePlayerIds.add(id);
+            save();
+            refreshMarkers(true);
+        });
+        panel.addEventListener("click", (event) => {
+            const action = event.target.closest("button[data-action]")?.dataset.action;
+            if (!action) return;
+            if (action === "all") state.disabledTribePlayerIds.clear();
+            else state.tribePlayerGroups.forEach((player) => state.disabledTribePlayerIds.add(Number(player.id)));
+            panel.querySelectorAll("input[data-player-id]").forEach((checkbox) => { checkbox.checked = action === "all"; });
+            save();
+            refreshMarkers(true);
+        });
+        host.appendChild(panel);
+        state.tribePlayerFilter = panel;
     }
 
     function createBonusMapToggle() {
@@ -2193,6 +2324,8 @@
             node.classList?.contains(`${APP.id}-minimapOverlay`) ||
             node.classList?.contains(`${APP.id}-miniDot`) ||
             node.classList?.contains(`${APP.id}-playerBadge`) ||
+            node.id === `${APP.id}-tribePlayerFilter` ||
+            Boolean(node.closest?.(`#${APP.id}-tribePlayerFilter`)) ||
             node.classList?.contains(`${APP.id}-mapPin`);
     }
 
@@ -2350,7 +2483,7 @@
             badge.style.top = `${((center.y - bounds.minY) / (bounds.maxY - bounds.minY)) * 100}%`;
             overlay.appendChild(badge);
         });
-        if (state.tribePlayersEnabled) state.tribePlayerGroups.forEach((player) => {
+        if (state.tribePlayersEnabled) state.tribePlayerGroups.filter(isTribePlayerVisible).forEach((player) => {
             const center = player.center;
             if (!center || center.x < bounds.minX || center.x > bounds.maxX || center.y < bounds.minY || center.y > bounds.maxY) return;
             const badge = document.createElement("span");
@@ -2399,7 +2532,7 @@
             positionMiniElement(badge, center.x, center.y, mapping);
             overlay.appendChild(badge);
         });
-        if (state.tribePlayersEnabled) state.tribePlayerGroups.forEach((player) => {
+        if (state.tribePlayersEnabled) state.tribePlayerGroups.filter(isTribePlayerVisible).forEach((player) => {
             if (!player.center) return;
             const badge = document.createElement("span");
             badge.className = `${APP.id}-playerBadge`;
