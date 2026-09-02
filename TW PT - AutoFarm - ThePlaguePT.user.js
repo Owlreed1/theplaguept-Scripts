@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.32
+// @version      1.3.33
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -27,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.32',
+        version: '1.3.33',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -86,7 +86,7 @@
         captchaPause: `twPtAutoFarm.v1.${world}.captchaPause`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 9,
+        schema: 10,
         general: {
             attackIntervalMs: 650,
             roundPauseSeconds: 60,
@@ -918,11 +918,6 @@
                         <span class="af-filter-label"><span aria-hidden="true">↻</span>Ataques/alvo</span>
                         <input type="checkbox" data-setting="${base}.sameVillage.enabled" aria-label="Permitir vários ataques do Modelo ${letter} à mesma aldeia">
                         <input type="number" min="2" max="50" step="1" data-setting="${base}.sameVillage.max" aria-label="Máximo de ataques do Modelo ${letter} simultaneamente em curso para a mesma aldeia">
-                    </div>
-                    <div class="af-filter-row" data-filter="sameVillage">
-                        <span class="af-filter-label" title="A separação real varia automaticamente dez por cento"><span aria-hidden="true">⏱</span>Dif. chegada (s) ±10%</span>
-                        <span aria-hidden="true"></span>
-                        <input type="number" min="1" max="86400" step="1" data-setting="${base}.sameVillage.separationSeconds" aria-label="Diferença de chegada em segundos dos ataques do Modelo ${letter}">
                     </div>
                     <div class="af-subtitle">Tipo de saque</div>
                     <div class="af-loot-types">
@@ -3050,7 +3045,6 @@
         const exhaustedModels = new Set(run.round.exhaustedModels || []);
         const activeCounts = getActiveAttackCounts();
         const targetPass = Math.max(1, Number(run.round.targetPass) || 1);
-        const now = Date.now();
         state.pendingTargetDueAt = 0;
         state.pageDeferredCandidates = 0;
 
@@ -3096,17 +3090,11 @@
                 ) {
                     continue;
                 }
-                const nextAt = Math.max(0, Number(progress.nextAt) || 0);
                 if (isFarmButtonDisabled(button)) {
                     continue;
                 }
                 if (!modelHasCapacity(progress.model, config, activeCounts)) {
                     deferFarmRow(getNextActiveImpact(progress.model));
-                    continue;
-                }
-
-                if (nextAt > now) {
-                    deferFarmRow(nextAt);
                     continue;
                 }
 
@@ -3308,8 +3296,7 @@
             Math.max(0, Number(progress.baselineActive) || 0) +
                 Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config) &&
             Math.max(0, Number(progress.lastPass) || 0) <
-                Math.max(1, Number(round.targetPass) || 1) &&
-            Math.max(0, Number(progress.nextAt) || 0) <= Date.now();
+                Math.max(1, Number(round.targetPass) || 1);
     }
 
     async function sendFarmTask(task) {
@@ -3568,12 +3555,6 @@
 
     function randomizedRoundPauseMs(baseSeconds) {
         const base = Math.max(1, Number(baseSeconds) || DEFAULT_SETTINGS.general.roundPauseSeconds) * 1000;
-        const variation = base * 0.10;
-        return Math.round(base - variation + (Math.random() * variation * 2));
-    }
-
-    function randomizedArrivalSeparationMs(baseSeconds) {
-        const base = Math.max(1, Number(baseSeconds) || 1) * 1000;
         const variation = base * 0.10;
         return Math.round(base - variation + (Math.random() * variation * 2));
     }
@@ -3856,16 +3837,11 @@
         const complete = !targetKey || previousBaseline + sent >= maximum;
         const targetPass = Math.max(1, Number(run.round.targetPass) || 1);
         const now = Date.now();
-        const nextAt = complete
-            ? 0
-            : now + randomizedArrivalSeparationMs(config.sameVillage.separationSeconds);
-
         run.counts[model] = (run.counts[model] || 0) + 1;
         if (targetKey) {
             run.round.targets[targetKey] = {
                 model,
                 sent,
-                nextAt,
                 lastAt: now,
                 lastPass: targetPass,
                 baselineActive: previousBaseline,
@@ -3886,7 +3862,6 @@
             minutesPerField: details.minutesPerField,
             unitSpeed: details.unitSpeed,
             sentAt: now,
-            nextTargetAt: nextAt,
         });
         writeRunState(run);
         return { sent, maximum, complete };
@@ -3977,8 +3952,7 @@
                 distance * minutesPerField * 60 * 1000 * unitSpeed
             ) + APP.impactSafetyMs;
             const impactAt = Math.max(sentAt, Number(value.impactAt) || predictedImpactAt);
-            const nextTargetAt = Math.max(0, Number(value.nextTargetAt) || 0);
-            if (!model || Math.max(impactAt, nextTargetAt) <= now) {
+            if (!model || impactAt <= now) {
                 changed = true;
                 return;
             }
@@ -3991,7 +3965,6 @@
                 targetCoord: String(value.targetCoord || ''),
                 sentAt,
                 impactAt,
-                nextTargetAt,
                 distance,
                 minutesPerField,
                 unitSpeed,
@@ -4223,10 +4196,6 @@
                 keepIds.add(attack.id);
                 return;
             }
-            if (attack.nextTargetAt > now) {
-                attack.impactAt = now;
-                keepIds.add(attack.id);
-            }
         });
 
         return attacks.filter(attack => (
@@ -4250,7 +4219,6 @@
             targetCoord: String(details.targetCoord || ''),
             sentAt,
             impactAt: sentAt + Math.ceil(travelMs) + APP.impactSafetyMs,
-            nextTargetAt: Math.max(0, Number(details.nextTargetAt) || 0),
             distance,
             minutesPerField,
             unitSpeed,
@@ -4283,27 +4251,18 @@
 
     function getActiveTargetStatus(model, targetKey, config, attacksValue) {
         const maximum = getSameVillageLimit(config);
-        if (!targetKey) return { count: 0, maximum, nextAt: 0, slotAt: 0 };
+        if (!targetKey) return { count: 0, maximum, slotAt: 0 };
         const attacks = Array.isArray(attacksValue)
             ? attacksValue
             : getActiveAttacksForCurrentVillage();
         const matching = attacks.filter(attack => (
             attack.model === model && attack.targetKey === targetKey
         ));
-        let nextAt = 0;
-        matching.forEach(attack => {
-            const storedNextAt = Number(attack.nextTargetAt) || 0;
-            const migratedNextAt = config?.sameVillage?.enabled
-                ? attack.sentAt + (config.sameVillage.separationSeconds * 1000)
-                : 0;
-            nextAt = Math.max(nextAt, storedNextAt || migratedNextAt);
-        });
         const now = Date.now();
         const activeMatching = matching.filter(attack => attack.impactAt > now);
         return {
             count: activeMatching.length,
             maximum,
-            nextAt,
             slotAt: activeMatching.length
                 ? Math.min(...activeMatching.map(attack => attack.impactAt))
                 : 0,
@@ -4651,7 +4610,6 @@
             targets[targetKey] = {
                 model,
                 sent: integerValue(progress.sent, 1, 1, 50),
-                nextAt: Math.max(0, Number(progress.nextAt) || 0),
                 lastAt: Math.max(0, Number(progress.lastAt) || 0),
                 lastPass: integerValue(
                     progress.lastPass,
@@ -4864,7 +4822,7 @@
             wall: { enabled: false, max: 20 },
             distance: { enabled: false, max: 50 },
             maxAttacks: { enabled: false, max: 100 },
-            sameVillage: { enabled: false, max: 2, separationSeconds: 60 },
+            sameVillage: { enabled: false, max: 2 },
             loot: { full: true, partial: true },
             reports: {
                 blue: true,
@@ -4913,12 +4871,6 @@
                 sameVillage: {
                     enabled: booleanValue(model.sameVillage?.enabled, fallback.sameVillage.enabled),
                     max: integerValue(model.sameVillage?.max, fallback.sameVillage.max, 2, 50),
-                    separationSeconds: integerValue(
-                        model.sameVillage?.separationSeconds,
-                        fallback.sameVillage.separationSeconds,
-                        1,
-                        86400
-                    ),
                 },
                 loot: {
                     full: booleanValue(model.loot?.full, fallback.loot.full),
@@ -4936,7 +4888,7 @@
         });
 
         return {
-            schema: 9,
+            schema: 10,
             general: {
                 attackIntervalMs: integerValue(
                     generalSource.attackIntervalMs,
