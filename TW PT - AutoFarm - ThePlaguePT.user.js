@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.33
+// @version      1.3.35
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -27,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.33',
+        version: '1.3.35',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -86,7 +86,7 @@
         captchaPause: `twPtAutoFarm.v1.${world}.captchaPause`,
     });
     const DEFAULT_SETTINGS = Object.freeze({
-        schema: 10,
+        schema: 11,
         general: {
             attackIntervalMs: 650,
             roundPauseSeconds: 60,
@@ -915,7 +915,7 @@
                         <input type="number" min="1" max="10000" step="1" data-setting="${base}.maxAttacks.max" aria-label="Máximo de ataques simultaneamente em curso do Modelo ${letter}">
                     </div>
                     <div class="af-filter-row" data-filter="sameVillage">
-                        <span class="af-filter-label"><span aria-hidden="true">↻</span>Ataques/alvo</span>
+                        <span class="af-filter-label" title="Limite simultâneo; envia no máximo um novo ataque por alvo em cada ronda"><span aria-hidden="true">↻</span>Ataques/alvo</span>
                         <input type="checkbox" data-setting="${base}.sameVillage.enabled" aria-label="Permitir vários ataques do Modelo ${letter} à mesma aldeia">
                         <input type="number" min="2" max="50" step="1" data-setting="${base}.sameVillage.max" aria-label="Máximo de ataques do Modelo ${letter} simultaneamente em curso para a mesma aldeia">
                     </div>
@@ -2199,32 +2199,7 @@
         state.idleScans = 0;
         const run = ensureRunState();
         if (navigateToNextFarmPage(run)) return;
-        if (restartFarmTargetPass(run)) return;
         finishCurrentVillageFarm(run);
-    }
-
-    function restartFarmTargetPass(runValue) {
-        const run = runValue || ensureRunState();
-        const settings = state.settings || loadSettings();
-        const exhausted = new Set(run.round.exhaustedModels || []);
-        const hasIncompleteTargets = Object.values(run.round.targets || {}).some(progress => {
-            const config = settings.models?.[progress.model];
-            return Boolean(
-                config?.enabled &&
-                !exhausted.has(progress.model) &&
-                Math.max(0, Number(progress.baselineActive) || 0) +
-                    Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config)
-            );
-        });
-        if (!hasIncompleteTargets) return false;
-
-        run.round.targetPass = Math.max(1, Number(run.round.targetPass) || 1) + 1;
-        run.round.visitedPages = [];
-        run.round.phase = 'changing_page';
-        run.round.farmCompleted = false;
-        writeRunState(run);
-        navigateRoundUrl(buildFirstFarmPageUrl(run.round.currentVillageId).href);
-        return true;
     }
 
     function finishCurrentVillageFarm(runValue) {
@@ -2998,7 +2973,6 @@
         // ainda estão em curso continuam no registo ativo e voltam a ser lidos
         // da própria linha do jogo na ronda seguinte.
         run.round.targets = {};
-        run.round.targetPass = 1;
         return run;
     }
 
@@ -3044,7 +3018,6 @@
         const run = ensureRunState();
         const exhaustedModels = new Set(run.round.exhaustedModels || []);
         const activeCounts = getActiveAttackCounts();
-        const targetPass = Math.max(1, Number(run.round.targetPass) || 1);
         state.pendingTargetDueAt = 0;
         state.pageDeferredCandidates = 0;
 
@@ -3052,61 +3025,10 @@
             const targetKey = getTargetKey(row);
             const progress = targetKey ? run.round.targets[targetKey] : null;
 
-            if (progress) {
-                if (exhaustedModels.has(progress.model)) continue;
-                const config = settings.models[progress.model];
-                const maximum = getSameVillageLimit(config);
-                const sent = Math.max(0, Number(progress.sent) || 0);
-                const activeStatus = getTargetActiveLimitStatus(
-                    row,
-                    progress.model,
-                    targetKey,
-                    config
-                );
-                const observedBaseline = Math.max(
-                    Math.max(0, Number(progress.baselineActive) || 0),
-                    activeStatus.count - sent
-                );
-                if (observedBaseline !== progress.baselineActive) {
-                    progress.baselineActive = observedBaseline;
-                    run.round.targets[targetKey] = progress;
-                    writeRunState(run);
-                }
-                if (observedBaseline + sent >= maximum || activeStatus.count >= maximum) {
-                    row.dataset.twPtAutofarmSent = '1';
-                    state.processedTargets.add(targetKey);
-                    continue;
-                }
-                if (Math.max(0, Number(progress.lastPass) || 0) >= targetPass) {
-                    continue;
-                }
-                const button = row.querySelector(`a.farm_icon_${progress.model}`);
-                const reportColor = getReportColor(row);
-                if (
-                    !config?.enabled ||
-                    !button ||
-                    !reportColor ||
-                    !modelMatchesRow(row, config, reportColor)
-                ) {
-                    continue;
-                }
-                if (isFarmButtonDisabled(button)) {
-                    continue;
-                }
-                if (!modelHasCapacity(progress.model, config, activeCounts)) {
-                    deferFarmRow(getNextActiveImpact(progress.model));
-                    continue;
-                }
-
-                return {
-                    row,
-                    button,
-                    model: progress.model,
-                    reportColor,
-                    targetKey,
-                    targetActiveCount: activeStatus.count,
-                };
-            }
+            // Um envio bem-sucedido conclui este alvo apenas para a ronda atual.
+            // Na ronda seguinte o estado é limpo, a linha é relida e pode receber
+            // outro ataque se o limite simultâneo ainda tiver uma vaga.
+            if (progress) continue;
 
             if (state.processedRows.has(row) || row.dataset.twPtAutofarmSent === '1') continue;
             const selected = selectModelForRow(
@@ -3291,12 +3213,7 @@
         if (config?.sameVillage?.enabled && activeStatus.count >= getSameVillageLimit(config)) {
             return false;
         }
-        if (!progress) return true;
-        return progress.model === model &&
-            Math.max(0, Number(progress.baselineActive) || 0) +
-                Math.max(0, Number(progress.sent) || 0) < getSameVillageLimit(config) &&
-            Math.max(0, Number(progress.lastPass) || 0) <
-                Math.max(1, Number(round.targetPass) || 1);
+        return !progress;
     }
 
     async function sendFarmTask(task) {
@@ -3778,7 +3695,6 @@
                 pauseUntil: 0,
                 farmCompleted: false,
                 targets: {},
-                targetPass: 1,
                 spy: { sent: 0, attempted: {} },
                 groupId: '',
                 groupName: '',
@@ -3835,7 +3751,6 @@
             : Math.max(0, Number(details.targetActiveCount) || 0);
         const sent = targetKey ? previousSent + 1 : 1;
         const complete = !targetKey || previousBaseline + sent >= maximum;
-        const targetPass = Math.max(1, Number(run.round.targetPass) || 1);
         const now = Date.now();
         run.counts[model] = (run.counts[model] || 0) + 1;
         if (targetKey) {
@@ -3843,7 +3758,6 @@
                 model,
                 sent,
                 lastAt: now,
-                lastPass: targetPass,
                 baselineActive: previousBaseline,
             };
         }
@@ -3864,7 +3778,7 @@
             sentAt: now,
         });
         writeRunState(run);
-        return { sent, maximum, complete };
+        return { sent, maximum, complete: true, capacityFull: complete };
     }
 
     function getSameVillageLimit(config) {
@@ -4555,7 +4469,6 @@
             pauseUntil: Math.max(0, Number(source.pauseUntil) || 0),
             farmCompleted: source.farmCompleted === true,
             targets: normalizeRoundTargets(source.targets),
-            targetPass: integerValue(source.targetPass, 1, 1, 50),
             spy: normalizeRoundSpy(source.spy),
             groupId: /^-?\d+$/.test(String(source.groupId || '')) ? String(source.groupId) : '',
             groupName: String(source.groupName || '').slice(0, 120),
@@ -4611,12 +4524,6 @@
                 model,
                 sent: integerValue(progress.sent, 1, 1, 50),
                 lastAt: Math.max(0, Number(progress.lastAt) || 0),
-                lastPass: integerValue(
-                    progress.lastPass,
-                    1,
-                    1,
-                    50
-                ),
                 baselineActive: integerValue(progress.baselineActive, 0, 0, 50),
             };
         });
@@ -4888,7 +4795,7 @@
         });
 
         return {
-            schema: 10,
+            schema: 11,
             general: {
                 attackIntervalMs: integerValue(
                     generalSource.attackIntervalMs,
