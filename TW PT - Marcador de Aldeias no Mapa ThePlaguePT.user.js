@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Marcador de Aldeias no Mapa ThePlaguePT
 // @namespace    theplaguept.tw.map-marker
-// @version      2.5.18
+// @version      2.5.19
 // @description  Marca listas de coordenadas no mapa e no minimapa do Tribal Wars.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -22,7 +22,7 @@
     const APP = {
         id: "tpMapMarker",
         title: "Marcador de Aldeias",
-        version: "2.5.18",
+        version: "2.5.19",
         displayBaseTitle: "Marcador - ThePlaguePT",
         get displayTitle() {
             return `${this.displayBaseTitle} v${this.version}`;
@@ -84,6 +84,7 @@
         mapToolbar: null,
         mapToggle: null,
         secondaryMapToggle: null,
+        secondaryQuickBox: null,
         tribePlayersMapToggle: null,
         tribePlayerFilter: null,
         bonusMapToggle: null,
@@ -937,9 +938,63 @@
     background: #a32620 !important;
 }
 
-#${APP.id}-tribePlayerFilter {
+#${APP.id}-secondaryQuickBox {
     position: absolute !important;
     top: 50px !important;
+    right: 10px !important;
+    z-index: 27 !important;
+    width: 218px !important;
+    max-width: calc(100% - 20px) !important;
+    padding: 5px !important;
+    border: 2px solid #5b3214 !important;
+    border-radius: 3px !important;
+    background: #f4e4b8 !important;
+    box-shadow: 0 2px 7px rgba(0,0,0,.65) !important;
+    color: #351b09 !important;
+    font: 11px Verdana, Arial, sans-serif !important;
+    pointer-events: auto !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-secondaryQuickHead {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 5px !important;
+    margin-bottom: 4px !important;
+    color: #8b211b !important;
+    font-weight: bold !important;
+}
+
+.${APP.id}-secondaryQuickInput {
+    display: block !important;
+    width: 100% !important;
+    height: 44px !important;
+    margin: 0 0 4px !important;
+    padding: 3px 5px !important;
+    resize: vertical !important;
+    border: 1px solid #86521e !important;
+    background: #fff9df !important;
+    color: #1e1007 !important;
+    font: 11px Consolas, monospace !important;
+    box-sizing: border-box !important;
+}
+
+.${APP.id}-secondaryQuickFoot { display: flex !important; align-items: center !important; justify-content: space-between !important; gap: 5px !important; }
+.${APP.id}-secondaryQuickFoot button {
+    min-height: 24px !important;
+    padding: 2px 9px !important;
+    border: 1px solid #56230f !important;
+    border-radius: 2px !important;
+    background: linear-gradient(to bottom, #9e5932, #6e2d19) !important;
+    color: #fff !important;
+    font-weight: bold !important;
+    cursor: pointer !important;
+}
+
+#${APP.id}-tribePlayerFilter {
+    position: absolute !important;
+    top: 154px !important;
     right: 10px !important;
     z-index: 26 !important;
     width: 218px !important;
@@ -1566,6 +1621,7 @@
         createSupportMapToggle();
         createSupportTravelMapToggle();
         createAttackMapToggle();
+        createSecondaryQuickBox();
 
         return true;
     }
@@ -1634,6 +1690,44 @@
         button.title = state.secondaryEnabled ? "Desligar marcador secundário" : "Ligar marcador secundário";
         button.setAttribute("aria-label", button.title);
         button.setAttribute("aria-pressed", String(state.secondaryEnabled));
+        const quickCount = document.querySelector(`#${APP.id}-secondaryQuickBox .tp-secondary-quick-count`);
+        if (quickCount) quickCount.textContent = String(state.secondaryCoords.size);
+    }
+
+    function createSecondaryQuickBox() {
+        document.getElementById(`${APP.id}-secondaryQuickBox`)?.remove();
+        const host = getMapToggleHost();
+        if (!host) return;
+        const box = document.createElement("div");
+        box.id = `${APP.id}-secondaryQuickBox`;
+        box.innerHTML = `
+            <div class="${APP.id}-secondaryQuickHead"><span>★ Marcador secundário</span><small class="tp-secondary-quick-count">${state.secondaryCoords.size}</small></div>
+            <textarea class="${APP.id}-secondaryQuickInput" spellcheck="false" placeholder="500|500  501|502"></textarea>
+            <div class="${APP.id}-secondaryQuickFoot"><span>Acrescentar coordenadas</span><button type="button">Adicionar</button></div>`;
+        const input = box.querySelector(`.${APP.id}-secondaryQuickInput`);
+        box.querySelector("button").addEventListener("click", () => {
+            const additions = parseCoordinates(input.value);
+            if (!additions.size) return notify("Não foram encontradas coordenadas válidas.");
+            additions.forEach((item, key) => state.secondaryCoords.set(key, item));
+            state.secondaryEnabled = true;
+            input.value = "";
+            box.querySelector(".tp-secondary-quick-count").textContent = String(state.secondaryCoords.size);
+            const panelInput = state.panel?.querySelector(`.${APP.id}-secondaryInput`);
+            if (panelInput) panelInput.value = [...state.secondaryCoords.values()].map(({ x, y }) => `${x}|${y}`).join("\n");
+            const panelCheckbox = state.panel?.querySelector(".tp-secondary-enabled");
+            if (panelCheckbox) panelCheckbox.checked = true;
+            const panelCount = state.panel?.querySelector(".tp-secondary-count");
+            if (panelCount) panelCount.textContent = `${state.secondaryCoords.size} aldeia(s)`;
+            save();
+            updateSecondaryMapToggle();
+            refreshMarkers(true);
+            notify(`${additions.size} coordenada(s) adicionada(s) ao marcador secundário.`);
+        });
+        input.addEventListener("keydown", (event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") box.querySelector("button").click();
+        });
+        host.appendChild(box);
+        state.secondaryQuickBox = box;
     }
 
     function createTribePlayersMapToggle() {
@@ -2326,6 +2420,8 @@
             node.classList?.contains(`${APP.id}-playerBadge`) ||
             node.id === `${APP.id}-tribePlayerFilter` ||
             Boolean(node.closest?.(`#${APP.id}-tribePlayerFilter`)) ||
+            node.id === `${APP.id}-secondaryQuickBox` ||
+            Boolean(node.closest?.(`#${APP.id}-secondaryQuickBox`)) ||
             node.classList?.contains(`${APP.id}-mapPin`);
     }
 
