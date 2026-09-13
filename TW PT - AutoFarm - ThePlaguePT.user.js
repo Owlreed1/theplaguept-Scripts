@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - AutoFarm - ThePlaguePT
 // @namespace    theplaguept.tw.autofarm
-// @version      1.3.37
+// @version      1.3.38
 // @description  Automação por rondas do Assistente de Saque do Tribal Wars.
 // @author       ThePlaguePT
 // @icon         https://i.imgur.com/JXzrSKy.jpeg
@@ -27,7 +27,7 @@
     const APP = Object.freeze({
         name: 'TW PT - AutoFarm - ThePlaguePT',
         shortName: 'TW PT - AutoFarm',
-        version: '1.3.37',
+        version: '1.3.38',
         id: 'twPtAutoFarm',
         buttonId: 'auto-farm-a-toggle',
         toolbarId: 'tp-theplaguept-script-bar',
@@ -1605,6 +1605,18 @@
                 if (state.workerWindow !== worker) return;
                 state.workerWindow = null;
                 state.managerOpenedWorker = false;
+                const opening = readWorkerOpening();
+                if (isFreshWorkerNavigation(opening)) {
+                    // Alguns gestores sinalizam "onclose" durante uma navegação
+                    // interna. A reserva impede que seja aberto outro separador
+                    // enquanto o mesmo worker muda para a aldeia seguinte.
+                    state.nextWorkerOpenAttemptAt = Math.max(
+                        state.nextWorkerOpenAttemptAt,
+                        Number(opening.openedAt) + APP.workerLaunchGraceMs
+                    );
+                    updateUi();
+                    return;
+                }
                 clearWorkerOpening();
                 state.nextWorkerOpenAttemptAt = Date.now() + workerOpenRetryMs;
                 if (!state.destroyed) superviseWorker();
@@ -2890,7 +2902,11 @@
         state.roundPreparing = false;
         state.villagePreparing = false;
         window.setTimeout(() => {
-            if (automationCanRun() && state.ownsWorker) window.location.assign(url);
+            if (!automationCanRun() || !state.ownsWorker) return;
+            const destination = new URL(url, window.location.href);
+            destination.searchParams.set(workerUrlParameter, '1');
+            markWorkerNavigation(destination.href);
+            window.location.assign(destination.href);
         }, 80);
     }
 
@@ -4597,9 +4613,26 @@
             version: APP.version,
             url: String(url || ''),
             openedAt: Date.now(),
+            kind: 'open',
         };
         localStorage.setItem(keys.workerOpening, JSON.stringify(opening));
         return readWorkerOpening()?.tabId === tabId;
+    }
+
+    function markWorkerNavigation(url) {
+        if (!isManagedWorker()) return;
+        localStorage.setItem(keys.workerOpening, JSON.stringify({
+            tabId,
+            world,
+            version: APP.version,
+            url: String(url || ''),
+            openedAt: Date.now(),
+            kind: 'navigation',
+        }));
+    }
+
+    function isFreshWorkerNavigation(opening) {
+        return isFreshWorkerOpening(opening) && opening.kind === 'navigation';
     }
 
     function clearWorkerOpening(onlyOwned = true) {
