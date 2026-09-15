@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Alertas Discord ThePlaguePT
 // @namespace    http://tampermonkey.net/
-// @version      1.3.94
+// @version      1.3.95
 // @description  Notificacoes de ataques Tribal Wars -> Discord
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -21,7 +21,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.3.94';
+    const SCRIPT_VERSION = '1.3.95';
     const SCRIPT_UPDATE_URL = 'https://raw.githubusercontent.com/ThePlaguePT/TribalWars-Scripts/main/TW%20PT%20-%20Alertas%20Discord%20by%20ThePlaguePT.user.js';
     const SCRIPT_DISPLAY_TITLE = `Alertas Discord - ThePlaguePT v${SCRIPT_VERSION}`;
 
@@ -2847,8 +2847,19 @@
             return;
         }
 
-        if (settings.notifyNobleCounter) {
-            console.log('[TW] Contador de nobres separado ignorado; agora segue dentro dos fulls de ataque.');
+        if (settings.notifyNobleCounter && shouldSendNobleCounterSummary()) {
+            try {
+                const sent = await sendNobleCounterSummary();
+
+                if (sent) {
+                    console.log('[TW] Contador automatico de nobres enviado.');
+                } else {
+                    resetScheduleAttempt(NOBLE_COUNTER_LAST_SENT_KEY, NOBLE_COUNTER_DAILY_SENT_KEY);
+                }
+            } catch (error) {
+                resetScheduleAttempt(NOBLE_COUNTER_LAST_SENT_KEY, NOBLE_COUNTER_DAILY_SENT_KEY);
+                console.warn('[TW] Erro ao enviar contador automatico de nobres:', error);
+            }
         }
     }
 
@@ -5891,20 +5902,41 @@
     }
 
     async function buildNobleCounterSummary() {
-        const troopsSummary = await buildTroopsOverviewSummary();
+        const academyAvailability = await getAcademyNoblesAvailable();
+        let troopsSummary = null;
 
-        if (!troopsSummary || !troopsSummary.villageCount || !isTroopSummaryOverviewReliable(troopsSummary)) {
+        try {
+            const candidateSummary = await buildTroopsOverviewSummary();
+
+            if (candidateSummary && candidateSummary.villageCount && isTroopSummaryOverviewReliable(candidateSummary)) {
+                troopsSummary = candidateSummary;
+            } else {
+                console.warn('[TW] Contador de nobres sem fallback de tropas por leitura incompleta.');
+            }
+        } catch (error) {
+            console.warn('[TW] Contador de nobres sem fallback de tropas:', error);
+        }
+
+        const troopNobles = troopsSummary
+            ? getBestTroopNobleCount(troopsSummary, academyAvailability)
+            : 0;
+        const currentNobles = getReliableCurrentNobles(academyAvailability, troopNobles);
+        const canMake = getReliableCanMakeNobles(academyAvailability);
+        const villageCount =
+            getPlayerVillageCount() ||
+            troopsSummary?.villageCount ||
+            academyAvailability.academyVillageCount ||
+            0;
+
+        if (currentNobles === null && canMake === null && !villageCount) {
             return null;
         }
 
-        const academyAvailability = await getAcademyNoblesAvailable();
-        const troopNobles = getBestTroopNobleCount(troopsSummary, academyAvailability);
-
         return {
-            currentNobles: getReliableCurrentNobles(academyAvailability, troopNobles),
-            villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
+            currentNobles,
+            villageCount,
             defenderTribe: await getPlayerTribe(getDefenderProfileUrl()),
-            canMake: getReliableCanMakeNobles(academyAvailability),
+            canMake,
             academyVillageCount: academyAvailability.academyVillageCount,
             academySource: academyAvailability.source
         };
@@ -5943,11 +5975,18 @@
     }
 
     async function buildCombinedCountersSummary() {
-        const troopsSummary = await buildTroopsOverviewSummary();
+        let troopsSummary = null;
 
-        if (!troopsSummary || !troopsSummary.villageCount || !isTroopSummaryOverviewReliable(troopsSummary)) {
-            console.warn('[TW] Contador de fulls/nobres ignorado por leitura incompleta de tropas.');
-            return null;
+        try {
+            const candidateSummary = await buildTroopsOverviewSummary();
+
+            if (candidateSummary && candidateSummary.villageCount && isTroopSummaryOverviewReliable(candidateSummary)) {
+                troopsSummary = candidateSummary;
+            } else {
+                console.warn('[TW] Fulls ignorados nesta ronda por leitura incompleta de tropas.');
+            }
+        } catch (error) {
+            console.warn('[TW] Fulls ignorados nesta ronda por erro na leitura de tropas:', error);
         }
 
         const [defenderTribe, academyAvailability] = await Promise.all([
@@ -5955,16 +5994,34 @@
             getAcademyNoblesAvailable()
         ]);
 
-        troopsSummary.defenderTribe = defenderTribe;
-        const troopNobles = getBestTroopNobleCount(troopsSummary, academyAvailability);
+        if (troopsSummary) {
+            troopsSummary.defenderTribe = defenderTribe;
+        }
+
+        const troopNobles = troopsSummary
+            ? getBestTroopNobleCount(troopsSummary, academyAvailability)
+            : 0;
+        const currentNobles = getReliableCurrentNobles(academyAvailability, troopNobles);
+        const canMake = getReliableCanMakeNobles(academyAvailability);
+        const villageCount =
+            getPlayerVillageCount() ||
+            troopsSummary?.villageCount ||
+            academyAvailability.academyVillageCount ||
+            0;
+
+        if (!troopsSummary && currentNobles === null && canMake === null && !villageCount) {
+            console.warn('[TW] Contador de fulls/nobres ignorado por falta de dados.');
+            return null;
+        }
 
         return {
             attackFulls: troopsSummary,
+            attackFullsUnavailable: !troopsSummary,
             nobleCounter: {
-                currentNobles: getReliableCurrentNobles(academyAvailability, troopNobles),
-                villageCount: getPlayerVillageCount() || troopsSummary.villageCount,
+                currentNobles,
+                villageCount,
                 defenderTribe,
-                canMake: getReliableCanMakeNobles(academyAvailability),
+                canMake,
                 academyVillageCount: academyAvailability.academyVillageCount,
                 academySource: academyAvailability.source
             }
@@ -5974,10 +6031,20 @@
     function buildCombinedCountersEmbed(summary) {
         const attackFulls = summary.attackFulls || {};
         const nobleCounter = summary.nobleCounter || {};
-        const counter = attackFulls.attackFullCounter || calculateAttackFullCounterByVillage(attackFulls.villages || []);
+        const hasAttackFulls = !summary.attackFullsUnavailable && summary.attackFulls;
+        const counter = hasAttackFulls
+            ? (attackFulls.attackFullCounter || calculateAttackFullCounterByVillage(attackFulls.villages || []))
+            : null;
         const canMakeText = nobleCounter.canMake === null
             ? 'N/A'
             : formatTroopNumber(nobleCounter.canMake);
+        const attackFullLines = counter
+            ? [
+                `🏆 **FULLS:** **${formatTroopNumber(counter.completeFulls)}**`,
+                `⚔️ **MEIOS FULLS:** **${formatTroopNumber(counter.halfFulls)}**`,
+                `🔸 **PEQUENOS FULLS:** **${formatTroopNumber(counter.smallFulls)}**`
+            ]
+            : ['Leitura de tropas incompleta nesta ronda.'];
 
         return {
             title: '⚔️ ━━ FULLS DE ATAQUE E NOBRES ━━ 👑',
@@ -5994,11 +6061,7 @@
                 },
                 {
                     name: '⚔️ Fulls de Ataque',
-                    value: [
-                        `🏆 **FULLS:** **${formatTroopNumber(counter.completeFulls)}**`,
-                        `⚔️ **MEIOS FULLS:** **${formatTroopNumber(counter.halfFulls)}**`,
-                        `🔸 **PEQUENOS FULLS:** **${formatTroopNumber(counter.smallFulls)}**`
-                    ].join('\n'),
+                    value: attackFullLines.join('\n'),
                     inline: false
                 },
                 {
