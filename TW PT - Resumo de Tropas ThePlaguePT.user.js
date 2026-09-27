@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW PT - Resumo de Tropas - ThePlaguePT
 // @namespace    https://github.com/ThePlaguePT/TribalWars-Scripts
-// @version      2.2.0
+// @version      2.3.0
 // @description  Resume as tropas do grupo atual, classifica os exercitos e exporta um cartao PNG.
 // @author       ThePlaguePT
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -17,7 +17,7 @@
     const APP = {
         id: 'twp-troop-summary',
         title: 'Resumo de Tropas',
-        version: '2.2.0',
+        version: '2.3.0',
         storageKey: 'twp_troop_summary_settings_v1'
     };
 
@@ -210,6 +210,18 @@
         return villages;
     }
 
+    function activeGroupInfo(source = document) {
+        const selectors = ['#group_selection', 'select[name="group"]', 'select[id*="group"]'];
+        const select = selectors.map(selector => source.querySelector(selector)).find(Boolean);
+        const urlGroup = new URL(location.href).searchParams.get('group');
+        const id = String(urlGroup ?? select?.value ?? '').trim();
+        const option = select ? Array.from(select.options || []).find(item => String(item.value) === id) || select.selectedOptions?.[0] : null;
+        return {
+            id,
+            name: String(option?.textContent || '').trim() || (id && id !== '0' ? `Grupo #${id}` : 'Todas')
+        };
+    }
+
     function overviewUrl(type = 'complete') {
         const url = new URL(location.href);
         url.searchParams.set('screen', 'overview_villages');
@@ -218,7 +230,8 @@
         url.searchParams.delete('units_type');
         url.searchParams.set('type', type);
         url.searchParams.set('page', '-1');
-        url.searchParams.delete('group');
+        const group = activeGroupInfo();
+        if (group.id) url.searchParams.set('group', group.id);
         ['action', 'ajax', 'h'].forEach(key => url.searchParams.delete(key));
         return url;
     }
@@ -245,7 +258,8 @@
                 url.searchParams.set('screen', 'overview_villages');
                 url.searchParams.set('mode', 'units');
                 url.searchParams.set('page', '-1');
-                url.searchParams.delete('group');
+                const group = activeGroupInfo();
+                if (group.id) url.searchParams.set('group', group.id);
                 ['action', 'ajax', 'h'].forEach(key => url.searchParams.delete(key));
                 return url;
             }
@@ -537,6 +551,7 @@
         state.progress = 'A carregar o resumo de tropas…';
         render();
         try {
+            const selectedGroup = activeGroupInfo();
             const completeDoc = await fetchOverview('complete');
             const [ownDoc, supportDoc] = await Promise.all([
                 fetchOverview('own').catch(() => null),
@@ -551,7 +566,8 @@
             }
             const overviewSupport = parseStationedOwnSupports(supportDoc);
             console.log('[Resumo de Tropas] Apoios estacionados lidos da vista de suporte:', overviewSupport);
-            const group = document.querySelector('#group_selection option:checked')?.textContent?.trim() || 'Todas';
+            const fetchedGroup = activeGroupInfo(completeDoc);
+            const group = selectedGroup.name !== 'Todas' ? selectedGroup.name : fetchedGroup.name;
             state.progress = `A analisar ${villages.length} Praças de Reuniões…`;
             render();
             const detected = await collectActivities(villages);
@@ -559,7 +575,7 @@
             state.summary = {
                 villages, totals, armies: classify(ownVillages.length ? ownVillages : villages), group, generatedAt: new Date(),
                 activities,
-                expectedVillageCount: Number(window.game_data?.player?.villages) || villages.length
+                expectedVillageCount: villages.length
             };
         } catch (error) {
             notify(error.message || String(error), 'error');
@@ -726,7 +742,7 @@
             ['Em coleta', defense.scavenge], ['Assistente de Farm', defense.farm],
             ['Disponível', defense.available]
         ] : [];
-        const rowH = 24, headerH = 118, contentRows = Math.max(left.length, right.length), activityH = activityRows.length ? 30 + activityRows.length * rowH : 0;
+        const rowH = 24, headerH = 145, contentRows = Math.max(left.length, right.length), activityH = activityRows.length ? 30 + activityRows.length * rowH : 0;
         const canvas = document.createElement('canvas');
         canvas.width = 900; canvas.height = headerH + contentRows * rowH + activityH + 38;
         const ctx = canvas.getContext('2d');
@@ -734,7 +750,7 @@
         ctx.strokeStyle = '#8d642b'; ctx.lineWidth = 5; ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
         ctx.fillStyle = '#24180b'; ctx.font = 'bold 30px Arial'; ctx.fillText('Resumo de Tropas', 28, 46);
         ctx.font = '16px Arial';
-        const meta = [`Jogador: ${playerName()}`, `Grupo: ${s.group}`, `Aldeias: ${format(s.villages.length)}`, `Hora: ${document.querySelector('#serverTime')?.textContent || s.generatedAt.toLocaleTimeString('pt-PT')} ${document.querySelector('#serverDate')?.textContent || s.generatedAt.toLocaleDateString('pt-PT')}`];
+        const meta = [`Jogador: ${playerName()}`, `Grupo: ${s.group}`, `Aldeias: ${format(s.expectedVillageCount)}`, `Hora: ${document.querySelector('#serverTime')?.textContent || s.generatedAt.toLocaleTimeString('pt-PT')} ${document.querySelector('#serverDate')?.textContent || s.generatedAt.toLocaleDateString('pt-PT')}`];
         meta.forEach((line, index) => ctx.fillText(line, 29, 70 + index * 18));
         drawCanvasColumn(ctx, left, 28, headerH, 410, rowH, unitImages);
         drawCanvasColumn(ctx, right, 462, headerH, 410, rowH, unitImages);
@@ -744,7 +760,22 @@
             activityRows.forEach(([label, units], index) => {
                 ctx.fillStyle = index % 2 ? '#f9edc9' : '#efe0b4'; ctx.fillRect(28, y, 844, rowH - 1);
                 ctx.fillStyle = '#24180b'; ctx.font = '14px Arial'; ctx.fillText(label, 36, y + 17);
-                ctx.textAlign = 'right'; ctx.font = 'bold 14px Arial'; ctx.fillText(`${format(unitCount(units))} unidades`, 864, y + 17); ctx.textAlign = 'left'; y += rowH;
+                ctx.fillStyle = '#6b4a1d'; ctx.font = '12px Arial'; ctx.fillText(`${format(unitCount(units))} un.`, 175, y + 17);
+                let cursorX = 862;
+                DEFENSE_KEYS.slice().reverse().forEach(unit => {
+                    const value = Number(units?.[unit] || 0);
+                    if (!value) return;
+                    const valueText = format(value);
+                    ctx.font = 'bold 13px Arial';
+                    const valueWidth = ctx.measureText(valueText).width;
+                    cursorX -= valueWidth;
+                    ctx.fillStyle = '#24180b'; ctx.fillText(valueText, cursorX, y + 17);
+                    cursorX -= 21;
+                    const img = unitImages?.[unit];
+                    if (img) ctx.drawImage(img, cursorX, y + 3, 18, 18);
+                    cursorX -= 10;
+                });
+                y += rowH;
             });
         }
         ctx.font = '12px Arial'; ctx.fillStyle = '#4d3518'; ctx.fillText(`${APP.title} v${APP.version} · ThePlaguePT`, 29, canvas.height - 20);
